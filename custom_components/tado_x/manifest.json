@@ -1,11 +1,13 @@
 {
   "domain": "tado_x",
   "name": "Tado X",
-  "codeowners": ["@exabird"],
+  "codeowners": ["@HeeroML"],
   "config_flow": true,
-  "documentation": "https://github.com/exabird/ha-tado-x",
+  "dependencies": [],
+  "documentation": "https://github.com/HeeroML/ha-tado-x",
+  "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/exabird/ha-tado-x/issues",
-  "requirements": ["aiohttp>=3.8.0"],
-  "version": "1.8.11"
+  "issue_tracker": "https://github.com/HeeroML/ha-tado-x/issues",
+  "requirements": [],
+  "version": "1.9.0"
 }
