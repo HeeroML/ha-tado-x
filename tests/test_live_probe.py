@@ -513,7 +513,7 @@ def _fixture_capture() -> list[Any]:
             for home in (1000001, 1000002)
         ),
     ]
-    params = {"home": 1000002, "room": 1, "day": "2026-10-30"}
+    params: dict[str, Any] = {"home": 1000002, "room": 1, "day": "2026-10-30"}
     for label, template, kind, fixture in (
         *probe.HOME_READS,
         *probe.ROOM_READS,
@@ -950,7 +950,7 @@ ODD_PAYLOADS = [
 def test_outputs_survive_unexpected_shapes(payload: Any) -> None:
     """Findings, report and fixtures are built whatever shape tado sent."""
     reads = [*probe.HOME_READS, *probe.ROOM_READS, probe.DAY_REPORT]
-    params = {"home": 815, "room": 7, "day": "2026-10-30"}
+    params: dict[str, Any] = {"home": 815, "room": 7, "day": "2026-10-30"}
     exchanges = [
         _exchange("me", f"{probe.MY}/me", payload, kind="user", fixture="me.json"),
         _exchange("my home", probe.MY_HOME, payload, kind="home", home=815),
