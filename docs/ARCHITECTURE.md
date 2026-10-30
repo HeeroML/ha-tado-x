@@ -171,7 +171,7 @@ Write platforms use `PARALLEL_UPDATES = 1`. A write:
 3. applies an optimistic patch to the coordinator data, so the UI updates at once without restarting the poll timer;
 4. for room commands, requests a debounced refresh (5 s cooldown), so a burst costs one read.
 
-A pending patch is re-applied to later reads until the server agrees or 60 s pass, which hides eventually consistent reads. Patches are keyed by what they write (a room's setting, a room's open window, a device field, a room default, presence, flow and holiday settings); a new patch replaces the pending one of its target, so a resume right after a manual target shows the schedule.
+A pending patch is re-applied to later reads until the server agrees or 60 s pass, which hides eventually consistent reads. Patches are keyed by what they write (a room's setting, a room's open window, a device field, a room default, presence, flow and holiday settings); a new patch replaces the pending one of its target, so a resume right after a manual target shows the schedule. A quick action patches the setting of every room, so boost, all off and resume schedules each replace the pending room writes.
 
 ### Termination (#94)
 

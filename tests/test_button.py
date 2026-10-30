@@ -1,11 +1,14 @@
 """Tests for the quick action and identify buttons."""
 
+import copy
+
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 
+from homeassistant.components.binary_sensor.const import DOMAIN as BINARY_SENSOR_DOMAIN
 from homeassistant.components.button.const import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -69,6 +72,38 @@ async def test_all_off_shows_before_the_read(
 
     assert {state_of(hass, climate_id(hass, room)).state for room in range(1, 7)} == {
         HVACMode.OFF
+    }
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_boost_shows_before_the_read(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """After boosting, every room shows a boost at once, until tado disagrees."""
+    await setup(hass, freezer)
+    home = mock_tado.home(HOME_B)
+    before = copy.deepcopy(home.rooms)
+    boosts = {
+        room: entity_id(hass, BINARY_SENSOR_DOMAIN, f"{HOME_B}_{room}_boost")
+        for room in range(1, 7)
+    }
+    mock_tado.clear_calls()
+
+    await press(hass, entity_id(hass, BUTTON_DOMAIN, f"{HOME_B}_boost_all"))
+
+    assert mock_tado.calls("GET") == []
+    assert {state_of(hass, boost).state for boost in boosts.values()} == {STATE_ON}
+
+    home.rooms = before
+    await tick(hass, freezer, 5)
+
+    assert {state_of(hass, boost).state for boost in boosts.values()} == {STATE_ON}
+
+    await tick(hass, freezer, 60)
+
+    assert {room: state_of(hass, boost).state for room, boost in boosts.items()} == {
+        **dict.fromkeys(range(1, 6), STATE_OFF),
+        6: STATE_ON,
     }
 
 

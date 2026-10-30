@@ -897,6 +897,34 @@ async def test_resume_replaces_an_earlier_write_of_the_room(
     assert state.attributes[ATTR_HVAC_ACTION] != HVACAction.OFF
 
 
+@pytest.mark.parametrize(
+    ("first", "data"),
+    [
+        (SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: 23}),
+        (SERVICE_SET_HVAC_MODE, {ATTR_HVAC_MODE: HVACMode.OFF}),
+    ],
+    ids=["heat", "off"],
+)
+async def test_boost_replaces_an_earlier_write_of_the_room(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    first: str,
+    data: dict[str, Any],
+) -> None:
+    """Boost right after a manual write shows the boost tado runs."""
+    await _setup(hass, freezer)
+
+    await _climate(hass, first, 1, **data)
+    await _press(hass, "boost_all")
+    await _tick(hass, freezer, 5)
+
+    state = state_of(hass, climate_id(hass, 1))
+    assert state.state == HVACMode.AUTO
+    assert state.attributes[ATTR_TEMPERATURE] == 25.0
+    assert state.attributes[ATTR_HVAC_ACTION] != HVACAction.OFF
+
+
 async def test_resume_schedules_replaces_disable_all(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
