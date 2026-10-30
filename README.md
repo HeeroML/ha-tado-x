@@ -525,7 +525,7 @@ What it writes, also when the run stops early at a 429, on Ctrl-C or on an error
 
 - `tado_x_probe_<time>.json` in the current folder (git ignores this name), or the file given with `--out`. Every id, serial number and name in it is replaced by a stable pseudonym (`home#1`, `room#3`, `VA04#2`), and address, coordinates, contact details and e-mail are dropped. It ends with a findings block of booleans and enums. **Read the file before you share it.**
 - With `--keep-raw PATH`, for example `--keep-raw ~/tado_x_probe_raw.json`, an unredacted copy (mode 0600) for yourself. Do not share that one.
-- With `--emit-fixtures DIR`, pseudonymized payloads in the format of `tests/fixtures/`.
+- With `--emit-fixtures DIR`, pseudonymized payloads in the format of `tests/fixtures/`. Ids, serial numbers and room and phone names follow the current fixtures, so a capture can replace them.
 
 ## Diagnostics and privacy
 

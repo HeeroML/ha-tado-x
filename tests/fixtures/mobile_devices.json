@@ -10,7 +10,7 @@
     "id": 5000002,
     "name": "Phone 2",
     "settings": {"geoTrackingEnabled": true, "specialOffersEnabled": false, "onDemandLogRetrievalEnabled": false},
-    "location": {"stale": true, "atHome": false, "bearingFromHome": {"degrees": 90.0, "radians": 1.5708}, "relativeDistanceFromHomeFence": 0.4},
+    "location": {"stale": true, "atHome": false, "bearingFromHome": {"degrees": 0.0, "radians": 0.0}, "relativeDistanceFromHomeFence": 0.0},
     "deviceMetadata": {"platform": "iOS", "osVersion": "18.1", "model": "Model2", "locale": "de"}
   },
   {

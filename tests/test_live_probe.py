@@ -14,7 +14,7 @@ import urllib.parse
 
 import pytest
 
-from tests.tado_mock import load_fixture
+from tests.tado_mock import FIXTURES, load_fixture
 
 ROOT = Path(__file__).parent.parent
 
@@ -103,6 +103,21 @@ TOPOLOGY = {
 }
 
 
+# The documented shape (docs/design/api_catalogue.md section 4.10).
+SCHEDULE = {
+    "room": {"id": 7, "name": "Arbeitszimmer"},
+    "otherRooms": [{"id": 42, "name": "Bad"}],
+    "schedule": [
+        {
+            "dayType": "MONDAY",
+            "start": "00:00",
+            "end": "24:00",
+            "setting": {"power": "ON", "temperature": {"value": 20.0}},
+        }
+    ],
+}
+
+
 def _exchange(
     label: str,
     template: str,
@@ -164,7 +179,7 @@ def _account_exchanges() -> list[Any]:
         _exchange(
             "hops schedule",
             probe.HOME + "/rooms/{room}/schedule",
-            {"roomId": 7, "otherRoomIds": []},
+            SCHEDULE,
             fixture="schedule.json",
             home=815,
             room=7,
@@ -321,7 +336,7 @@ def test_serial_pseudonyms_use_the_device_type() -> None:
     assert anonymizer.token("serial", "VA9988776655") == "VA04#1"
     assert anonymizer.token("serial", "VA7766554433") == "VA04#2"
     assert anonymizer.token("serial", "SU1122334455") == "SU04#1"
-    assert anonymizer.token("serial", "TR0000000301") == "TR#1"
+    assert anonymizer.token("serial", "TR0000000001") == "TR#1"
     flow = anonymizer.anonymize(load_fixture("flow_temperature.json"))
     assert flow["openThermDeviceSerialNumber"] == "TR#1"
 
@@ -419,21 +434,121 @@ def test_fixtures_follow_the_test_fixture_format() -> None:
     assert home["geolocation"] == {"latitude": 50.0, "longitude": 8.0}
     assert home["address"]["city"] == "Musterstadt"
     assert [(room["id"], room["name"]) for room in fixtures["rooms.json"]] == [
-        (1, "Room 1"),
-        (2, "Room 2"),
+        (1, "Wohnzimmer"),
+        (2, "Kueche"),
     ]
     topology = fixtures["rooms_and_devices.json"]
-    assert [room["roomName"] for room in topology["rooms"]] == ["Room 1", "Room 2"]
+    assert [room["roomName"] for room in topology["rooms"]] == ["Wohnzimmer", "Kueche"]
     assert [d["serialNumber"] for d in topology["rooms"][0]["devices"]] == [
         "VA0000000101",
         "SU0000000101",
     ]
     assert topology["rooms"][1]["devices"][0]["serialNumber"] == "VA0000000102"
-    assert topology["otherDevices"][0]["serialNumber"] == "IB0000000100"
-    assert fixtures["schedule.json"]["roomId"] == 2
+    assert topology["otherDevices"][0]["serialNumber"] == "IB0000000001"
+    schedule = fixtures["schedule.json"]
+    assert schedule["room"] == {"id": 2, "name": "Kueche"}
+    assert schedule["otherRooms"] == [{"id": 1, "name": "Wohnzimmer"}]
+    assert schedule["schedule"] == SCHEDULE["schedule"]
     text = json.dumps(fixtures, ensure_ascii=False)
-    for value in PERSONAL:
+    for value in (*PERSONAL, "Arbeitszimmer"):
         assert value not in text
+
+
+def test_fixture_phones_keep_one_name_and_model() -> None:
+    """A phone gets the same fixture name and model in me.json and mobile_devices."""
+    iphone = {"platform": "iOS", "osVersion": "18.1", "model": "iPhone15,2"}
+    pixel = {"platform": "Android", "osVersion": "15", "model": "Pixel 8 Pro"}
+    phones = [
+        {"id": 77, "name": "Max iPhone", "deviceMetadata": iphone},
+        {"id": 78, "name": "Max Pixel", "deviceMetadata": pixel},
+    ]
+    exchanges = [
+        _exchange(
+            "me",
+            f"{probe.MY}/me",
+            {**ACCOUNT, "mobileDevices": [phones[1]]},
+            kind="user",
+            fixture="me.json",
+        ),
+        _exchange(
+            "my mobileDevices",
+            f"{probe.MY_HOME}/mobileDevices",
+            phones,
+            kind="phone",
+            fixture="mobile_devices.json",
+            home=815,
+        ),
+    ]
+    fixtures = probe.build_fixtures(exchanges, 815)
+    listed = fixtures["mobile_devices.json"]
+    assert fixtures["me.json"]["mobileDevices"] == [listed[1]]
+    assert [(p["id"], p["name"], p["deviceMetadata"]) for p in listed] == [
+        (5000002, "Phone 2", {**iphone, "model": "Model2"}),
+        (5000001, "Phone", {**pixel, "model": "Model1"}),
+    ]
+    text = json.dumps(fixtures, ensure_ascii=False)
+    for value in ("Max", "iPhone15", "Pixel 8"):
+        assert value not in text
+
+
+def _fixture_capture() -> list[Any]:
+    """Return what a probe run records when tado answers with tests/fixtures."""
+    capture = [
+        _exchange(
+            "me",
+            f"{probe.MY}/me",
+            load_fixture("me.json"),
+            kind="user",
+            fixture="me.json",
+        ),
+        *(
+            _exchange(
+                "my home",
+                probe.MY_HOME,
+                load_fixture(f"home_{home}.json"),
+                kind="home",
+                fixture="home_{home}.json",
+                home=home,
+            )
+            for home in (1000001, 1000002)
+        ),
+    ]
+    params = {"home": 1000002, "room": 1, "day": "2026-10-30"}
+    for label, template, kind, fixture in (
+        *probe.HOME_READS,
+        *probe.ROOM_READS,
+        probe.DAY_REPORT,
+    ):
+        if fixture is not None and (FIXTURES / fixture).is_file():
+            capture.append(
+                _exchange(
+                    label,
+                    template,
+                    load_fixture(fixture),
+                    kind=kind,
+                    fixture=fixture,
+                    **params,
+                )
+            )
+    return capture
+
+
+def test_fixtures_round_trip() -> None:
+    """The fixtures come back unchanged, so a live capture can replace them."""
+    emitted = probe.build_fixtures(_fixture_capture(), 1000002)
+    assert {
+        "me.json",
+        "home_1000001.json",
+        "home_1000002.json",
+        "rooms.json",
+        "rooms_and_devices.json",
+        "flow_temperature.json",
+        "mobile_devices.json",
+        "schedule.json",
+        "day_report.json",
+    } <= set(emitted)
+    for name, payload in emitted.items():
+        assert payload == load_fixture(name), name
 
 
 def test_fixtures_skip_failed_requests() -> None:

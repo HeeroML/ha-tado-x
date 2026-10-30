@@ -132,7 +132,9 @@ DROP_KEYS = frozenset(
 BLUR_KEYS = frozenset({"bearingFromHome", "relativeDistanceFromHomeFence"})
 CONTEXT_KEYS = {
     "homes": "home",
+    "room": "room",
     "rooms": "room",
+    "otherRooms": "room",
     "zones": "room",
     "comfort": "room",
     "roomSettings": "room",
@@ -178,6 +180,17 @@ FIXTURE_FAKES: dict[str, Any] = {
 }
 FIXTURE_HOME_IDS = (1000002, 1000001, 1000003)
 FIXTURE_HOME_NAMES = {1000001: "Haus A", 1000002: "Haus B", 1000003: "Haus C"}
+FIXTURE_ROOM_NAMES = (
+    "Wohnzimmer",
+    "Kueche",
+    "Schlafzimmer",
+    "Kinderzimmer",
+    "Bad",
+    "Arbeitszimmer",
+)
+FIXTURE_PHONE_BASE = 5000000
+FIXTURE_PHONE_NAMES = ("Phone", "Phone 2", "Tablet")
+FIXTURE_PLATFORMS = ("Android", "iOS")
 
 
 class ProbeError(Exception):
@@ -365,8 +378,11 @@ class Anonymizer:
 
     In pseudonym mode a real id, serial or name always maps to the same token
     (home#1, room#3, VA04#2) and dropped keys disappear. In fixture mode the
-    values follow tests/fixtures: the probed home is 1000002, rooms are 1..n,
-    serials look like VA0000000101 and dropped keys get fixed fake values.
+    values follow tests/fixtures, so a capture can replace them: the probed
+    home is 1000002, rooms are 1..n with the fixture room names, phones are
+    5000001.. with the fixture phone names and models Model1.., serials are
+    VA0000000101 in a room and IB0000000001 outside one, and dropped keys
+    get fixed fake values.
     """
 
     def __init__(self, *, fixtures: bool = False) -> None:
@@ -416,7 +432,7 @@ class Anonymizer:
         if kind == "room":
             return number
         if kind == "phone":
-            return 5000000 + number
+            return FIXTURE_PHONE_BASE + number
         if kind == "user":
             return f"00000000-0000-4000-8000-{number:012d}"
         return 9000000 + number if isinstance(real, int) else f"{kind}-{number}"
@@ -425,9 +441,15 @@ class Anonymizer:
         device_type, room_id = self._serials.get(serial, (serial[:2], None))
         if not self.fixtures:
             return f"{device_type}#{self._next(f'serial:{device_type}')}"
-        room = self.token("room", room_id) if room_id is not None else 0
+        if room_id is None:
+            return f"{serial[:2]}{self._next(f'serial:{serial[:2]}'):010d}"
+        room = self.token("room", room_id)
         index = self._next(f"serial:{serial[:2]}:{room}")
         return f"{serial[:2]}000000{index:02d}{room:02d}"
+
+    def _phone_number(self, phone: object) -> int | None:
+        token = self.token("phone", phone)
+        return token - FIXTURE_PHONE_BASE if isinstance(token, int) else None
 
     def name(self, kind: str, real: object, owner: object) -> object:
         """Return the token of a name; in fixtures a name follows its owner."""
@@ -436,7 +458,11 @@ class Anonymizer:
         if not self.fixtures:
             return self.token("name", real)
         if kind == "room":
-            return f"Room {self.token('room', owner)}"
+            return _fixture_name(FIXTURE_ROOM_NAMES, "Room", self.token("room", owner))
+        if kind == "phone":
+            return _fixture_name(
+                FIXTURE_PHONE_NAMES, "Phone", self._phone_number(owner)
+            )
         if kind == "home":
             home = self.token("home", owner)
             return (
@@ -465,10 +491,25 @@ class Anonymizer:
                     result[key] = None if item is None else FIXTURE_FAKES[key]
             elif key in BLUR_KEYS:
                 result[key] = _blur(item)
+            elif (
+                self.fixtures and key == "deviceMetadata" and isinstance(item, Mapping)
+            ):
+                result[key] = self._fixture_metadata(item, owner)
             elif isinstance(item, (Mapping, list)):
                 result[key] = self.anonymize(item, CONTEXT_KEYS.get(key))
             else:
                 result[key] = self._field(key, item, kind, owner)
+        return result
+
+    def _fixture_metadata(
+        self, metadata: Mapping[str, Any], phone: object
+    ) -> dict[str, Any]:
+        """Return phone metadata with a known platform kept and a numbered model."""
+        result = self._mapping(metadata, None)
+        if metadata.get("platform") in FIXTURE_PLATFORMS:
+            result["platform"] = metadata["platform"]
+        if "model" in metadata:
+            result["model"] = f"Model{self._phone_number(phone)}"
         return result
 
     def _field(
@@ -483,6 +524,13 @@ class Anonymizer:
         if key == "name" or key in NAME_KEYS:
             return self.name(NAME_KEYS.get(key, kind or "other"), value, owner)
         return _scalar(value)
+
+
+def _fixture_name(names: tuple[str, ...], prefix: str, number: object) -> str:
+    """Return the fixture name of the n-th room or phone, then "Prefix n"."""
+    if isinstance(number, int) and 0 < number <= len(names):
+        return names[number - 1]
+    return f"{prefix} {number}"
 
 
 def _scalar(value: object) -> object:
