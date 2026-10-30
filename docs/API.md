@@ -47,7 +47,7 @@ Token response: `access_token` (a JWT), `token_type` (`Bearer`, case varies), `e
 
 Facts that drive the token design:
 
-- **Rotation:** every refresh revokes the old refresh token and returns a new one (tado help article). Two refreshes with the same token: the second gets 400 `invalid_grant` / `refresh_token_not_found`. Hence one refresh at a time and "persist before use".
+- **Rotation:** every refresh revokes the old refresh token and returns a new one (tado help article). Two refreshes with the same token: the second gets 400 `invalid_grant` / `refresh_token_not_found`. Hence one refresh at a time, and new tokens are stored before they are used.
 - **Lifetime:** a refresh token is valid for up to 30 days or until used.
 - **`missing_client_id`:** `verification_uri_complete` from tado has been seen without `client_id`, and opening it gives `invalid_request` / `missing_client_id` (upstream #76). The integration always builds the link from `verification_uri` with `user_code` and `client_id`.
 - **Classification:** no response, a timeout, 429 or 5xx from the login server are transient. 400 `invalid_grant` / `invalid_client` / `invalid_request`, 401 and 403 are authentication failures.

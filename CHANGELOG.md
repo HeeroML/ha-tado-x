@@ -43,7 +43,7 @@ Check automations, scripts and dashboards for these. After the upgrade, a dismis
 | #69 | no holiday mode | holiday mode actions and an optional binary sensor (experimental) |
 | #72, #85 | a depleted battery raises an error | `depleted` is a valid state; `battery_low` is on for low and depleted; unknown values become `unknown` with one warning |
 | #73 | config flow error 500 on Python 3.14 | every error path aborts with a reason; the flow uses HA's shared session, imports on Python 3.14 without deprecation warnings, and is tested through the HTTP view. The original 500 was not reproduced |
-| #75, #79 | the token is lost after a restart or a reload | a rotated refresh token is saved before it is used; unloading waits for a running refresh; the startup refresh is gone, so a fresh token costs no request |
+| #75, #79 | the token is lost after a restart or a reload | a rotated refresh token is written to the config entry before it is used, and Home Assistant flushes it to disk about 1 s later; unloading waits for a running refresh; the startup refresh is gone, so a fresh token costs no request |
 | #76 | reauthentication fails with `missing_client_id` | the sign-in link always carries `client_id` and `user_code` |
 | #78, #82, #83 | deprecation warnings | `via_device_id`, `in_zones`, `runtime_data`, `OptionsFlowWithReload`, `AddConfigEntryEntitiesCallback`; a test fails on any deprecation warning from the integration |
 | #80 | a network error during a refresh forces a reauthentication | network errors, timeouts, 429 and 5xx from the login server are transient, retried with backoff (5 s to 5 min), and never start a reauthentication |
