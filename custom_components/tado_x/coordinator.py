@@ -1,18 +1,144 @@
 """Coordinators of the tado X integration, one per polling cadence."""
 
 from abc import abstractmethod
-from collections.abc import Callable
-from datetime import datetime, timedelta
-from typing import ClassVar, override
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta, tzinfo
+from functools import partial
+from typing import Any, ClassVar, Final, override
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
+from homeassistant.helpers.debounce import Debouncer
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .cache import CacheSeed
-from .client import TadoXHome
-from .const import MAX_STALE_DEVICES, MAX_STALE_HOME, MAX_STALE_ROOMS
+from .client import (
+    AirComfort,
+    FlowTemperature,
+    HolidayMode,
+    HomeGeneration,
+    HomeInfo,
+    HomeState,
+    RoomState,
+    RunningTimes,
+    TadoXAuthError,
+    TadoXClient,
+    TadoXConnectionError,
+    TadoXError,
+    TadoXHome,
+    TadoXHomeNotXError,
+    TadoXNotFoundError,
+    TadoXRateLimitError,
+    TadoXServerError,
+    Topology,
+    Weather,
+)
+from .const import DOMAIN, LOGGER, MAX_STALE_DEVICES, MAX_STALE_HOME, MAX_STALE_ROOMS
+from .issues import async_create_not_tado_x_issue, format_time
 from .quota import QuotaMonitor
-from .runtime import DevicesSnapshot, HomeSnapshot, RoomsSnapshot, TadoXConfigEntry
+from .runtime import (
+    DevicesSnapshot,
+    FeatureStatus,
+    HomeSnapshot,
+    RoomsSnapshot,
+    TadoXConfigEntry,
+)
+
+REFRESH_COOLDOWN: Final = 5.0
+
+type Fetcher = Callable[[], Awaitable[Any]]
+
+
+def home_today(home_info: HomeInfo | None, now: datetime | None = None) -> date:
+    """Return today's date in the home's time zone, else in Home Assistant's."""
+    zone: tzinfo | None = None
+    if home_info is not None and home_info.time_zone:
+        zone = dt_util.get_time_zone(home_info.time_zone)
+    return (
+        (now or dt_util.utcnow())
+        .astimezone(zone or dt_util.get_default_time_zone())
+        .date()
+    )
+
+
+def _update_failed(err: TadoXError) -> UpdateFailed:
+    """Return the translated UpdateFailed for an error that is not a quota hold."""
+    if isinstance(err, TadoXConnectionError):
+        return UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect")
+    if isinstance(err, TadoXServerError):
+        return UpdateFailed(
+            translation_domain=DOMAIN,
+            translation_key="server_error",
+            translation_placeholders={"status": str(err.status)},
+        )
+    return UpdateFailed(
+        translation_domain=DOMAIN,
+        translation_key="api_error",
+        translation_placeholders={"error": str(err)},
+    )
+
+
+def _quota_failed(
+    reset: datetime | None, now: datetime, *, setup: bool
+) -> UpdateFailed:
+    """Return the UpdateFailed of a quota hold without usable data."""
+    if reset is None:
+        return UpdateFailed(
+            translation_domain=DOMAIN, translation_key="quota_exhausted_unknown_reset"
+        )
+    return UpdateFailed(
+        translation_domain=DOMAIN,
+        translation_key="setup_quota_exhausted" if setup else "quota_exhausted",
+        translation_placeholders={"reset": format_time(reset)},
+        retry_after=max((reset - now).total_seconds(), 1.0),
+    )
+
+
+def _seed_value[T](
+    seed: CacheSeed, key: str, parse: Callable[[Any], T]
+) -> tuple[datetime, T] | None:
+    """Parse one cached payload with the parser of live data; None if unusable."""
+    if (item := seed.payloads.get(key)) is None:
+        return None
+    at, raw = item
+    try:
+        return at, parse(raw)
+    except TadoXError, ValueError, TypeError:
+        LOGGER.debug("Ignoring the cached %s payload", key)
+        return None
+
+
+@dataclass(slots=True)
+class _Patch[S]:
+    apply: Callable[[S], S]
+    expires: datetime
+
+
+class _PendingPatches[S]:
+    """Optimistic patches that are re-applied until the server agrees."""
+
+    def __init__(self) -> None:
+        self._patches: list[_Patch[S]] = []
+
+    def add(self, patch: Callable[[S], S], expires: datetime) -> None:
+        self._patches.append(_Patch(patch, expires))
+
+    def apply(self, data: S, now: datetime) -> S:
+        """Apply the live patches; drop expired ones and those the data shows."""
+        kept: list[_Patch[S]] = []
+        for patch in self._patches:
+            if now >= patch.expires:
+                continue
+            patched = patch.apply(data)
+            if patched == data:
+                continue
+            data = patched
+            kept.append(patch)
+        self._patches = kept
+        return data
 
 
 class TadoXCoordinator[S](DataUpdateCoordinator[S]):
@@ -24,6 +150,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
 
     config_entry: TadoXConfigEntry
 
+    KIND: ClassVar[str]
     ENDPOINTS: ClassVar[tuple[str, ...]]
     REQUIRED: ClassVar[frozenset[str]]
     MAX_STALE: ClassVar[timedelta]
@@ -41,58 +168,253 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         seed: CacheSeed | None,
     ) -> None:
         """Initialize with always_update=False and a 5 s refresh debouncer."""
-        raise NotImplementedError
+        super().__init__(
+            hass,
+            LOGGER,
+            config_entry=entry,
+            name=f"{DOMAIN} {entry.title} {self.KIND}",
+            update_interval=monitor.interval(self),
+            always_update=False,
+            request_refresh_debouncer=Debouncer(
+                hass, LOGGER, cooldown=REFRESH_COOLDOWN, immediate=False
+            ),
+        )
+        self.api = api
+        self._monitor = monitor
+        self.last_fetched = {}
+        self.last_live_update = None
+        self.stale_since = None
+        self._pending: _PendingPatches[S] = _PendingPatches()
+        self._failing: set[str] = set()
+        self._refresh_requested = False
+        self._seed_data: S | None = None
+        self._seed_at: datetime | None = None
+        if seed is not None and (seeded := self._parse_seed(seed)) is not None:
+            self._seed_data, self._seed_at = seeded
+
+    @abstractmethod
+    def _parse_seed(self, seed: CacheSeed) -> tuple[S, datetime] | None:
+        """Build a snapshot from cached payloads, with the time of the required one."""
 
     @abstractmethod
     async def _async_fetch(self, previous: S | None, due: frozenset[str]) -> S:
         """Fetch the due endpoints and merge them into the previous snapshot."""
 
     @override
+    async def async_request_refresh(self) -> None:
+        """Request a refresh that reads the required endpoints whatever the plan."""
+        self._refresh_requested = True
+        await super().async_request_refresh()
+
+    @override
     async def _async_update_data(self) -> S:
         """Fetch the due endpoints and map client errors to coordinator errors."""
-        raise NotImplementedError
+        now = dt_util.utcnow()
+        previous = self.data if self.data is not None else self._seed_data
+        due = self._monitor.due(self, now)
+        if previous is None or self._refresh_requested:
+            due |= self.REQUIRED
+        self._refresh_requested = False
+        try:
+            data = await self._async_fetch(previous, due)
+        except TadoXRateLimitError as err:
+            return self._serve_stale(err, now)
+        except TadoXError as err:
+            # tado answered, so a quota hold is over even when the answer is an error.
+            self.stale_since = None
+            raise self._translate(err) from err
+        self.last_fetched.update(dict.fromkeys(due, now))
+        self.last_live_update = now
+        self.stale_since = None
+        return self._pending.apply(data, now)
+
+    def _translate(self, err: TadoXError) -> Exception:
+        """Return the coordinator error for a client error other than a quota hold."""
+        if isinstance(err, TadoXHomeNotXError):
+            async_create_not_tado_x_issue(self.hass, self.config_entry)
+            return ConfigEntryError(
+                translation_domain=DOMAIN,
+                translation_key="not_tado_x_home",
+                translation_placeholders={"home": self.config_entry.title},
+            )
+        if isinstance(err, TadoXAuthError):
+            return ConfigEntryAuthFailed(
+                translation_domain=DOMAIN, translation_key="auth_failed"
+            )
+        return _update_failed(err)
+
+    @override
+    @callback
+    def _async_refresh_finished(self) -> None:
+        """Let the quota monitor re-plan and update the status after every poll."""
+        self._monitor.async_on_poll(self)
 
     @callback
     def async_apply_optimistic(
         self, patch: Callable[[S], S], *, ttl: timedelta = timedelta(seconds=60)
     ) -> None:
         """Apply a patch now and re-apply it to fetched data until it agrees or ttl passes."""
-        raise NotImplementedError
+        if self.data is None:
+            return
+        self._pending.add(patch, dt_util.utcnow() + ttl)
+        self.async_set_updated_data(patch(self.data))
+
+    def _serve_stale(self, err: TadoXRateLimitError, now: datetime) -> S:
+        """Serve the last snapshot during a quota hold, while it is recent enough."""
+        setup = self.data is None
+        data: S | None = self._seed_data if setup else self.data
+        at = self._seed_at if setup else self.last_live_update
+        reset = err.reset_at or self._monitor.reset_time
+        if data is None or at is None or now - at > self.MAX_STALE:
+            raise _quota_failed(reset, now, setup=setup) from err
+        if self.stale_since is None:
+            self.stale_since = now
+            LOGGER.debug("Serving cached %s data of %s", self.KIND, at)
+        self.last_live_update = at
+        return data
+
+    async def _async_gather(
+        self, due: frozenset[str], fetchers: Mapping[str, Fetcher]
+    ) -> tuple[dict[str, Any], dict[str, TadoXError]]:
+        """Run the due fetchers at once; return the values and the optional failures.
+
+        A quota error wins over an auth error, which wins over "not a tado X
+        home", then over a failed required endpoint. A failed optional
+        endpoint does not fail the tick.
+        """
+        keys = [key for key in fetchers if key in due]
+        results = await asyncio.gather(
+            *(fetchers[key]() for key in keys), return_exceptions=True
+        )
+        outcome = dict(zip(keys, results, strict=True))
+        errors = {
+            key: result
+            for key, result in outcome.items()
+            if isinstance(result, BaseException)
+        }
+        for kind in (TadoXRateLimitError, TadoXAuthError, TadoXHomeNotXError):
+            for error in errors.values():
+                if isinstance(error, kind):
+                    raise error
+        for key, error in errors.items():
+            if key in self.REQUIRED or not isinstance(error, TadoXError):
+                raise error
+        values: dict[str, Any] = {}
+        failures: dict[str, TadoXError] = {}
+        for key, result in outcome.items():
+            if isinstance(result, TadoXError):
+                failures[key] = result
+                self._note_failure(key, result)
+            else:
+                values[key] = result
+                self._note_success(key)
+        return values, failures
+
+    def _expected_failure(self, key: str, err: TadoXError) -> bool:
+        """Return True for a failure that is an answer, not a problem."""
+        return False
+
+    def _note_failure(self, key: str, err: TadoXError) -> None:
+        if self._expected_failure(key, err) or key in self._failing:
+            return
+        self._failing.add(key)
+        LOGGER.warning(
+            "Reading %s of %s failed, keeping the last value: %s",
+            key,
+            self.config_entry.title,
+            err,
+        )
+
+    def _note_success(self, key: str) -> None:
+        if key in self._failing:
+            self._failing.discard(key)
+            LOGGER.info("Reading %s of %s works again", key, self.config_entry.title)
 
 
 class RoomsCoordinator(TadoXCoordinator[RoomsSnapshot]):
     """Live room state, polled at the planned rooms period."""
 
+    KIND = "rooms"
     ENDPOINTS = ("rooms",)
     REQUIRED = frozenset({"rooms"})
     MAX_STALE = MAX_STALE_ROOMS
+
+    @override
+    def _parse_seed(self, seed: CacheSeed) -> tuple[RoomsSnapshot, datetime] | None:
+        if (rooms := _seed_value(seed, "rooms", RoomState.list_from_api)) is None:
+            return None
+        at, parsed = rooms
+        return RoomsSnapshot(rooms=parsed), at
 
     @override
     async def _async_fetch(
         self, previous: RoomsSnapshot | None, due: frozenset[str]
     ) -> RoomsSnapshot:
         """Fetch the rooms."""
-        raise NotImplementedError
+        values, _ = await self._async_gather(due, {"rooms": self.api.async_get_rooms})
+        if previous is None or "rooms" in values:
+            return RoomsSnapshot(rooms=values["rooms"])
+        return previous
+
+
+_HOME_FIELDS: Final = {
+    "home_state": "state",
+    "weather": "weather",
+    "air_comfort": "air_comfort",
+    "mobile_devices": "mobile_devices",
+}
 
 
 class HomeCoordinator(TadoXCoordinator[HomeSnapshot]):
     """Presence, weather, air comfort and phones."""
 
+    KIND = "home"
     ENDPOINTS = ("home_state", "weather", "air_comfort", "mobile_devices")
     REQUIRED = frozenset({"home_state"})
     MAX_STALE = MAX_STALE_HOME
+
+    @override
+    def _parse_seed(self, seed: CacheSeed) -> tuple[HomeSnapshot, datetime] | None:
+        if (state := _seed_value(seed, "home_state", HomeState.from_api)) is None:
+            return None
+        at, parsed = state
+        snapshot = HomeSnapshot(state=parsed)
+        if self._monitor.enabled("weather") and (
+            weather := _seed_value(seed, "weather", Weather.from_api)
+        ):
+            snapshot = replace(snapshot, weather=weather[1])
+        if self._monitor.enabled("air_comfort") and (
+            comfort := _seed_value(seed, "air_comfort", AirComfort.from_api)
+        ):
+            snapshot = replace(snapshot, air_comfort=comfort[1])
+        return snapshot, at
 
     @override
     async def _async_fetch(
         self, previous: HomeSnapshot | None, due: frozenset[str]
     ) -> HomeSnapshot:
         """Fetch the due home endpoints."""
-        raise NotImplementedError
+        api = self.api
+        values, _ = await self._async_gather(
+            due,
+            {
+                "home_state": api.async_get_home_state,
+                "weather": api.async_get_weather,
+                "air_comfort": api.async_get_air_comfort,
+                "mobile_devices": api.async_get_mobile_devices,
+            },
+        )
+        if previous is None:
+            previous = HomeSnapshot(state=values["home_state"])
+        return replace(
+            previous, **{_HOME_FIELDS[key]: value for key, value in values.items()}
+        )
 
 
 class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
     """Topology, home details, running times, flow temperature and holiday mode."""
 
+    KIND = "devices"
     ENDPOINTS = (
         "topology",
         "home_info",
@@ -103,9 +425,95 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
     REQUIRED = frozenset({"topology"})
     MAX_STALE = MAX_STALE_DEVICES
 
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: TadoXConfigEntry,
+        api: TadoXHome,
+        monitor: QuotaMonitor,
+        seed: CacheSeed | None,
+        *,
+        client: TadoXClient,
+    ) -> None:
+        """Initialize, and tell the monitor what the cached home details say.
+
+        The home details are read through the account client, which serves
+        my.tado.com homes/{id}.
+        """
+        self._client = client
+        super().__init__(hass, entry, api, monitor, seed)
+        if self._seed_data is not None:
+            monitor.async_note_devices(self._seed_data)
+
+    @override
+    def _parse_seed(self, seed: CacheSeed) -> tuple[DevicesSnapshot, datetime] | None:
+        if (topology := _seed_value(seed, "topology", Topology.from_api)) is None:
+            return None
+        at, parsed = topology
+        info = _seed_value(seed, "home_info", HomeInfo.from_api)
+        snapshot = DevicesSnapshot(
+            topology=parsed,
+            home_info=info[1] if info else None,
+            flow_status=seed.flow_status or FeatureStatus.UNKNOWN,
+        )
+        if self._monitor.enabled("running_times") and (
+            cached := seed.payloads.get("running_times")
+        ):
+            day = home_today(snapshot.home_info, cached[0])
+            if times := _seed_value(
+                seed, "running_times", partial(RunningTimes.from_api, day=day)
+            ):
+                snapshot = replace(snapshot, running_times=times[1])
+        if snapshot.flow_status is not FeatureStatus.ABSENT and (
+            flow := _seed_value(seed, "flow_temperature", FlowTemperature.from_api)
+        ):
+            snapshot = replace(
+                snapshot, flow_temperature=flow[1], flow_status=FeatureStatus.PRESENT
+            )
+        if self._monitor.enabled("holiday_mode") and (
+            holiday := _seed_value(seed, "holiday_mode", HolidayMode.from_api)
+        ):
+            snapshot = replace(snapshot, holiday_mode=holiday[1])
+        return snapshot, at
+
     @override
     async def _async_fetch(
         self, previous: DevicesSnapshot | None, due: frozenset[str]
     ) -> DevicesSnapshot:
         """Fetch the due device endpoints."""
-        raise NotImplementedError
+        api = self.api
+        today = home_today(previous.home_info if previous else None)
+        values, failures = await self._async_gather(
+            due,
+            {
+                "topology": api.async_get_topology,
+                "home_info": self._async_get_home_info,
+                "running_times": partial(api.async_get_running_times, today),
+                "flow_temperature": api.async_get_flow_temperature,
+                "holiday_mode": api.async_get_holiday_mode,
+            },
+        )
+        if previous is None:
+            previous = DevicesSnapshot(topology=values["topology"])
+        # The endpoint keys of this coordinator are the snapshot field names.
+        snapshot = replace(previous, **values)
+        if "flow_temperature" in values:
+            snapshot = replace(snapshot, flow_status=FeatureStatus.PRESENT)
+        elif isinstance(failures.get("flow_temperature"), TadoXNotFoundError):
+            snapshot = replace(
+                snapshot, flow_temperature=None, flow_status=FeatureStatus.ABSENT
+            )
+        self._monitor.async_note_devices(snapshot)
+        return snapshot
+
+    async def _async_get_home_info(self) -> HomeInfo:
+        """Read the home details; a home of the previous generation is refused (#40)."""
+        home_id = self.api.home_id
+        info = await self._client.async_get_home_info(home_id)
+        if info.generation is HomeGeneration.PRE_LINE_X:
+            raise TadoXHomeNotXError(home_id)
+        return info
+
+    @override
+    def _expected_failure(self, key: str, err: TadoXError) -> bool:
+        return key == "flow_temperature" and isinstance(err, TadoXNotFoundError)
