@@ -1,0 +1,49 @@
+{
+  "rooms": [
+    {"roomId": 1, "roomName": "Wohnzimmer",
+     "deviceManualControlTermination": {"type": "NEXT_TIME_BLOCK", "durationInSeconds": null},
+     "devices": [
+       {"serialNumber": "VA0000000101", "type": "VA04", "firmwareVersion": "280.1", "connection": {"state": "CONNECTED"}, "mountingState": "CALIBRATED", "batteryState": "NORMAL", "childLockEnabled": false, "temperatureAsMeasured": 22.4, "temperatureOffset": -1.5},
+       {"serialNumber": "SU0000000101", "type": "SU04", "firmwareVersion": "287.1", "connection": {"state": "CONNECTED"}, "batteryState": "NORMAL", "temperatureAsMeasured": 21.1, "temperatureOffset": 0.0}
+     ],
+     "zoneControllerAssignable": false, "zoneControllers": [], "roomLinkAvailable": true},
+    {"roomId": 2, "roomName": "Kueche",
+     "deviceManualControlTermination": {"type": "TIMER", "durationInSeconds": 3600},
+     "devices": [
+       {"serialNumber": "VA0000000102", "type": "VA04", "firmwareVersion": "280.1", "connection": {"state": "CONNECTED"}, "mountingState": "CALIBRATED", "batteryState": "LOW", "childLockEnabled": false, "temperatureAsMeasured": 20.9, "temperatureOffset": -1.0},
+       {"serialNumber": "SU0000000102", "type": "SU04", "firmwareVersion": "287.1", "connection": {"state": "CONNECTED"}, "batteryState": "NORMAL", "temperatureAsMeasured": 20.2, "temperatureOffset": 0.0}
+     ],
+     "zoneControllerAssignable": false, "zoneControllers": [], "roomLinkAvailable": true},
+    {"roomId": 3, "roomName": "Schlafzimmer",
+     "deviceManualControlTermination": {"type": "MANUAL", "durationInSeconds": null},
+     "devices": [
+       {"serialNumber": "VA0000000103", "type": "VA04", "firmwareVersion": "280.1", "connection": {"state": "DISCONNECTED"}, "mountingState": "CALIBRATED", "batteryState": "DEPLETED", "childLockEnabled": true, "temperatureAsMeasured": 18.2, "temperatureOffset": 0.0},
+       {"serialNumber": "SU0000000103", "type": "SU04", "firmwareVersion": "287.1", "connection": {"state": "CONNECTED"}, "batteryState": "NORMAL", "temperatureAsMeasured": 18.0, "temperatureOffset": -0.3}
+     ],
+     "zoneControllerAssignable": false, "zoneControllers": [], "roomLinkAvailable": true},
+    {"roomId": 4, "roomName": "Kinderzimmer",
+     "deviceManualControlTermination": {"type": "NEXT_TIME_BLOCK", "durationInSeconds": null},
+     "devices": [
+       {"serialNumber": "VA0000000104", "type": "VA04", "firmwareVersion": "280.1", "connection": {"state": "CONNECTED"}, "mountingState": "CALIBRATED", "batteryState": "NORMAL", "childLockEnabled": true, "temperatureAsMeasured": 21.0, "temperatureOffset": -1.0},
+       {"serialNumber": "SU0000000104", "type": "SU04", "firmwareVersion": "287.1", "connection": {"state": "CONNECTED"}, "batteryState": "NORMAL", "temperatureAsMeasured": 20.5, "temperatureOffset": 0.0}
+     ],
+     "zoneControllerAssignable": false, "zoneControllers": [], "roomLinkAvailable": true},
+    {"roomId": 5, "roomName": "Bad",
+     "deviceManualControlTermination": {"type": "NEXT_TIME_BLOCK", "durationInSeconds": null},
+     "devices": [
+       {"serialNumber": "VA0000000105", "type": "VA04", "firmwareVersion": "280.1", "connection": {"state": "CONNECTED"}, "mountingState": "CALIBRATED", "batteryState": "NORMAL", "childLockEnabled": false, "temperatureAsMeasured": 23.1, "temperatureOffset": -2.0},
+       {"serialNumber": "SU0000000105", "type": "SU04", "firmwareVersion": "287.1", "connection": {"state": "CONNECTED"}, "batteryState": "NORMAL", "temperatureAsMeasured": 22.0, "temperatureOffset": 0.0}
+     ],
+     "zoneControllerAssignable": false, "zoneControllers": [], "roomLinkAvailable": true},
+    {"roomId": 6, "roomName": "Arbeitszimmer",
+     "deviceManualControlTermination": {"type": "TIMER", "durationInSeconds": 1800},
+     "devices": [
+       {"serialNumber": "VA0000000106", "type": "VA04", "firmwareVersion": "280.1", "connection": {"state": "CONNECTED"}, "mountingState": "CALIBRATED", "batteryState": "NORMAL", "childLockEnabled": false, "temperatureAsMeasured": 20.7, "temperatureOffset": -0.5},
+       {"serialNumber": "SU0000000106", "type": "SU04", "firmwareVersion": "287.1", "connection": {"state": "CONNECTED"}, "batteryState": "NORMAL", "temperatureAsMeasured": 20.3, "temperatureOffset": 0.0}
+     ],
+     "zoneControllerAssignable": false, "zoneControllers": [], "roomLinkAvailable": true}
+  ],
+  "otherDevices": [
+    {"serialNumber": "IB0000000001", "type": "IB02", "firmwareVersion": "279.1", "connection": {"state": "CONNECTED"}}
+  ]
+}

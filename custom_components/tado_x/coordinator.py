@@ -1,533 +1,619 @@
-"""DataUpdateCoordinator for Tado X."""
-from __future__ import annotations
+"""Coordinators of the tado X integration, one per polling cadence."""
 
-import logging
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Callable
+from abc import abstractmethod
+import asyncio
+from collections.abc import Awaitable, Callable, Hashable, Mapping
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta, tzinfo
+from functools import partial
+from typing import Any, ClassVar, Final, override
 
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
-from .api import TadoXApi, TadoXApiError, TadoXAuthError, TadoXRateLimitError
-from .const import DOMAIN, SCAN_INTERVAL_AUTO_ASSIST, SCAN_INTERVAL_FREE_TIER
+from .cache import CacheSeed
+from .client import (
+    AirComfort,
+    FlowTemperature,
+    HolidayMode,
+    HomeGeneration,
+    HomeInfo,
+    HomeState,
+    RoomState,
+    RunningTimes,
+    TadoXAuthError,
+    TadoXClient,
+    TadoXConnectionError,
+    TadoXError,
+    TadoXHome,
+    TadoXHomeNotXError,
+    TadoXNotFoundError,
+    TadoXRateLimitError,
+    TadoXServerError,
+    Topology,
+    Weather,
+)
+from .const import DOMAIN, LOGGER, MAX_STALE_DEVICES, MAX_STALE_HOME, MAX_STALE_ROOMS
+from .issues import async_create_not_tado_x_issue, format_time
+from .quota import QuotaMonitor
+from .runtime import (
+    DevicesSnapshot,
+    FeatureStatus,
+    HomeSnapshot,
+    RoomsSnapshot,
+    TadoXConfigEntry,
+)
 
-if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
+REFRESH_COOLDOWN: Final = 5.0
+_MIN_DELAY: Final = timedelta(seconds=1)
 
-_LOGGER = logging.getLogger(__name__)
-
-
-@dataclass
-class TadoXDevice:
-    """Representation of a Tado X device."""
-
-    serial_number: str
-    device_type: str
-    firmware_version: str
-    connection_state: str
-    battery_state: str | None = None
-    temperature_measured: float | None = None
-    temperature_offset: float = 0.0
-    mounting_state: str | None = None
-    child_lock_enabled: bool = False
-    room_id: int | None = None
-    room_name: str | None = None
-
-
-@dataclass
-class TadoXRoom:
-    """Representation of a Tado X room."""
-
-    room_id: int
-    name: str
-    current_temperature: float | None = None
-    target_temperature: float | None = None
-    humidity: float | None = None
-    heating_power: int = 0
-    power: str = "OFF"
-    connection_state: str = "DISCONNECTED"
-    manual_control_active: bool = False
-    manual_control_remaining_seconds: int | None = None
-    manual_control_type: str | None = None
-    boost_mode: bool = False
-    open_window_detected: bool = False
-    next_schedule_change: str | None = None
-    next_schedule_temperature: float | None = None
-    devices: list[TadoXDevice] = field(default_factory=list)
-    # Running times data (heating duration today)
-    running_time_today_seconds: int = 0
+type Fetcher = Callable[[], Awaitable[Any]]
 
 
-@dataclass
-class TadoXWeather:
-    """Representation of Tado weather data."""
-
-    outdoor_temperature: float | None = None
-    solar_intensity: float | None = None
-    weather_state: str | None = None
-
-
-@dataclass
-class TadoXMobileDevice:
-    """Representation of a Tado mobile device for geofencing."""
-
-    device_id: int
-    name: str
-    device_metadata: dict = field(default_factory=dict)
-    location: str | None = None  # "HOME", "AWAY", or None if location not available
-    at_home: bool = False
-    geofencing_enabled: bool = False
+def home_today(home_info: HomeInfo | None, now: datetime | None = None) -> date:
+    """Return today's date in the home's time zone, else in Home Assistant's."""
+    zone: tzinfo | None = None
+    if home_info is not None and home_info.time_zone:
+        zone = dt_util.get_time_zone(home_info.time_zone)
+    return (
+        (now or dt_util.utcnow())
+        .astimezone(zone or dt_util.get_default_time_zone())
+        .date()
+    )
 
 
-@dataclass
-class TadoXRoomAirComfort:
-    """Air comfort data for a room."""
-
-    room_id: int
-    freshness: str | None = None  # FRESH, FAIR, STALE
-    comfort_level: str | None = None  # Based on temperature/humidity
-
-
-@dataclass
-class TadoXData:
-    """Data from Tado X API."""
-
-    home_id: int
-    home_name: str
-    rooms: dict[int, TadoXRoom] = field(default_factory=dict)
-    devices: dict[str, TadoXDevice] = field(default_factory=dict)
-    other_devices: list[TadoXDevice] = field(default_factory=list)
-    presence: str | None = None  # HOME, AWAY, or None if not locked
-    presence_locked: bool = False  # Whether presence is manually set
-    api_calls_today: int = 0
-    api_reset_time: datetime | None = None
-    has_auto_assist: bool = False
-    # Real values from Tado API response headers
-    api_quota_limit: int | None = None  # From ratelimit-policy header (q=)
-    api_quota_remaining: int | None = None  # From ratelimit header (r=)
-    # Weather data
-    weather: TadoXWeather | None = None
-    # Mobile devices for geofencing
-    mobile_devices: dict[int, TadoXMobileDevice] = field(default_factory=dict)
-    # Running times data (raw response for additional processing if needed)
-    running_times: dict[str, Any] = field(default_factory=dict)
-    # Air comfort data per room
-    air_comfort: dict[int, TadoXRoomAirComfort] = field(default_factory=dict)
-    # Rate limit status
-    rate_limited: bool = False
-    rate_limit_reset: datetime | None = None
-    # Flow temperature optimization
-    max_flow_temperature: int | None = None
-    flow_temp_min: int | None = None
-    flow_temp_max: int | None = None
-    flow_temp_auto_adaptation: bool = False
-    flow_temp_auto_value: int | None = None
-    has_flow_temp_control: bool = False
+def _update_failed(err: TadoXError) -> UpdateFailed:
+    """Return the translated UpdateFailed for an error that is not a quota hold."""
+    if isinstance(err, TadoXConnectionError):
+        return UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect")
+    if isinstance(err, TadoXServerError):
+        return UpdateFailed(
+            translation_domain=DOMAIN,
+            translation_key="server_error",
+            translation_placeholders={"status": str(err.status)},
+        )
+    return UpdateFailed(
+        translation_domain=DOMAIN,
+        translation_key="api_error",
+        translation_placeholders={"error": str(err)},
+    )
 
 
-class TadoXDataUpdateCoordinator(DataUpdateCoordinator[TadoXData]):
-    """Class to manage fetching Tado X data."""
+def _quota_failed(
+    reset: datetime | None, now: datetime, *, setup: bool
+) -> UpdateFailed:
+    """Return the UpdateFailed of a quota hold without usable data."""
+    if reset is None:
+        return UpdateFailed(
+            translation_domain=DOMAIN, translation_key="quota_exhausted_unknown_reset"
+        )
+    return UpdateFailed(
+        translation_domain=DOMAIN,
+        translation_key="setup_quota_exhausted" if setup else "quota_exhausted",
+        translation_placeholders={"reset": format_time(reset)},
+        retry_after=max((reset - now).total_seconds(), 1.0),
+    )
+
+
+def _seed_value[T](
+    seed: CacheSeed, key: str, parse: Callable[[Any], T]
+) -> tuple[datetime, T] | None:
+    """Parse one cached payload with the parser of live data; None if unusable."""
+    if (item := seed.payloads.get(key)) is None:
+        return None
+    at, raw = item
+    try:
+        return at, parse(raw)
+    except TadoXError, ValueError, TypeError:
+        LOGGER.debug("Ignoring the cached %s payload", key)
+        return None
+
+
+@dataclass(slots=True)
+class _Patch[S]:
+    apply: Callable[[S], S]
+    expires: datetime
+
+
+class _PendingPatches[S]:
+    """Optimistic patches by target, re-applied until the server agrees.
+
+    A target names what a patch writes, such as the setting of one room. A
+    patch replaces the pending patch of its target, so a later command wins
+    even when it changes less, as a resume does after a manual target.
+    """
+
+    def __init__(self) -> None:
+        self._patches: dict[Hashable, _Patch[S]] = {}
+
+    def add(self, target: Hashable, patch: Callable[[S], S], expires: datetime) -> None:
+        self._patches.pop(target, None)
+        self._patches[target] = _Patch(patch, expires)
+
+    def apply(self, data: S, now: datetime) -> S:
+        """Apply the live patches; drop expired ones and those the data shows."""
+        kept: dict[Hashable, _Patch[S]] = {}
+        for target, patch in self._patches.items():
+            if now >= patch.expires:
+                continue
+            patched = patch.apply(data)
+            if patched == data:
+                continue
+            data = patched
+            kept[target] = patch
+        self._patches = kept
+        return data
+
+
+class TadoXCoordinator[S](DataUpdateCoordinator[S]):
+    """Coordinator with per-endpoint periods, stale serving and optimistic patches.
+
+    During a quota hold the last snapshot is served until the reset tado
+    sent, or for up to MAX_STALE without one; network, server and parse
+    errors make the entities unavailable as usual. stale_since is when the
+    hold that the served snapshot waits out began.
+    """
+
+    config_entry: TadoXConfigEntry
+
+    KIND: ClassVar[str]
+    ENDPOINTS: ClassVar[tuple[str, ...]]
+    REQUIRED: ClassVar[frozenset[str]]
+    MAX_STALE: ClassVar[timedelta]
+
+    last_fetched: dict[str, datetime]
+    last_live_update: datetime | None
+    stale_since: datetime | None
 
     def __init__(
         self,
         hass: HomeAssistant,
-        api: TadoXApi,
-        home_id: int,
-        home_name: str,
-        save_api_stats_callback: Callable[[], None] | None = None,
-        scan_interval: int | None = None,
-        enable_weather: bool = True,
-        enable_mobile_devices: bool = True,
-        enable_air_comfort: bool = True,
-        enable_running_times: bool = True,
-        enable_flow_temp: bool = True,
+        entry: TadoXConfigEntry,
+        api: TadoXHome,
+        monitor: QuotaMonitor,
+        seed: CacheSeed | None,
     ) -> None:
-        """Initialize the coordinator."""
-        # Determine scan interval based on subscription tier if not explicitly set
-        if scan_interval is None:
-            scan_interval = (
-                SCAN_INTERVAL_AUTO_ASSIST if api.has_auto_assist
-                else SCAN_INTERVAL_FREE_TIER
-            )
-
+        """Initialize with always_update=False and a 5 s refresh debouncer."""
         super().__init__(
             hass,
-            _LOGGER,
-            name=DOMAIN,
-            update_interval=timedelta(seconds=scan_interval),
+            LOGGER,
+            config_entry=entry,
+            name=f"{DOMAIN} {entry.title} {self.KIND}",
+            update_interval=monitor.interval(self),
+            always_update=False,
+            request_refresh_debouncer=Debouncer(
+                hass, LOGGER, cooldown=REFRESH_COOLDOWN, immediate=False
+            ),
         )
         self.api = api
-        self.home_id = home_id
-        self.home_name = home_name
-        self.api.home_id = home_id
-        self._save_api_stats_callback = save_api_stats_callback
-        self._scan_interval = scan_interval
+        self._monitor = monitor
+        self.last_fetched = {}
+        self.last_live_update = None
+        self.stale_since = None
+        self._pending: _PendingPatches[S] = _PendingPatches()
+        self._failing: set[str] = set()
+        self._refresh_requested = False
+        self._refreshed_at: datetime | None = None
+        self._seed_data: S | None = None
+        self._seed_at: datetime | None = None
+        if seed is not None and (seeded := self._parse_seed(seed)) is not None:
+            self._seed_data, self._seed_at = seeded
 
-        # Feature toggles for optional API calls
-        self.enable_weather = enable_weather
-        self.enable_mobile_devices = enable_mobile_devices
-        self.enable_air_comfort = enable_air_comfort
-        self.enable_running_times = enable_running_times
-        self.enable_flow_temp = enable_flow_temp
+    @abstractmethod
+    def _parse_seed(self, seed: CacheSeed) -> tuple[S, datetime] | None:
+        """Build a snapshot from cached payloads, with the time of the required one."""
 
-        _LOGGER.info(
-            "Tado X coordinator initialized with %d second update interval (%s tier)",
-            scan_interval,
-            "Auto-Assist" if api.has_auto_assist else "Free"
-        )
-        _LOGGER.info(
-            "Optional features - Weather: %s, Mobile devices: %s, Air comfort: %s, Running times: %s, Flow temp: %s",
-            enable_weather, enable_mobile_devices, enable_air_comfort, enable_running_times, enable_flow_temp
-        )
+    @abstractmethod
+    async def _async_fetch(self, previous: S | None, due: frozenset[str]) -> S:
+        """Fetch the due endpoints and merge them into the previous snapshot."""
 
-    def update_scan_interval(self, new_interval: int) -> None:
-        """Update the scan interval dynamically."""
-        self._scan_interval = new_interval
-        self.update_interval = timedelta(seconds=new_interval)
-        _LOGGER.info("Scan interval updated to %d seconds", new_interval)
+    @override
+    async def async_request_refresh(self) -> None:
+        """Request a refresh that reads the required endpoints whatever the plan."""
+        self._refresh_requested = True
+        await super().async_request_refresh()
 
-    def get_api_calls_per_update(self) -> int:
-        """Calculate the number of API calls per update based on enabled features."""
-        # Base calls: get_rooms, get_rooms_and_devices, get_home_state
-        calls = 3
-        if self.enable_weather:
-            calls += 1
-        if self.enable_mobile_devices:
-            calls += 1
-        if self.enable_air_comfort:
-            calls += 1
-        if self.enable_running_times:
-            calls += 1
-        return calls
-
-    async def _async_update_data(self) -> TadoXData:
-        """Fetch data from Tado X API."""
+    @override
+    async def _async_update_data(self) -> S:
+        """Fetch the due endpoints and map client errors to coordinator errors."""
+        now = dt_util.utcnow()
+        previous = self.data if self.data is not None else self._seed_data
+        due = self._monitor.due(self, now)
+        if previous is None or self._refresh_requested:
+            due |= self.REQUIRED
+        self._refresh_requested = False
         try:
-            # Get rooms with current state (required)
-            rooms_data = await self.api.get_rooms()
-
-            # Get rooms with devices (required)
-            rooms_devices_data = await self.api.get_rooms_and_devices()
-
-            # Get home presence state (required)
-            home_state = await self.api.get_home_state()
-            presence = home_state.get("presence")
-            presence_locked = home_state.get("presenceLocked", False)
-
-            # Get weather data (optional)
-            weather = None
-            if self.enable_weather:
-                weather_data = await self.api.get_weather()
-                outdoor_temp_data = weather_data.get("outsideTemperature") or {}
-                solar_data = weather_data.get("solarIntensity") or {}
-                weather_state_data = weather_data.get("weatherState") or {}
-
-                weather = TadoXWeather(
-                    outdoor_temperature=outdoor_temp_data.get("celsius"),
-                    solar_intensity=solar_data.get("percentage"),
-                    weather_state=weather_state_data.get("value"),
-                )
-
-            # Get mobile devices for geofencing (optional)
-            mobile_devices_data = []
-            if self.enable_mobile_devices:
-                mobile_devices_data = await self.api.get_mobile_devices()
-
-            # Process the data
-            data = TadoXData(
-                home_id=self.home_id,
-                home_name=self.home_name,
-                presence=presence,
-                presence_locked=presence_locked,
-                weather=weather,
-            )
-
-            # Process rooms and devices
-            rooms_info = rooms_devices_data.get("rooms", [])
-            room_devices_map: dict[int, list[dict]] = {}
-
-            for room_info in rooms_info:
-                room_id = room_info.get("roomId")
-                if room_id:
-                    room_devices_map[room_id] = room_info.get("devices", [])
-
-            # Process room states
-            for room_data in rooms_data:
-                room_id = room_data.get("id")
-                if not room_id:
-                    continue
-
-                # Debug: log raw room data for power/setting analysis
-                setting = room_data.get("setting") or {}
-                _LOGGER.debug(
-                    "Room %s (%s) - setting: %s, manualControl: %s",
-                    room_id,
-                    room_data.get("name"),
-                    setting,
-                    room_data.get("manualControlTermination"),
-                )
-
-                # Get sensor data (use 'or {}' to handle None values)
-                sensor_data = room_data.get("sensorDataPoints") or {}
-                inside_temp = sensor_data.get("insideTemperature") or {}
-                humidity_data = sensor_data.get("humidity") or {}
-
-                # Get setting (use 'or {}' to handle None values)
-                setting = room_data.get("setting") or {}
-                target_temp = setting.get("temperature") or {}
-
-                # Get manual control info
-                manual_control = room_data.get("manualControlTermination")
-                manual_active = manual_control is not None
-                manual_remaining = None
-                manual_type = None
-                if manual_control:
-                    manual_remaining = manual_control.get("remainingTimeInSeconds")
-                    manual_type = manual_control.get("type")
-
-                # Get next schedule change (use 'or {}' to handle None values)
-                next_change = room_data.get("nextScheduleChange") or {}
-                next_change_time = next_change.get("start")
-                next_change_setting = next_change.get("setting") or {}
-                next_change_temp_obj = next_change_setting.get("temperature") or {}
-                next_change_temp = next_change_temp_obj.get("value")
-
-                # Get heating power and connection (use 'or {}' to handle None values)
-                heating_power_data = room_data.get("heatingPower") or {}
-                connection_data = room_data.get("connection") or {}
-
-                room = TadoXRoom(
-                    room_id=room_id,
-                    name=room_data.get("name", f"Room {room_id}"),
-                    current_temperature=inside_temp.get("value"),
-                    target_temperature=target_temp.get("value"),
-                    humidity=humidity_data.get("percentage"),
-                    heating_power=heating_power_data.get("percentage", 0),
-                    power=setting.get("power", "OFF"),
-                    connection_state=connection_data.get("state", "DISCONNECTED"),
-                    manual_control_active=manual_active,
-                    manual_control_remaining_seconds=manual_remaining,
-                    manual_control_type=manual_type,
-                    boost_mode=room_data.get("boostMode") is not None,
-                    open_window_detected=room_data.get("openWindow") is not None,
-                    next_schedule_change=next_change_time,
-                    next_schedule_temperature=next_change_temp,
-                )
-
-                # Add devices for this room
-                for device_data in room_devices_map.get(room_id, []):
-                    device_connection = device_data.get("connection") or {}
-                    device = TadoXDevice(
-                        serial_number=device_data.get("serialNumber", ""),
-                        device_type=device_data.get("type", ""),
-                        firmware_version=device_data.get("firmwareVersion", ""),
-                        connection_state=device_connection.get("state", "DISCONNECTED"),
-                        battery_state=device_data.get("batteryState"),
-                        temperature_measured=device_data.get("temperatureAsMeasured"),
-                        temperature_offset=device_data.get("temperatureOffset", 0.0),
-                        mounting_state=device_data.get("mountingState"),
-                        child_lock_enabled=device_data.get("childLockEnabled", False),
-                        room_id=room_id,
-                        room_name=room.name,
-                    )
-                    room.devices.append(device)
-                    data.devices[device.serial_number] = device
-
-                data.rooms[room_id] = room
-
-            # Process other devices (bridge, thermostat controller)
-            # First, find the room with the most devices (for thermostat association)
-            room_with_most_devices: int | None = None
-            max_device_count = 0
-            for room_id, room in data.rooms.items():
-                device_count = len(room.devices)
-                if device_count > max_device_count:
-                    max_device_count = device_count
-                    room_with_most_devices = room_id
-
-            for device_data in rooms_devices_data.get("otherDevices") or []:
-                other_device_connection = device_data.get("connection") or {}
-                other_room_id = device_data.get("roomId")
-                other_room_name = None
-                device_type = device_data.get("type", "")
-
-                # If device has a room association from API, use it
-                if other_room_id and other_room_id in data.rooms:
-                    other_room_name = data.rooms[other_room_id].name
-                # For Wireless Receiver X (TR04) without room, associate with the room
-                # that has the most devices (typically the main room it controls)
-                elif device_type == "TR04" and room_with_most_devices:
-                    other_room_id = room_with_most_devices
-                    other_room_name = data.rooms[room_with_most_devices].name
-                    _LOGGER.debug(
-                        "Associating Wireless Receiver X %s with room %s (%s) - room has %d devices",
-                        device_data.get("serialNumber"),
-                        other_room_id,
-                        other_room_name,
-                        max_device_count,
-                    )
-
-                device = TadoXDevice(
-                    serial_number=device_data.get("serialNumber", ""),
-                    device_type=device_type,
-                    firmware_version=device_data.get("firmwareVersion", ""),
-                    connection_state=other_device_connection.get("state", "DISCONNECTED"),
-                    room_id=other_room_id,
-                    room_name=other_room_name,
-                )
-
-                # If device has a room, add it to the room's device list
-                if other_room_id and other_room_id in data.rooms:
-                    data.rooms[other_room_id].devices.append(device)
-
-                data.other_devices.append(device)
-                data.devices[device.serial_number] = device
-
-            # Process mobile devices
-            for mobile_data in mobile_devices_data:
-                device_id = mobile_data.get("id")
-                if not device_id:
-                    continue
-
-                # Get location info
-                location_data = mobile_data.get("location") or {}
-                settings_data = mobile_data.get("settings") or {}
-                geo_tracking = settings_data.get("geoTrackingEnabled", False)
-
-                # Determine if at home based on location
-                at_home = location_data.get("atHome", False)
-                location_state = "HOME" if at_home else "AWAY" if location_data else None
-
-                mobile_device = TadoXMobileDevice(
-                    device_id=device_id,
-                    name=mobile_data.get("name", f"Mobile {device_id}"),
-                    device_metadata=mobile_data.get("deviceMetadata", {}),
-                    location=location_state,
-                    at_home=at_home,
-                    geofencing_enabled=geo_tracking,
-                )
-                data.mobile_devices[device_id] = mobile_device
-
-            # Fetch running times data for today (optional)
-            if self.enable_running_times:
-                try:
-                    today = date.today().isoformat()
-                    running_times_data = await self.api.get_running_times(today, today)
-                    data.running_times = running_times_data
-
-                    # Process running times per zone/room
-                    # The API returns running times with zone IDs that correspond to room IDs
-                    running_times_list = running_times_data.get("runningTimes", [])
-                    for rt_entry in running_times_list:
-                        zones = rt_entry.get("zones", [])
-                        for zone_data in zones:
-                            zone_id = zone_data.get("id")
-                            zone_running_seconds = zone_data.get("runningTimeInSeconds", 0)
-                            if zone_id and zone_id in data.rooms:
-                                data.rooms[zone_id].running_time_today_seconds = zone_running_seconds
-
-                    _LOGGER.debug("Running times fetched: %s zones", len(running_times_list))
-                except Exception as err:
-                    # Running times endpoint might not be available for all accounts
-                    # Log warning but don't fail the entire update
-                    _LOGGER.warning("Failed to fetch running times data: %s", err)
-                    data.running_times = {}
-
-            # Fetch air comfort data (optional)
-            if self.enable_air_comfort:
-                try:
-                    air_comfort_data = await self.api.get_air_comfort()
-                    comfort_list = air_comfort_data.get("comfort", [])
-                    for comfort_entry in comfort_list:
-                        room_id = comfort_entry.get("roomId")
-                        if room_id:
-                            # Get humidity level (HUMID, COMFY, DRY)
-                            # The API returns humidityLevel directly in comfort_entry
-                            freshness = comfort_entry.get("humidityLevel")
-
-                            # Get temperature comfort level (COLD, COMFY, WARM)
-                            # The API returns temperatureLevel directly in comfort_entry
-                            comfort_level = comfort_entry.get("temperatureLevel")
-
-                            room_air_comfort = TadoXRoomAirComfort(
-                                room_id=room_id,
-                                freshness=freshness,
-                                comfort_level=comfort_level,
-                            )
-                            data.air_comfort[room_id] = room_air_comfort
-
-                    _LOGGER.debug("Air comfort fetched for %d rooms", len(data.air_comfort))
-                except Exception as err:
-                    # Air comfort endpoint might not be available for all accounts
-                    _LOGGER.warning("Failed to fetch air comfort data: %s", err)
-
-            # Fetch flow temperature optimization settings (if available and enabled)
-            if self.enable_flow_temp:
-                try:
-                    flow_data = await self.api.get_flow_temperature_optimization()
-                    if flow_data:
-                        data.has_flow_temp_control = True
-                        data.max_flow_temperature = flow_data.get("maxFlowTemperature")
-                        constraints = flow_data.get("maxFlowTemperatureConstraints", {})
-                        data.flow_temp_min = constraints.get("min")
-                        data.flow_temp_max = constraints.get("max")
-                        auto_adapt = flow_data.get("autoAdaptation", {})
-                        data.flow_temp_auto_adaptation = auto_adapt.get("enabled", False)
-                        data.flow_temp_auto_value = auto_adapt.get("maxFlowTemperature")
-                        _LOGGER.debug(
-                            "Flow temperature: %s°C (range %s-%s), auto=%s",
-                            data.max_flow_temperature,
-                            data.flow_temp_min,
-                            data.flow_temp_max,
-                            data.flow_temp_auto_adaptation,
-                        )
-                except Exception as err:
-                    # Flow temperature endpoint might not be available for all setups
-                    # (requires OpenTherm-compatible boiler control device)
-                    _LOGGER.debug("Flow temperature optimization not available: %s", err)
-                    data.has_flow_temp_control = False
-
-            # Populate API stats (prefer real values from headers when available)
-            data.api_calls_today = self.api.api_calls_today
-            data.api_reset_time = self.api.api_reset_time
-            data.has_auto_assist = self.api.has_auto_assist
-            data.api_quota_limit = self.api.api_quota_limit
-            data.api_quota_remaining = self.api.api_quota_remaining
-
-            # Save API stats for persistence
-            if self._save_api_stats_callback:
-                self._save_api_stats_callback()
-
-            return data
-
+            data = await self._async_fetch(previous, due)
         except TadoXRateLimitError as err:
-            # Handle rate limit gracefully - return previous data with rate_limited flag
-            _LOGGER.warning(
-                "Rate limit hit. Suspending API calls until %s. Using cached data.",
-                err.reset_time,
+            return self._serve_stale(err, now)
+        except TadoXError as err:
+            # tado answered, so a quota hold is over even when the answer is an error.
+            self.stale_since = None
+            raise self._translate(err) from err
+        self.last_fetched.update(dict.fromkeys(due, now))
+        self.last_live_update = now
+        self.stale_since = None
+        return self._pending.apply(data, now)
+
+    def _translate(self, err: TadoXError) -> Exception:
+        """Return the coordinator error for a client error other than a quota hold."""
+        if isinstance(err, TadoXHomeNotXError):
+            async_create_not_tado_x_issue(self.hass, self.config_entry)
+            return ConfigEntryError(
+                translation_domain=DOMAIN,
+                translation_key="not_tado_x_home",
+                translation_placeholders={"home": self.config_entry.title},
             )
-            if self.data:
-                # Return previous data with rate_limited flag set
-                self.data.rate_limited = True
-                self.data.rate_limit_reset = err.reset_time
-                return self.data
-            # No previous data - create minimal data with rate limited status
-            return TadoXData(
-                home_id=self.home_id,
-                home_name=self.home_name,
-                rate_limited=True,
-                rate_limit_reset=err.reset_time,
+        if isinstance(err, TadoXAuthError):
+            return ConfigEntryAuthFailed(
+                translation_domain=DOMAIN, translation_key="auth_failed"
             )
-        except TadoXAuthError as err:
-            # Trigger reauthentication flow instead of just failing
-            # This will prompt the user to re-authenticate via the UI
-            raise ConfigEntryAuthFailed(
-                f"Authentication failed: {err}. Please re-authenticate."
-            ) from err
-        except TadoXApiError as err:
-            raise UpdateFailed(f"API error: {err}") from err
-        except Exception as err:
-            _LOGGER.exception("Unexpected error fetching Tado X data")
-            raise UpdateFailed(f"Unexpected error: {err}") from err
+        return _update_failed(err)
+
+    @override
+    @callback
+    def _async_refresh_finished(self) -> None:
+        """Let the quota monitor re-plan and update the status after every poll."""
+        self._refreshed_at = dt_util.utcnow()
+        self._monitor.async_on_poll(self)
+
+    @callback
+    def async_set_interval(self, interval: timedelta) -> None:
+        """Use a new update interval; a shorter one brings the pending refresh forward.
+
+        Home Assistant arms the next refresh only when a refresh ends, so a
+        coordinator would otherwise wait out the long interval of an old plan.
+        """
+        previous = self.update_interval
+        self.update_interval = interval
+        if (
+            previous is None
+            or interval >= previous
+            or self._refreshed_at is None
+            or self._unsub_refresh is None
+        ):
+            return
+        delay = max(self._refreshed_at + interval - dt_util.utcnow(), _MIN_DELAY)
+        # _schedule_refresh arms the timer one update_interval from now.
+        self.update_interval = delay
+        self._schedule_refresh()
+        self.update_interval = interval
+
+    @callback
+    def async_apply_optimistic(
+        self,
+        patches: Mapping[Hashable, Callable[[S], S]],
+        *,
+        ttl: timedelta = timedelta(seconds=60),
+    ) -> None:
+        """Apply patches by target now; re-apply each until the data agrees or ttl passes.
+
+        A patch replaces the pending patch of the same target. The poll timer
+        keeps running: async_set_updated_data would restart it, so writes more
+        often than the interval would stop the polling.
+        """
+        if self.data is None:
+            return
+        expires = dt_util.utcnow() + ttl
+        data = self.data
+        for target, patch in patches.items():
+            self._pending.add(target, patch, expires)
+            data = patch(data)
+        self.data = data
+        self.async_update_listeners()
+
+    def _serve_stale(self, err: TadoXRateLimitError, now: datetime) -> S:
+        """Serve the last snapshot during a quota hold, while it is recent enough.
+
+        A coordinator created by a reload or restart during a hold with a
+        known end takes the start of that hold from the quota tracker.
+        """
+        setup = self.data is None
+        data: S | None = self._seed_data if setup else self.data
+        at = self._seed_at if setup else self.last_live_update
+        reset = err.reset_at or self._monitor.reset_time
+        began = self.stale_since or self._monitor.known_hold_began(now) or now
+        if data is None or at is None or not self._servable(at, began, now):
+            raise _quota_failed(reset, now, setup=setup) from err
+        if self.stale_since is None:
+            self.stale_since = began
+            LOGGER.debug("Serving cached %s data of %s", self.KIND, at)
+        self.last_live_update = at
+        return data
+
+    def _servable(self, at: datetime, began: datetime, now: datetime) -> bool:
+        """Return whether data read at a time may be served during the hold.
+
+        A hold that ends at a reset tado sent keeps serving what was within
+        MAX_STALE when the hold began; otherwise MAX_STALE counts from now.
+        """
+        if now - at <= self.MAX_STALE:
+            return True
+        return (
+            self._monitor.known_hold_end(now) is not None
+            and began - at <= self.MAX_STALE
+        )
+
+    async def _async_gather(
+        self, due: frozenset[str], fetchers: Mapping[str, Fetcher]
+    ) -> tuple[dict[str, Any], dict[str, TadoXError]]:
+        """Run the due fetchers; return the values and the optional failures.
+
+        The required endpoints go first and the optional ones together after
+        them, so a used-up quota costs one request, not one per endpoint.
+        A quota error wins over an auth error, which wins over "not a tado X
+        home", then over a failed required endpoint. A failed optional
+        endpoint does not fail the tick, nor does one the quota gate refused
+        after the required endpoints were read.
+        """
+        keys = [key for key in fetchers if key in due]
+        outcome: dict[str, Any] = {}
+        for batch in (
+            [key for key in keys if key in self.REQUIRED],
+            [key for key in keys if key not in self.REQUIRED],
+        ):
+            results = await asyncio.gather(
+                *(fetchers[key]() for key in batch), return_exceptions=True
+            )
+            outcome.update(zip(batch, results, strict=True))
+            self._raise_first(outcome)
+        values: dict[str, Any] = {}
+        failures: dict[str, TadoXError] = {}
+        for key, result in outcome.items():
+            if isinstance(result, TadoXError):
+                failures[key] = result
+                self._note_failure(key, result)
+            else:
+                values[key] = result
+                self._note_success(key)
+        return values, failures
+
+    def _raise_first(self, outcome: Mapping[str, Any]) -> None:
+        """Raise the error that fails the tick, if any, by precedence."""
+        errors = {
+            key: result
+            for key, result in outcome.items()
+            if isinstance(result, BaseException) and not self._refused(key, result)
+        }
+        for kind in (TadoXRateLimitError, TadoXAuthError, TadoXHomeNotXError):
+            for error in errors.values():
+                if isinstance(error, kind):
+                    raise error
+        for key, error in errors.items():
+            if key in self.REQUIRED or not isinstance(error, TadoXError):
+                raise error
+
+    def _refused(self, key: str, err: BaseException) -> bool:
+        """Return True for an optional read the quota gate refused."""
+        return (
+            key not in self.REQUIRED
+            and isinstance(err, TadoXRateLimitError)
+            and err.local
+        )
+
+    def _expected_failure(self, key: str, err: TadoXError) -> bool:
+        """Return True for a failure that is an answer, not a problem."""
+        return False
+
+    def _note_failure(self, key: str, err: TadoXError) -> None:
+        if (
+            self._refused(key, err)
+            or self._expected_failure(key, err)
+            or key in self._failing
+        ):
+            return
+        self._failing.add(key)
+        LOGGER.warning(
+            "Reading %s of %s failed, keeping the last value: %s",
+            key,
+            self.config_entry.title,
+            err,
+        )
+
+    def _note_success(self, key: str) -> None:
+        if key in self._failing:
+            self._failing.discard(key)
+            LOGGER.info("Reading %s of %s works again", key, self.config_entry.title)
+
+
+class RoomsCoordinator(TadoXCoordinator[RoomsSnapshot]):
+    """Live room state, polled at the planned rooms period."""
+
+    KIND = "rooms"
+    ENDPOINTS = ("rooms",)
+    REQUIRED = frozenset({"rooms"})
+    MAX_STALE = MAX_STALE_ROOMS
+
+    @override
+    def _parse_seed(self, seed: CacheSeed) -> tuple[RoomsSnapshot, datetime] | None:
+        if (rooms := _seed_value(seed, "rooms", RoomState.list_from_api)) is None:
+            return None
+        at, parsed = rooms
+        return RoomsSnapshot(rooms=parsed), at
+
+    @override
+    async def _async_fetch(
+        self, previous: RoomsSnapshot | None, due: frozenset[str]
+    ) -> RoomsSnapshot:
+        """Fetch the rooms."""
+        values, _ = await self._async_gather(due, {"rooms": self.api.async_get_rooms})
+        if previous is None or "rooms" in values:
+            return RoomsSnapshot(rooms=values["rooms"])
+        return previous
+
+
+_HOME_FIELDS: Final = {
+    "home_state": "state",
+    "weather": "weather",
+    "air_comfort": "air_comfort",
+}
+
+
+class HomeCoordinator(TadoXCoordinator[HomeSnapshot]):
+    """Presence, weather, air comfort and phones."""
+
+    KIND = "home"
+    ENDPOINTS = ("home_state", "weather", "air_comfort", "mobile_devices")
+    REQUIRED = frozenset({"home_state"})
+    MAX_STALE = MAX_STALE_HOME
+
+    @override
+    def _parse_seed(self, seed: CacheSeed) -> tuple[HomeSnapshot, datetime] | None:
+        if (state := _seed_value(seed, "home_state", HomeState.from_api)) is None:
+            return None
+        at, parsed = state
+        snapshot = HomeSnapshot(state=parsed)
+        if self._monitor.enabled("weather") and (
+            weather := _seed_value(seed, "weather", Weather.from_api)
+        ):
+            snapshot = replace(snapshot, weather=weather[1])
+        if self._monitor.enabled("air_comfort") and (
+            comfort := _seed_value(seed, "air_comfort", AirComfort.from_api)
+        ):
+            snapshot = replace(snapshot, air_comfort=comfort[1])
+        return snapshot, at
+
+    @override
+    async def _async_fetch(
+        self, previous: HomeSnapshot | None, due: frozenset[str]
+    ) -> HomeSnapshot:
+        """Fetch the due home endpoints."""
+        api = self.api
+        values, _ = await self._async_gather(
+            due,
+            {
+                "home_state": api.async_get_home_state,
+                "weather": api.async_get_weather,
+                "air_comfort": api.async_get_air_comfort,
+                "mobile_devices": api.async_get_mobile_devices,
+            },
+        )
+        if previous is None:
+            previous = HomeSnapshot(state=values["home_state"])
+        changes: dict[str, Any] = {
+            field: values[key] for key, field in _HOME_FIELDS.items() if key in values
+        }
+        if (phones := values.get("mobile_devices")) is not None:
+            changes.update(
+                mobile_devices=phones.phones, mobile_devices_complete=phones.complete
+            )
+        return replace(previous, **changes)
+
+
+class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
+    """Topology, home details, running times, flow temperature and holiday mode."""
+
+    KIND = "devices"
+    ENDPOINTS = (
+        "topology",
+        "home_info",
+        "running_times",
+        "flow_temperature",
+        "holiday_mode",
+    )
+    REQUIRED = frozenset({"topology"})
+    MAX_STALE = MAX_STALE_DEVICES
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: TadoXConfigEntry,
+        api: TadoXHome,
+        monitor: QuotaMonitor,
+        seed: CacheSeed | None,
+        *,
+        client: TadoXClient,
+    ) -> None:
+        """Initialize, and tell the monitor what the cached home details say.
+
+        The home details are read through the account client, which serves
+        my.tado.com homes/{id}.
+        """
+        self._client = client
+        self._generation_warned = False
+        super().__init__(hass, entry, api, monitor, seed)
+        if self._seed_data is not None:
+            monitor.async_note_devices(self._seed_data)
+
+    @override
+    def _parse_seed(self, seed: CacheSeed) -> tuple[DevicesSnapshot, datetime] | None:
+        if (topology := _seed_value(seed, "topology", Topology.from_api)) is None:
+            return None
+        at, parsed = topology
+        info = _seed_value(seed, "home_info", HomeInfo.from_api)
+        snapshot = DevicesSnapshot(
+            topology=parsed,
+            home_info=info[1] if info else None,
+            flow_status=seed.flow_status or FeatureStatus.UNKNOWN,
+        )
+        if self._monitor.enabled("running_times") and (
+            cached := seed.payloads.get("running_times")
+        ):
+            day = home_today(snapshot.home_info, cached[0])
+            if times := _seed_value(
+                seed, "running_times", partial(RunningTimes.from_api, day=day)
+            ):
+                snapshot = replace(snapshot, running_times=times[1])
+        if snapshot.flow_status is not FeatureStatus.ABSENT and (
+            flow := _seed_value(seed, "flow_temperature", FlowTemperature.from_api)
+        ):
+            snapshot = replace(
+                snapshot, flow_temperature=flow[1], flow_status=FeatureStatus.PRESENT
+            )
+        if self._monitor.enabled("holiday_mode") and (
+            holiday := _seed_value(seed, "holiday_mode", HolidayMode.from_api)
+        ):
+            snapshot = replace(snapshot, holiday_mode=holiday[1])
+        return snapshot, at
+
+    @override
+    async def _async_fetch(
+        self, previous: DevicesSnapshot | None, due: frozenset[str]
+    ) -> DevicesSnapshot:
+        """Fetch the due device endpoints."""
+        api = self.api
+        today = home_today(previous.home_info if previous else None)
+        values, failures = await self._async_gather(
+            due,
+            {
+                "topology": api.async_get_topology,
+                "home_info": self._async_get_home_info,
+                "running_times": partial(api.async_get_running_times, today),
+                "flow_temperature": api.async_get_flow_temperature,
+                "holiday_mode": api.async_get_holiday_mode,
+            },
+        )
+        if previous is None:
+            previous = DevicesSnapshot(topology=values["topology"])
+        # The endpoint keys of this coordinator are the snapshot field names.
+        snapshot = replace(previous, **values)
+        if "flow_temperature" in values:
+            snapshot = replace(snapshot, flow_status=FeatureStatus.PRESENT)
+        elif isinstance(failures.get("flow_temperature"), TadoXNotFoundError):
+            snapshot = replace(
+                snapshot, flow_temperature=None, flow_status=FeatureStatus.ABSENT
+            )
+        self._monitor.async_note_devices(snapshot)
+        return snapshot
+
+    async def _async_get_home_info(self) -> HomeInfo:
+        """Read the home details; a home of the previous generation is refused (#40)."""
+        home_id = self.api.home_id
+        info = await self._client.async_get_home_info(home_id)
+        if info.generation is HomeGeneration.PRE_LINE_X:
+            raise TadoXHomeNotXError(home_id)
+        if info.generation is HomeGeneration.UNKNOWN and not self._generation_warned:
+            self._generation_warned = True
+            LOGGER.warning(
+                "tado reports no known generation for %s; it is used as a tado X "
+                "home because the tado X API serves it",
+                self.config_entry.title,
+            )
+        return info
+
+    @override
+    def _expected_failure(self, key: str, err: TadoXError) -> bool:
+        return key == "flow_temperature" and isinstance(err, TadoXNotFoundError)

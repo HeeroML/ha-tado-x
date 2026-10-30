@@ -1,367 +1,512 @@
-"""Config flow for Tado X integration."""
-from __future__ import annotations
+"""Config flow of the tado X integration.
+
+Sign-in uses tado's device-code flow in a progress step, so no HTTP request
+of the frontend waits for the user. Only tado X (LINE_X) homes are offered.
+"""
 
 import asyncio
-import logging
-from typing import Any
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import timedelta
+from http import HTTPStatus
+from typing import Any, Final, override
 
-import aiohttp
-import voluptuous as vol
+import probatio
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
+    ConfigEntry,
+    ConfigEntryState,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import AbortFlow, section
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
-from .api import TadoXApi, TadoXAuthError
+from .client import (
+    Account,
+    DeviceAuthorization,
+    DeviceCodeFlow,
+    HomeInfo,
+    MemoryTokenStore,
+    QuotaTracker,
+    TadoXClient,
+    TadoXDeviceFlowError,
+    TadoXError,
+    TadoXRateLimitError,
+    TadoXRequestError,
+    TadoXServerError,
+    TadoXTransientError,
+    TokenManager,
+    TokenSet,
+)
 from .const import (
     CONF_ACCESS_TOKEN,
-    CONF_ENABLE_AIR_COMFORT,
-    CONF_ENABLE_FLOW_TEMP,
-    CONF_ENABLE_MOBILE_DEVICES,
-    CONF_ENABLE_RUNNING_TIMES,
-    CONF_ENABLE_WEATHER,
-    CONF_HAS_AUTO_ASSIST,
     CONF_HOME_ID,
     CONF_HOME_NAME,
     CONF_REFRESH_TOKEN,
-    CONF_SCAN_INTERVAL,
     CONF_TOKEN_EXPIRY,
+    CONF_USER_ID,
+    DEFAULT_OPTIONS,
     DOMAIN,
-    SCAN_INTERVAL_AUTO_ASSIST,
-    SCAN_INTERVAL_FREE_TIER,
+    LOGGER,
+    MAX_DAILY_CALL_BUDGET,
+    MAX_QUOTA_RESERVE,
+    MAX_TIMER_MINUTES,
+    MIN_DAILY_CALL_BUDGET,
+    MIN_QUOTA_RESERVE,
+    MIN_TIMER_MINUTES,
+    OPT_AIR_COMFORT,
+    OPT_DAILY_CALL_BUDGET,
+    OPT_HOLIDAY_MODE,
+    OPT_MANUAL_TERMINATION,
+    OPT_MOBILE_DEVICES,
+    OPT_OFF_FOLLOWS_POLICY,
+    OPT_PRESENCE_ZONE,
+    OPT_QUOTA_RESERVE,
+    OPT_RUNNING_TIMES,
+    OPT_TIMER_MINUTES,
+    OPT_WEATHER,
+)
+from .runtime import TadoXConfigEntry
+from .termination import TerminationPolicy
+
+_NO_VALUE: Final = "–"
+
+SECTION_POLLING: Final = "polling"
+SECTION_FEATURES: Final = "features"
+SECTION_CONTROL: Final = "control"
+OPTION_SECTIONS: Final[Mapping[str, tuple[str, ...]]] = {
+    SECTION_POLLING: (OPT_DAILY_CALL_BUDGET, OPT_QUOTA_RESERVE),
+    SECTION_FEATURES: (
+        OPT_WEATHER,
+        OPT_AIR_COMFORT,
+        OPT_RUNNING_TIMES,
+        OPT_MOBILE_DEVICES,
+        OPT_HOLIDAY_MODE,
+    ),
+    SECTION_CONTROL: (
+        OPT_MANUAL_TERMINATION,
+        OPT_TIMER_MINUTES,
+        OPT_OFF_FOLLOWS_POLICY,
+        OPT_PRESENCE_ZONE,
+    ),
+}
+_INTEGER_OPTIONS: Final = (OPT_DAILY_CALL_BUDGET, OPT_QUOTA_RESERVE, OPT_TIMER_MINUTES)
+
+
+def _number(
+    minimum: int, maximum: int, step: int, unit: str | None = None
+) -> NumberSelector:
+    config = NumberSelectorConfig(
+        min=minimum, max=maximum, step=step, mode=NumberSelectorMode.BOX
+    )
+    if unit is not None:
+        config["unit_of_measurement"] = unit
+    return NumberSelector(config)
+
+
+OPTIONS_SCHEMA: Final = probatio.Schema(
+    {
+        probatio.Required(SECTION_POLLING): section(
+            probatio.Schema(
+                {
+                    probatio.Required(OPT_DAILY_CALL_BUDGET): _number(
+                        MIN_DAILY_CALL_BUDGET, MAX_DAILY_CALL_BUDGET, 100
+                    ),
+                    probatio.Required(OPT_QUOTA_RESERVE): _number(
+                        MIN_QUOTA_RESERVE, MAX_QUOTA_RESERVE, 100
+                    ),
+                }
+            ),
+            {"collapsed": True},
+        ),
+        probatio.Required(SECTION_FEATURES): section(
+            probatio.Schema(
+                {
+                    probatio.Required(key): BooleanSelector()
+                    for key in OPTION_SECTIONS[SECTION_FEATURES]
+                }
+            )
+        ),
+        probatio.Required(SECTION_CONTROL): section(
+            probatio.Schema(
+                {
+                    probatio.Required(OPT_MANUAL_TERMINATION): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[policy.value for policy in TerminationPolicy],
+                            translation_key=OPT_MANUAL_TERMINATION,
+                        )
+                    ),
+                    probatio.Required(OPT_TIMER_MINUTES): _number(
+                        MIN_TIMER_MINUTES, MAX_TIMER_MINUTES, 1, "min"
+                    ),
+                    probatio.Required(OPT_OFF_FOLLOWS_POLICY): BooleanSelector(),
+                    probatio.Required(OPT_PRESENCE_ZONE): EntitySelector(
+                        EntitySelectorConfig(domain="zone")
+                    ),
+                }
+            )
+        ),
+    }
 )
 
-_LOGGER = logging.getLogger(__name__)
+
+def _abort_reason(err: TadoXError) -> str:
+    """Return the abort reason for an error of the sign-in or the home listing."""
+    if isinstance(err, TadoXDeviceFlowError) and err.reason == "denied":
+        return "access_denied"
+    if isinstance(err, TadoXRateLimitError) or (
+        isinstance(err, TadoXServerError) and err.status == HTTPStatus.TOO_MANY_REQUESTS
+    ):
+        return "rate_limited"
+    if isinstance(err, TadoXTransientError | TadoXRequestError):
+        return "cannot_connect"
+    LOGGER.warning("Signing in to tado failed: %s", err)
+    return "unknown"
+
+
+@contextmanager
+def _abort_on_error() -> Iterator[None]:
+    """Turn every failure of a tado request into an abort, never an HTTP 500 (#73)."""
+    try:
+        yield
+    except TadoXError as err:
+        raise AbortFlow(_abort_reason(err)) from err
+    except Exception as err:
+        LOGGER.exception("Unexpected error while signing in to tado")
+        raise AbortFlow("unknown") from err
+
+
+def _names(homes: list[HomeInfo]) -> str:
+    return ", ".join(home.name for home in homes) or _NO_VALUE
 
 
 class TadoXConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Tado X."""
+    """Add, reauthenticate and reconfigure a tado X home."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        """Get the options flow for this handler."""
-        return TadoXOptionsFlow()
+    _device_flow: DeviceCodeFlow | None
+    _auth: DeviceAuthorization | None
+    _login_task: asyncio.Task[TokenSet] | None
+    _tokens: TokenSet | None
+    _account: Account | None
+    _x_homes: list[HomeInfo]
+    _hidden: list[HomeInfo]
 
     def __init__(self) -> None:
-        """Initialize the config flow."""
-        self._api: TadoXApi | None = None
-        self._device_code: str | None = None
-        self._user_code: str | None = None
-        self._verification_uri: str | None = None
-        self._poll_task: asyncio.Task | None = None
-        self._homes: list[dict[str, Any]] = []
+        """Initialize an empty sign-in."""
+        super().__init__()
+        self._device_flow = None
+        self._auth = None
+        self._login_task = None
+        self._tokens = None
+        self._account = None
+        self._x_homes = []
+        self._hidden = []
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial step - start device auth."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            # User clicked "Start Authentication"
-            session = async_get_clientsession(self.hass)
-            self._api = TadoXApi(session)
-
-            try:
-                auth_data = await self._api.start_device_auth()
-                self._device_code = auth_data["device_code"]
-                self._user_code = auth_data["user_code"]
-                self._verification_uri = auth_data.get(
-                    "verification_uri_complete",
-                    auth_data.get("verification_uri", "https://login.tado.com/oauth2/device")
-                )
-                return await self.async_step_auth()
-
-            except TadoXAuthError as err:
-                _LOGGER.error("Failed to start device auth: %s", err)
-                errors["base"] = "auth_error"
-            except aiohttp.ClientError as err:
-                _LOGGER.error("Network error: %s", err)
-                errors["base"] = "cannot_connect"
-
-        return self.async_show_form(
+        """Show the device code and wait in the background for the sign-in."""
+        if self._login_task is None or self._auth is None:
+            self._device_flow = DeviceCodeFlow(async_get_clientsession(self.hass))
+            with _abort_on_error():
+                self._auth = await self._device_flow.async_start()
+            self._login_task = self.hass.async_create_background_task(
+                self._device_flow.async_wait_for_token(self._auth),
+                "tado_x device code login",
+            )
+        if self._login_task.done():
+            error = self._login_task.exception()
+            if isinstance(error, TadoXDeviceFlowError) and error.reason == "expired":
+                return self.async_show_progress_done(next_step_id="timeout")
+            return self.async_show_progress_done(next_step_id="finish_login")
+        return self.async_show_progress(
             step_id="user",
-            data_schema=vol.Schema({}),
-            errors=errors,
+            progress_action="wait_for_device",
             description_placeholders={
-                "info": "Click 'Submit' to start the authentication process with Tado."
+                "url": self._auth.verification_url,
+                "code": self._auth.user_code,
             },
+            progress_task=self._login_task,
         )
 
-    async def async_step_auth(
+    async def async_step_finish_login(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the authentication step."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            # User confirmed they authorized the device
-            if self._api and self._device_code:
-                try:
-                    # Poll for token - give enough time for user to authorize
-                    success = await self._api.poll_for_token(
-                        self._device_code, interval=3, timeout=120
-                    )
-                    if success:
-                        # Get homes
-                        self._homes = await self._api.get_homes()
-                        if len(self._homes) == 1:
-                            # Only one home, use it directly
-                            home = self._homes[0]
-                            return self._create_entry(home)
-                        elif len(self._homes) > 1:
-                            # Multiple homes, let user choose
-                            return await self.async_step_select_home()
-                        else:
-                            errors["base"] = "no_homes"
-                    else:
-                        errors["base"] = "auth_timeout"
-
-                except TadoXAuthError as err:
-                    _LOGGER.error("Auth error: %s", err)
-                    errors["base"] = "auth_error"
-
-        return self.async_show_form(
-            step_id="auth",
-            data_schema=vol.Schema({}),
-            errors=errors,
-            description_placeholders={
-                "user_code": self._user_code or "",
-                "verification_uri": self._verification_uri or "",
-            },
-        )
+        """List the tado X homes of the account and continue per flow source."""
+        assert self._login_task is not None
+        with _abort_on_error():
+            await self._async_read_account(self._login_task.result())
+        if self.source == SOURCE_REAUTH:
+            return self._async_finish_reauth()
+        if self.source == SOURCE_RECONFIGURE:
+            return self._async_finish_reconfigure()
+        return await self._async_finish_user()
 
     async def async_step_select_home(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle home selection when multiple homes exist."""
+        """Let the user pick one of several tado X homes."""
         if user_input is not None:
-            home_id = user_input[CONF_HOME_ID]
-            for home in self._homes:
-                if home["id"] == home_id:
-                    return self._create_entry(home)
-
-        home_options = {home["id"]: home["name"] for home in self._homes}
-
+            home = next(
+                home
+                for home in self._x_homes
+                if str(home.id) == user_input[CONF_HOME_ID]
+            )
+            return await self._async_create_home_entry(home)
+        options = [
+            SelectOptionDict(value=str(home.id), label=home.name)
+            for home in self._x_homes
+        ]
         return self.async_show_form(
             step_id="select_home",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_HOME_ID): vol.In(home_options),
+                    probatio.Required(CONF_HOME_ID): SelectSelector(
+                        SelectSelectorConfig(
+                            options=options, mode=SelectSelectorMode.LIST
+                        )
+                    )
                 }
             ),
+            description_placeholders={"hidden": _names(self._hidden)},
         )
 
-    def _create_entry(self, home: dict[str, Any]) -> ConfigFlowResult:
-        """Create the config entry."""
-        if not self._api:
-            return self.async_abort(reason="unknown")
-
-        # Check if this home is already configured
-        await_unique_id = f"tado_x_{home['id']}"
-        for entry in self._async_current_entries():
-            if entry.unique_id == await_unique_id:
-                return self.async_abort(reason="already_configured")
-
-        return self.async_create_entry(
-            title=home["name"],
-            data={
-                CONF_HOME_ID: home["id"],
-                CONF_HOME_NAME: home["name"],
-                CONF_ACCESS_TOKEN: self._api.access_token,
-                CONF_REFRESH_TOKEN: self._api.refresh_token,
-                CONF_TOKEN_EXPIRY: self._api.token_expiry.isoformat() if self._api.token_expiry else None,
-            },
-        )
+    async def async_step_timeout(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Offer a new code after the previous one expired."""
+        if user_input is None:
+            return self.async_show_form(step_id="timeout")
+        self._device_flow = None
+        self._auth = None
+        self._login_task = None
+        return await self.async_step_user()
 
     async def async_step_reauth(
-        self, entry_data: dict[str, Any]
+        self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
-        """Handle reauthorization."""
+        """Start a reauthentication."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle reauthorization confirmation."""
-        errors: dict[str, str] = {}
+        """Confirm the reauthentication, then sign in again."""
+        if user_input is None:
+            return self.async_show_form(step_id="reauth_confirm")
+        return await self.async_step_user()
 
-        if user_input is not None:
-            session = async_get_clientsession(self.hass)
-            self._api = TadoXApi(session)
-
-            try:
-                auth_data = await self._api.start_device_auth()
-                self._device_code = auth_data["device_code"]
-                self._user_code = auth_data["user_code"]
-                self._verification_uri = auth_data.get(
-                    "verification_uri_complete",
-                    auth_data.get("verification_uri")
-                )
-                return await self.async_step_reauth_auth()
-
-            except TadoXAuthError as err:
-                _LOGGER.error("Failed to start device auth: %s", err)
-                errors["base"] = "auth_error"
-
-        return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema({}),
-            errors=errors,
-        )
-
-    async def async_step_reauth_auth(
+    async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle reauthorization authentication."""
-        errors: dict[str, str] = {}
+        """Start switching the tado account used for this home.
 
-        if user_input is not None:
-            if self._api and self._device_code:
-                try:
-                    success = await self._api.poll_for_token(
-                        self._device_code, interval=3, timeout=120
-                    )
-                    if success:
-                        # Update the existing entry
-                        reauth_entry = self._get_reauth_entry()
-                        return self.async_update_reload_and_abort(
-                            reauth_entry,
-                            data={
-                                **reauth_entry.data,
-                                CONF_ACCESS_TOKEN: self._api.access_token,
-                                CONF_REFRESH_TOKEN: self._api.refresh_token,
-                                CONF_TOKEN_EXPIRY: self._api.token_expiry.isoformat() if self._api.token_expiry else None,
-                            },
-                        )
-                    else:
-                        errors["base"] = "auth_timeout"
+        A duplicate entry of 1.8.x has no unique_id while another entry owns
+        its home; its home id is the one in its data, so it matches.
+        """
+        entry = self._get_reconfigure_entry()
+        await self.async_set_unique_id(str(entry.data[CONF_HOME_ID]))
+        if entry.unique_id is not None:
+            self._abort_if_unique_id_mismatch()
+        return await self.async_step_reconfigure_confirm()
 
-                except TadoXAuthError as err:
-                    _LOGGER.error("Auth error: %s", err)
-                    errors["base"] = "auth_error"
+    async def async_step_reconfigure_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm the account switch, then sign in with the other account."""
+        if user_input is None:
+            return self.async_show_form(step_id="reconfigure_confirm")
+        return await self.async_step_user()
 
-        return self.async_show_form(
-            step_id="reauth_auth",
-            data_schema=vol.Schema({}),
-            errors=errors,
-            description_placeholders={
-                "user_code": self._user_code or "",
-                "verification_uri": self._verification_uri or "",
-            },
+    @override
+    @callback
+    def async_remove(self) -> None:
+        """Cancel the sign-in task when the dialog closes."""
+        if self._login_task is not None and not self._login_task.done():
+            self._login_task.cancel()
+
+    @staticmethod
+    @override
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> TadoXOptionsFlow:
+        """Return the options flow."""
+        return TadoXOptionsFlow()
+
+    async def _async_read_account(self, tokens: TokenSet) -> None:
+        """Read the account and the details of the homes this flow needs.
+
+        The client lives only for these requests; a token it rotates meanwhile
+        is what the entry stores.
+        """
+        session = async_get_clientsession(self.hass)
+        store = MemoryTokenStore(tokens)
+        client = TadoXClient(session, TokenManager(session, store), QuotaTracker())
+        try:
+            account = await client.async_get_account()
+            homes = await client.async_list_homes(self._homes_to_read(account))
+        finally:
+            await client.async_close()
+        self._tokens = store.load()
+        self._account = account
+        self._x_homes = [home for home in homes if home.is_tado_x]
+        self._hidden = [home for home in homes if not home.is_tado_x]
+
+    def _homes_to_read(self, account: Account) -> Account:
+        """Limit the account to the homes whose details the flow source needs.
+
+        A user flow needs every home, a reconfigure flow the home of the entry
+        and a reauth flow none, which saves API calls.
+        """
+        if self.source == SOURCE_REAUTH:
+            return replace(account, homes=())
+        if self.source == SOURCE_RECONFIGURE:
+            home_id = self._get_reconfigure_entry().data[CONF_HOME_ID]
+            homes = tuple(home for home in account.homes if home.id == home_id)
+            return replace(account, homes=homes)
+        return account
+
+    async def _async_finish_user(self) -> ConfigFlowResult:
+        """Create the entry, or ask which home to add."""
+        if not self._x_homes:
+            return self.async_abort(
+                reason="no_tado_x_homes",
+                description_placeholders={"hidden": _names(self._hidden)},
+            )
+        configured = self._async_current_ids()
+        self._x_homes = [
+            home for home in self._x_homes if str(home.id) not in configured
+        ]
+        if not self._x_homes:
+            return self.async_abort(reason="already_configured")
+        if len(self._x_homes) == 1:
+            return await self._async_create_home_entry(self._x_homes[0])
+        return await self.async_step_select_home()
+
+    async def _async_create_home_entry(self, home: HomeInfo) -> ConfigFlowResult:
+        await self.async_set_unique_id(str(home.id))
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=home.name,
+            data={CONF_HOME_ID: home.id, CONF_HOME_NAME: home.name}
+            | self._account_data(),
+            options=dict(DEFAULT_OPTIONS),
         )
 
+    @callback
+    def _async_finish_reauth(self) -> ConfigFlowResult:
+        """Store the new tokens if the account that has the home signed in."""
+        entry = self._get_reauth_entry()
+        assert self._account is not None
+        if (user_id := entry.data.get(CONF_USER_ID)) is not None:
+            same_account = user_id == self._account.user_id
+        else:
+            home_id = entry.data[CONF_HOME_ID]
+            same_account = any(home.id == home_id for home in self._account.homes)
+        if not same_account:
+            return self.async_abort(reason="reauth_account_mismatch")
+        return self.async_update_reload_and_abort(
+            entry, data_updates=self._account_data()
+        )
 
-class TadoXOptionsFlow(OptionsFlow):
-    """Handle Tado X options."""
+    @callback
+    def _async_finish_reconfigure(self) -> ConfigFlowResult:
+        """Switch the entry to the new account if it has this tado X home."""
+        entry = self._get_reconfigure_entry()
+        home_id = entry.data[CONF_HOME_ID]
+        if not any(home.id == home_id for home in self._x_homes):
+            return self.async_abort(reason="home_not_found")
+        return self.async_update_reload_and_abort(
+            entry, data_updates=self._account_data()
+        )
+
+    def _account_data(self) -> dict[str, Any]:
+        """Return the account and token keys of the entry data."""
+        assert self._account is not None
+        assert self._tokens is not None
+        return {
+            CONF_USER_ID: self._account.user_id,
+            CONF_ACCESS_TOKEN: self._tokens.access_token,
+            CONF_REFRESH_TOKEN: self._tokens.refresh_token,
+            CONF_TOKEN_EXPIRY: self._tokens.expires_at.isoformat(),
+        }
+
+
+def _format_period(period: timedelta) -> str:
+    seconds = round(period.total_seconds())
+    if seconds < 120:
+        return f"{seconds} s"
+    return f"{round(seconds / 60)} min"
+
+
+def _format_count(count: int | None) -> str:
+    return _NO_VALUE if count is None else str(count)
+
+
+class TadoXOptionsFlow(OptionsFlowWithReload):
+    """Options of a tado X entry: polling budget, optional data and control."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the options."""
+        """Show and store the options; values are stored flat."""
         if user_input is not None:
-            has_auto_assist = user_input[CONF_HAS_AUTO_ASSIST]
-            custom_interval = user_input.get(CONF_SCAN_INTERVAL)
-
-            # Get feature toggles
-            enable_weather = user_input.get(CONF_ENABLE_WEATHER, has_auto_assist)
-            enable_mobile_devices = user_input.get(CONF_ENABLE_MOBILE_DEVICES, has_auto_assist)
-            enable_air_comfort = user_input.get(CONF_ENABLE_AIR_COMFORT, has_auto_assist)
-            enable_running_times = user_input.get(CONF_ENABLE_RUNNING_TIMES, has_auto_assist)
-            enable_flow_temp = user_input.get(CONF_ENABLE_FLOW_TEMP, has_auto_assist)
-
-            # Determine scan interval: custom if set, otherwise based on tier
-            if custom_interval and custom_interval > 0:
-                scan_interval = custom_interval
-            else:
-                scan_interval = (
-                    SCAN_INTERVAL_AUTO_ASSIST if has_auto_assist
-                    else SCAN_INTERVAL_FREE_TIER
-                )
-
-            # Update the config entry data
-            new_data = {
-                **self.config_entry.data,
-                CONF_HAS_AUTO_ASSIST: has_auto_assist,
-                CONF_SCAN_INTERVAL: scan_interval,
-                CONF_ENABLE_WEATHER: enable_weather,
-                CONF_ENABLE_MOBILE_DEVICES: enable_mobile_devices,
-                CONF_ENABLE_AIR_COMFORT: enable_air_comfort,
-                CONF_ENABLE_RUNNING_TIMES: enable_running_times,
-                CONF_ENABLE_FLOW_TEMP: enable_flow_temp,
+            options = {
+                key: value
+                for values in user_input.values()
+                for key, value in values.items()
             }
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data=new_data,
+            for key in _INTEGER_OPTIONS:
+                options[key] = int(options[key])
+            return self.async_create_entry(
+                data={**self.config_entry.options, **options}
             )
-
-            # Update the coordinator if it exists
-            if self.config_entry.entry_id in self.hass.data.get(DOMAIN, {}):
-                coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]
-                coordinator.api.has_auto_assist = has_auto_assist
-                coordinator.update_scan_interval(scan_interval)
-                # Update feature flags
-                coordinator.enable_weather = enable_weather
-                coordinator.enable_mobile_devices = enable_mobile_devices
-                coordinator.enable_air_comfort = enable_air_comfort
-                coordinator.enable_running_times = enable_running_times
-                coordinator.enable_flow_temp = enable_flow_temp
-
-            return self.async_create_entry(title="", data={})
-
-        current_auto_assist = self.config_entry.data.get(CONF_HAS_AUTO_ASSIST, False)
-        current_interval = self.config_entry.data.get(CONF_SCAN_INTERVAL, 0)
-
-        # Feature toggles - default to True for Auto-Assist, False for free tier
-        # If already configured, use the stored value
-        default_features = current_auto_assist
-        current_enable_weather = self.config_entry.data.get(CONF_ENABLE_WEATHER, default_features)
-        current_enable_mobile_devices = self.config_entry.data.get(CONF_ENABLE_MOBILE_DEVICES, default_features)
-        current_enable_air_comfort = self.config_entry.data.get(CONF_ENABLE_AIR_COMFORT, default_features)
-        current_enable_running_times = self.config_entry.data.get(CONF_ENABLE_RUNNING_TIMES, default_features)
-        current_enable_flow_temp = self.config_entry.data.get(CONF_ENABLE_FLOW_TEMP, default_features)
-
-        # Suggested intervals based on tier
-        default_interval = (
-            SCAN_INTERVAL_AUTO_ASSIST if current_auto_assist
-            else SCAN_INTERVAL_FREE_TIER
-        )
-
+        current = {**DEFAULT_OPTIONS, **self.config_entry.options}
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA,
                 {
-                    vol.Required(
-                        CONF_HAS_AUTO_ASSIST,
-                        default=current_auto_assist,
-                    ): bool,
-                    vol.Optional(
-                        CONF_SCAN_INTERVAL,
-                        default=current_interval if current_interval > 0 else default_interval,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
-                    vol.Required(
-                        CONF_ENABLE_WEATHER,
-                        default=current_enable_weather,
-                    ): bool,
-                    vol.Required(
-                        CONF_ENABLE_MOBILE_DEVICES,
-                        default=current_enable_mobile_devices,
-                    ): bool,
-                    vol.Required(
-                        CONF_ENABLE_AIR_COMFORT,
-                        default=current_enable_air_comfort,
-                    ): bool,
-                    vol.Required(
-                        CONF_ENABLE_RUNNING_TIMES,
-                        default=current_enable_running_times,
-                    ): bool,
-                    vol.Required(
-                        CONF_ENABLE_FLOW_TEMP,
-                        default=current_enable_flow_temp,
-                    ): bool,
-                }
+                    name: {key: current[key] for key in keys}
+                    for name, keys in OPTION_SECTIONS.items()
+                },
             ),
+            description_placeholders=self._plan_placeholders(),
         )
+
+    def _plan_placeholders(self) -> dict[str, str]:
+        """Describe the polling plan and the quota of the loaded entry."""
+        entry: TadoXConfigEntry = self.config_entry
+        if entry.state is not ConfigEntryState.LOADED:
+            return dict.fromkeys(
+                ("rooms_interval", "calls_per_day", "limit", "remaining"), _NO_VALUE
+            )
+        monitor = entry.runtime_data.monitor
+        plan, info = monitor.plan, monitor.info
+        return {
+            "rooms_interval": _format_period(plan.rooms),
+            "calls_per_day": str(plan.calls_per_day),
+            "limit": _format_count(None if info is None else info.limit),
+            "remaining": _format_count(None if info is None else info.remaining),
+        }

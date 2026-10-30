@@ -1,10 +1,10 @@
-"""Sensor platform for Tado X."""
-from __future__ import annotations
+"""Sensor platform of the tado X integration."""
 
-import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from datetime import datetime
+from enum import StrEnum
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,635 +12,563 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfTemperature, UnitOfTime
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-
-from .const import API_QUOTA_FREE_TIER, API_QUOTA_PREMIUM, DOMAIN
-from .coordinator import (
-    TadoXData,
-    TadoXDataUpdateCoordinator,
-    TadoXDevice,
-    TadoXRoom,
-    TadoXRoomAirComfort,
-    TadoXWeather,
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfTemperature,
+    UnitOfTime,
 )
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.typing import StateType
+from homeassistant.util import dt as dt_util
 
-_LOGGER = logging.getLogger(__name__)
+from .client import (
+    BatteryState,
+    ControlMode,
+    Device,
+    HumidityLevel,
+    NextScheduleChange,
+    Power,
+    RateLimitInfo,
+    RoomComfort,
+    RoomState,
+    TemperatureLevel,
+    TerminationType,
+    WeatherState,
+)
+from .coordinator import (
+    DevicesCoordinator,
+    HomeCoordinator,
+    RoomsCoordinator,
+    TadoXCoordinator,
+    home_today,
+)
+from .devices import device_identifier, home_identifier, room_identifier
+from .entity import TadoXEntity, TadoXStatusEntity, async_add_dynamic_entities
+from .quota import ApiStatus
+from .runtime import HomeSnapshot, TadoXConfigEntry, TadoXRuntimeData
+
+PARALLEL_UPDATES = 0
+
+type SensorValue = StateType | datetime
 
 
-def _get_api_quota(data: TadoXData) -> int:
-    """Get the appropriate API quota.
-
-    Prefers real value from API headers if available, falls back to default values.
-    """
-    if data.api_quota_limit is not None:
-        return data.api_quota_limit
-    return API_QUOTA_PREMIUM if data.has_auto_assist else API_QUOTA_FREE_TIER
+def _state(value: StrEnum | None) -> str | None:
+    """Return the ENUM state of an API value; None while it is unknown."""
+    return None if value is None else value.value.lower()
 
 
-def _get_api_remaining(data: TadoXData) -> int:
-    """Get remaining API calls.
+def _options(enum: type[StrEnum]) -> list[str]:
+    """Return the ENUM options of an API enum."""
+    return [member.value.lower() for member in enum]
 
-    Prefers real value from API headers if available, falls back to calculated value.
-    """
-    if data.api_quota_remaining is not None:
-        return data.api_quota_remaining
-    return max(0, _get_api_quota(data) - data.api_calls_today)
+
+def _upcoming(moment: datetime | None) -> datetime | None:
+    """Return a time that still lies ahead; tado keeps reporting past ones."""
+    return moment if moment is not None and moment > dt_util.utcnow() else None
+
+
+def _calls_used(info: RateLimitInfo | None) -> int | None:
+    """Return the calls the whole account used since the quota reset (q - r)."""
+    if info is None or info.limit is None or info.remaining is None:
+        return None
+    return max(info.limit - info.remaining, 0)
+
+
+def _usage_percentage(info: RateLimitInfo | None) -> float | None:
+    """Return the share of the account quota used since the reset."""
+    used = _calls_used(info)
+    if used is None or info is None or not info.limit:
+        return None
+    return round(min(used / info.limit, 1.0) * 100, 1)
+
+
+def _next_change(room: RoomState) -> NextScheduleChange | None:
+    """Return the next schedule change of a room unless it already passed."""
+    change = room.next_schedule_change
+    if change is None or _upcoming(change.start) is None:
+        return None
+    return change
+
+
+def _next_temperature(room: RoomState) -> float | None:
+    """Return the target of the next schedule change; None when it turns off."""
+    change = _next_change(room)
+    if change is None or change.setting.power is not Power.ON:
+        return None
+    return change.setting.temperature
+
+
+def _manual_control_end(room: RoomState) -> datetime | None:
+    """Return when the manual control of a room ends; None if it has no planned end."""
+    override = room.manual_control
+    if override is None or override.type is TerminationType.MANUAL:
+        return None
+    return _upcoming(override.projected_expiry)
 
 
 @dataclass(frozen=True, kw_only=True)
-class TadoXRoomSensorEntityDescription(SensorEntityDescription):
-    """Describes a Tado X room sensor entity."""
+class TadoXStatusSensorEntityDescription(SensorEntityDescription):
+    """Describes a sensor of the API quota or of the data freshness."""
 
-    value_fn: Callable[[TadoXRoom], Any]
+    value_fn: Callable[[TadoXRuntimeData], SensorValue]
 
 
-@dataclass(frozen=True, kw_only=True)
-class TadoXDeviceSensorEntityDescription(SensorEntityDescription):
-    """Describes a Tado X device sensor entity."""
-
-    value_fn: Callable[[TadoXDevice], Any]
+STATUS_SENSORS: tuple[TadoXStatusSensorEntityDescription, ...] = (
+    TadoXStatusSensorEntityDescription(
+        key="api_calls_today",
+        translation_key="api_calls_today",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: _calls_used(data.monitor.info),
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="api_calls_24h",
+        translation_key="api_calls_24h",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data.monitor.calls_24h(),
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="api_quota_remaining",
+        translation_key="api_quota_remaining",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: info.remaining if (info := data.monitor.info) else None,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="api_quota_limit",
+        translation_key="api_quota_limit",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: info.limit if (info := data.monitor.info) else None,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="api_usage_percentage",
+        translation_key="api_usage_percentage",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: _usage_percentage(data.monitor.info),
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="api_reset_time",
+        translation_key="api_reset_time",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data: data.monitor.reset_time,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="api_status",
+        translation_key="api_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.ENUM,
+        options=[status.value for status in ApiStatus],
+        value_fn=lambda data: data.monitor.status.value,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="data_updated",
+        translation_key="data_updated",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data: data.rooms.last_live_update,
+    ),
+)
 
 
 @dataclass(frozen=True, kw_only=True)
 class TadoXHomeSensorEntityDescription(SensorEntityDescription):
-    """Describes a Tado X home sensor entity."""
+    """Describes a sensor of the home; feature names the endpoint it needs."""
 
-    value_fn: Callable[[TadoXData], Any]
+    value_fn: Callable[[HomeSnapshot], StateType]
+    feature: str | None = None
+
+
+HOME_SENSORS: tuple[TadoXHomeSensorEntityDescription, ...] = (
+    TadoXHomeSensorEntityDescription(
+        key="presence_state",
+        translation_key="presence_state",
+        device_class=SensorDeviceClass.ENUM,
+        options=["home", "away"],
+        value_fn=lambda home: home.state.presence.value.lower(),
+    ),
+    TadoXHomeSensorEntityDescription(
+        key="presence_mode",
+        translation_key="presence_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        device_class=SensorDeviceClass.ENUM,
+        options=["auto", "manual"],
+        value_fn=lambda home: "manual" if home.state.presence_locked else "auto",
+    ),
+    TadoXHomeSensorEntityDescription(
+        key="weather_outdoor_temperature",
+        translation_key="outdoor_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        feature="weather",
+        value_fn=lambda home: (
+            home.weather.outdoor_temperature if home.weather else None
+        ),
+    ),
+    TadoXHomeSensorEntityDescription(
+        key="weather_solar_intensity",
+        translation_key="solar_intensity",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        feature="weather",
+        value_fn=lambda home: home.weather.solar_intensity if home.weather else None,
+    ),
+    TadoXHomeSensorEntityDescription(
+        key="weather_weather_state",
+        translation_key="weather_state",
+        device_class=SensorDeviceClass.ENUM,
+        options=_options(WeatherState),
+        feature="weather",
+        value_fn=lambda home: _state(home.weather.state) if home.weather else None,
+    ),
+)
 
 
 @dataclass(frozen=True, kw_only=True)
-class TadoXWeatherSensorEntityDescription(SensorEntityDescription):
-    """Describes a Tado X weather sensor entity."""
+class TadoXRoomSensorEntityDescription(SensorEntityDescription):
+    """Describes a sensor of the live state of a room."""
 
-    value_fn: Callable[[TadoXWeather], Any]
-
-
-@dataclass(frozen=True, kw_only=True)
-class TadoXAirComfortSensorEntityDescription(SensorEntityDescription):
-    """Describes a Tado X air comfort sensor entity."""
-
-    value_fn: Callable[[TadoXRoomAirComfort], Any]
-
-
-def _format_running_time_hours(room: TadoXRoom) -> float:
-    """Convert running time seconds to hours with one decimal."""
-    seconds = room.running_time_today_seconds
-    return round(seconds / 3600, 1)
+    value_fn: Callable[[RoomState], SensorValue]
 
 
 ROOM_SENSORS: tuple[TadoXRoomSensorEntityDescription, ...] = (
     TadoXRoomSensorEntityDescription(
         key="temperature",
         translation_key="temperature",
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
         value_fn=lambda room: room.current_temperature,
     ),
     TadoXRoomSensorEntityDescription(
         key="humidity",
         translation_key="humidity",
-        native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
         value_fn=lambda room: room.humidity,
     ),
     TadoXRoomSensorEntityDescription(
         key="heating_power",
         translation_key="heating_power",
-        native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:radiator",
+        native_unit_of_measurement=PERCENTAGE,
         value_fn=lambda room: room.heating_power,
     ),
     TadoXRoomSensorEntityDescription(
-        key="heating_time_today",
-        translation_key="heating_time_today",
-        native_unit_of_measurement=UnitOfTime.HOURS,
-        device_class=SensorDeviceClass.DURATION,
-        state_class=SensorStateClass.TOTAL,
-        icon="mdi:clock-time-four",
-        value_fn=_format_running_time_hours,
+        key="next_schedule_change",
+        translation_key="next_schedule_change",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda room: change.start if (change := _next_change(room)) else None,
+    ),
+    TadoXRoomSensorEntityDescription(
+        key="next_schedule_temperature",
+        translation_key="next_schedule_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        value_fn=_next_temperature,
+    ),
+    TadoXRoomSensorEntityDescription(
+        key="manual_control_end",
+        translation_key="manual_control_end",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=_manual_control_end,
+    ),
+    TadoXRoomSensorEntityDescription(
+        key="next_time_block",
+        translation_key="next_time_block",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_registry_enabled_default=False,
+        value_fn=lambda room: _upcoming(room.next_time_block),
     ),
 )
+
+
+@dataclass(frozen=True, kw_only=True)
+class TadoXComfortSensorEntityDescription(SensorEntityDescription):
+    """Describes an air comfort level of a room."""
+
+    value_fn: Callable[[RoomComfort], str | None]
+
+
+COMFORT_SENSORS: tuple[TadoXComfortSensorEntityDescription, ...] = (
+    TadoXComfortSensorEntityDescription(
+        key="air_freshness",
+        translation_key="air_freshness",
+        device_class=SensorDeviceClass.ENUM,
+        options=_options(HumidityLevel),
+        value_fn=lambda comfort: _state(comfort.humidity_level),
+    ),
+    TadoXComfortSensorEntityDescription(
+        key="comfort_level",
+        translation_key="comfort_level",
+        device_class=SensorDeviceClass.ENUM,
+        options=_options(TemperatureLevel),
+        value_fn=lambda comfort: _state(comfort.temperature_level),
+    ),
+)
+
+HEATING_TIME = SensorEntityDescription(
+    key="heating_time_today",
+    translation_key="heating_time_today",
+    device_class=SensorDeviceClass.DURATION,
+    state_class=SensorStateClass.TOTAL_INCREASING,
+    native_unit_of_measurement=UnitOfTime.HOURS,
+    suggested_display_precision=1,
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TadoXDeviceSensorEntityDescription(SensorEntityDescription):
+    """Describes a sensor of a physical device that reports the field it reads."""
+
+    value_fn: Callable[[Device], StateType]
+    exists_fn: Callable[[Device], bool]
+
 
 DEVICE_SENSORS: tuple[TadoXDeviceSensorEntityDescription, ...] = (
     TadoXDeviceSensorEntityDescription(
         key="battery",
         translation_key="battery",
+        entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.ENUM,
-        options=["normal", "low"],
-        icon="mdi:battery",
-        value_fn=lambda device: device.battery_state.lower() if device.battery_state else None,
+        options=_options(BatteryState),
+        exists_fn=lambda device: device.has_battery,
+        value_fn=lambda device: _state(device.battery),
     ),
     TadoXDeviceSensorEntityDescription(
         key="device_temperature",
         translation_key="device_temperature",
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        exists_fn=lambda device: device.temperature_measured is not None,
         value_fn=lambda device: device.temperature_measured,
     ),
     TadoXDeviceSensorEntityDescription(
         key="temperature_offset",
         translation_key="temperature_offset",
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        device_class=SensorDeviceClass.TEMPERATURE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        device_class=SensorDeviceClass.TEMPERATURE_DELTA,
         state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:thermometer-plus",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        exists_fn=lambda device: device.temperature_offset is not None,
         value_fn=lambda device: device.temperature_offset,
     ),
-)
-
-def _get_api_usage_percentage(data: TadoXData) -> float:
-    """Calculate API usage percentage.
-
-    Uses real values from API headers when available for accurate calculation.
-    """
-    quota = _get_api_quota(data)
-    if quota == 0:
-        return 100.0
-
-    # Calculate calls used based on quota and remaining
-    if data.api_quota_remaining is not None and data.api_quota_limit is not None:
-        # Use real values from headers
-        calls_used = data.api_quota_limit - data.api_quota_remaining
-    else:
-        # Fall back to internal counter
-        calls_used = data.api_calls_today
-
-    return min(100, round((calls_used / quota) * 100, 1))
-
-
-def _get_api_calls_today(data: TadoXData) -> int:
-    """Get API calls made today.
-
-    Uses real values from API headers when available.
-    """
-    if data.api_quota_remaining is not None and data.api_quota_limit is not None:
-        # Calculate from real header values
-        return data.api_quota_limit - data.api_quota_remaining
-    return data.api_calls_today
-
-
-def _get_api_status(data: TadoXData) -> str:
-    """Get API status - OK or RATE_LIMITED."""
-    return "RATE_LIMITED" if data.rate_limited else "OK"
-
-
-def _get_presence_state(data: TadoXData) -> str | None:
-    """Get the current presence state (HOME/AWAY)."""
-    return data.presence
-
-
-def _get_presence_mode(data: TadoXData) -> str:
-    """Get the presence mode - MANUAL (locked) or AUTO (geofencing)."""
-    if data.presence_locked:
-        return "MANUAL"
-    return "AUTO"
-
-
-HOME_SENSORS: tuple[TadoXHomeSensorEntityDescription, ...] = (
-    TadoXHomeSensorEntityDescription(
-        key="api_calls_today",
-        translation_key="api_calls_today",
-        icon="mdi:counter",
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_get_api_calls_today,
-    ),
-    TadoXHomeSensorEntityDescription(
-        key="api_quota_remaining",
-        translation_key="api_quota_remaining",
-        icon="mdi:api",
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_get_api_remaining,
-    ),
-    TadoXHomeSensorEntityDescription(
-        key="api_quota_limit",
-        translation_key="api_quota_limit",
-        icon="mdi:api",
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_get_api_quota,
-    ),
-    TadoXHomeSensorEntityDescription(
-        key="api_usage_percentage",
-        translation_key="api_usage_percentage",
-        icon="mdi:percent",
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_get_api_usage_percentage,
-    ),
-    TadoXHomeSensorEntityDescription(
-        key="api_reset_time",
-        translation_key="api_reset_time",
-        icon="mdi:clock-outline",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: data.api_reset_time,
-    ),
-    TadoXHomeSensorEntityDescription(
-        key="api_status",
-        translation_key="api_status",
-        icon="mdi:api",
+    TadoXDeviceSensorEntityDescription(
+        key="control_mode",
+        translation_key="control_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.ENUM,
-        options=["OK", "RATE_LIMITED"],
-        value_fn=_get_api_status,
-    ),
-    TadoXHomeSensorEntityDescription(
-        key="presence_state",
-        translation_key="presence_state",
-        icon="mdi:home-account",
-        device_class=SensorDeviceClass.ENUM,
-        options=["HOME", "AWAY"],
-        value_fn=_get_presence_state,
-    ),
-    TadoXHomeSensorEntityDescription(
-        key="presence_mode",
-        translation_key="presence_mode",
-        icon="mdi:map-marker-account",
-        device_class=SensorDeviceClass.ENUM,
-        options=["AUTO", "MANUAL"],
-        value_fn=_get_presence_mode,
-    ),
-)
-
-WEATHER_SENSORS: tuple[TadoXWeatherSensorEntityDescription, ...] = (
-    TadoXWeatherSensorEntityDescription(
-        key="outdoor_temperature",
-        translation_key="outdoor_temperature",
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        device_class=SensorDeviceClass.TEMPERATURE,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda weather: weather.outdoor_temperature,
-    ),
-    TadoXWeatherSensorEntityDescription(
-        key="solar_intensity",
-        translation_key="solar_intensity",
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:white-balance-sunny",
-        value_fn=lambda weather: weather.solar_intensity,
-    ),
-    TadoXWeatherSensorEntityDescription(
-        key="weather_state",
-        translation_key="weather_state",
-        device_class=SensorDeviceClass.ENUM,
-        options=["SUN", "SUNNY", "CLOUDY", "CLOUDY_PARTLY", "CLOUDY_MOSTLY", "SCATTERED_RAIN", "NIGHT_CLEAR", "NIGHT_CLOUDY", "RAIN", "DRIZZLE", "SNOW", "SCATTERED_SNOW", "FOGGY", "THUNDERSTORMS", "WINDY", "HAIL", "RAIN_HAIL", "RAIN_SNOW", "SCATTERED_RAIN_SNOW", "FREEZING"],
-        icon="mdi:weather-partly-cloudy",
-        value_fn=lambda weather: weather.weather_state,
-    ),
-)
-
-AIR_COMFORT_SENSORS: tuple[TadoXAirComfortSensorEntityDescription, ...] = (
-    TadoXAirComfortSensorEntityDescription(
-        key="air_freshness",
-        translation_key="air_freshness",
-        device_class=SensorDeviceClass.ENUM,
-        options=["humid", "comfy", "dry"],
-        icon="mdi:air-filter",
-        value_fn=lambda ac: ac.freshness.lower() if ac.freshness else None,
-    ),
-    TadoXAirComfortSensorEntityDescription(
-        key="comfort_level",
-        translation_key="comfort_level",
-        device_class=SensorDeviceClass.ENUM,
-        options=["cold", "comfy", "warm"],
-        icon="mdi:thermometer-lines",
-        value_fn=lambda ac: ac.comfort_level.lower() if ac.comfort_level else None,
+        options=_options(ControlMode),
+        exists_fn=lambda device: device.control_mode is not None,
+        value_fn=lambda device: _state(device.control_mode),
     ),
 )
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up Tado X sensor entities."""
-    coordinator: TadoXDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+class TadoXStatusSensor(TadoXStatusEntity, SensorEntity):
+    """Sensor of the API quota or of the data freshness, fed by the quota monitor."""
 
-    entities: list[SensorEntity] = []
+    entity_description: TadoXStatusSensorEntityDescription
 
-    # Add home-level sensors (API monitoring)
-    for description in HOME_SENSORS:
-        entities.append(TadoXHomeSensor(coordinator, description))
+    def __init__(
+        self, data: TadoXRuntimeData, description: TadoXStatusSensorEntityDescription
+    ) -> None:
+        """Initialize a sensor of the home device."""
+        self.entity_description = description
+        self._data = data
+        home_id = data.api.home_id
+        self._attr_unique_id = f"{home_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(identifiers={home_identifier(home_id)})
 
-    # Add weather sensors (only if feature is enabled)
-    if coordinator.enable_weather:
-        for description in WEATHER_SENSORS:
-            entities.append(TadoXWeatherSensor(coordinator, description))
-
-    # Add room sensors
-    for room_id in coordinator.data.rooms:
-        for description in ROOM_SENSORS:
-            # Skip heating_time_today if running times feature is disabled
-            if description.key == "heating_time_today" and not coordinator.enable_running_times:
-                continue
-            entities.append(TadoXRoomSensor(coordinator, room_id, description))
-
-    # Add device sensors (for devices with batteries - valves and sensors)
-    for device in coordinator.data.devices.values():
-        if device.battery_state:  # Only devices with batteries
-            for description in DEVICE_SENSORS:
-                # Skip device temperature for sensors that don't have it
-                if description.key == "device_temperature" and device.temperature_measured is None:
-                    continue
-                # Skip temperature offset for devices that don't support it (Bridge)
-                if description.key == "temperature_offset" and device.temperature_offset is None:
-                    continue
-                entities.append(TadoXDeviceSensor(coordinator, device.serial_number, description))
-
-    # Add air comfort sensors (per room) - only if feature is enabled
-    if coordinator.enable_air_comfort:
-        for room_id in coordinator.data.rooms:
-            for description in AIR_COMFORT_SENSORS:
-                entities.append(TadoXAirComfortSensor(coordinator, room_id, description))
-
-    async_add_entities(entities)
+    @property
+    @override
+    def native_value(self) -> SensorValue:
+        """Return the value."""
+        return self.entity_description.value_fn(self._data)
 
 
-class TadoXHomeSensor(CoordinatorEntity[TadoXDataUpdateCoordinator], SensorEntity):
-    """Tado X home sensor entity."""
+class TadoXHomeSensor(TadoXEntity[HomeCoordinator], SensorEntity):
+    """Sensor of the presence or the weather of the home."""
 
-    _attr_has_entity_name = True
     entity_description: TadoXHomeSensorEntityDescription
 
     def __init__(
         self,
-        coordinator: TadoXDataUpdateCoordinator,
+        coordinator: HomeCoordinator,
         description: TadoXHomeSensorEntityDescription,
     ) -> None:
-        """Initialize home sensor."""
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._attr_unique_id = f"{coordinator.data.home_id}_{description.key}"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, str(self.coordinator.data.home_id))},
-            name=f"{self.coordinator.data.home_name} Home",
-            manufacturer="Tado",
+        """Initialize a sensor of the home device."""
+        home_id = coordinator.api.home_id
+        super().__init__(
+            coordinator,
+            description,
+            unique_id=f"{home_id}_{description.key}",
+            device=home_identifier(home_id),
         )
 
     @property
-    def native_value(self) -> Any:
-        """Return the sensor value."""
+    @override
+    def native_value(self) -> StateType:
+        """Return the value."""
         return self.entity_description.value_fn(self.coordinator.data)
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
 
-
-class TadoXWeatherSensor(CoordinatorEntity[TadoXDataUpdateCoordinator], SensorEntity):
-    """Tado X weather sensor entity."""
-
-    _attr_has_entity_name = True
-    entity_description: TadoXWeatherSensorEntityDescription
+class TadoXRoomBoundSensor[C: TadoXCoordinator[Any]](TadoXEntity[C], SensorEntity):
+    """Sensor of a room device, fed by any of the coordinators."""
 
     def __init__(
-        self,
-        coordinator: TadoXDataUpdateCoordinator,
-        description: TadoXWeatherSensorEntityDescription,
+        self, coordinator: C, description: SensorEntityDescription, room_id: int
     ) -> None:
-        """Initialize weather sensor."""
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._attr_unique_id = f"{coordinator.data.home_id}_weather_{description.key}"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, str(self.coordinator.data.home_id))},
-            name=f"{self.coordinator.data.home_name} Home",
-            manufacturer="Tado",
+        """Initialize a sensor of a room device."""
+        home_id = coordinator.api.home_id
+        super().__init__(
+            coordinator,
+            description,
+            unique_id=f"{home_id}_{room_id}_{description.key}",
+            device=room_identifier(home_id, room_id),
         )
-
-    @property
-    def native_value(self) -> Any:
-        """Return the sensor value."""
-        weather = self.coordinator.data.weather
-        if not weather:
-            return None
-        return self.entity_description.value_fn(weather)
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
+        self._room_id = room_id
 
 
-class TadoXRoomSensor(CoordinatorEntity[TadoXDataUpdateCoordinator], SensorEntity):
-    """Tado X room sensor entity."""
+class TadoXRoomSensor(TadoXRoomBoundSensor[RoomsCoordinator]):
+    """Sensor of the live state of a room."""
 
-    _attr_has_entity_name = True
     entity_description: TadoXRoomSensorEntityDescription
 
-    def __init__(
-        self,
-        coordinator: TadoXDataUpdateCoordinator,
-        room_id: int,
-        description: TadoXRoomSensorEntityDescription,
-    ) -> None:
-        """Initialize the sensor entity."""
-        super().__init__(coordinator)
-        self._room_id = room_id
-        self.entity_description = description
-        self._attr_unique_id = f"{coordinator.home_id}_{room_id}_{description.key}"
+    @override
+    def _present(self) -> bool:
+        return self._room_id in self.coordinator.data.rooms
 
     @property
-    def _room(self) -> TadoXRoom | None:
-        """Get the room data."""
-        return self.coordinator.data.rooms.get(self._room_id)
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        room = self._room
-        room_name = room.name if room else f"Room {self._room_id}"
-
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self.coordinator.home_id}_{self._room_id}")},
-            name=room_name,
-            manufacturer="Tado",
-            model="Tado X Room",
-            via_device=(DOMAIN, str(self.coordinator.home_id)),
+    @override
+    def native_value(self) -> SensorValue:
+        """Return the value."""
+        return self.entity_description.value_fn(
+            self.coordinator.data.rooms[self._room_id]
         )
 
+
+class TadoXComfortSensor(TadoXRoomBoundSensor[HomeCoordinator]):
+    """Air comfort level of a room."""
+
+    entity_description: TadoXComfortSensorEntityDescription
+
     @property
-    def native_value(self) -> Any:
-        """Return the sensor value."""
-        room = self._room
-        if not room:
+    @override
+    def native_value(self) -> str | None:
+        """Return the level; None while tado rates no level for the room."""
+        comfort = self.coordinator.data.air_comfort
+        room = None if comfort is None else comfort.rooms.get(self._room_id)
+        return None if room is None else self.entity_description.value_fn(room)
+
+
+class TadoXHeatingTimeSensor(TadoXRoomBoundSensor[DevicesCoordinator]):
+    """Heating time of a room today, in the home's time zone."""
+
+    @override
+    def _present(self) -> bool:
+        return self._room_id in self.coordinator.data.topology.rooms
+
+    @property
+    @override
+    def native_value(self) -> float | None:
+        """Return the hours; running times of an earlier day count as none today."""
+        data = self.coordinator.data
+        if (times := data.running_times) is None:
             return None
-        return self.entity_description.value_fn(room)
+        if times.day != home_today(data.home_info):
+            return 0.0
+        if (spent := times.by_room.get(self._room_id)) is None:
+            return None
+        return round(spent.total_seconds() / 3600, 2)
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
 
+class TadoXDeviceSensor(TadoXEntity[DevicesCoordinator], SensorEntity):
+    """Sensor of a physical device."""
 
-class TadoXDeviceSensor(CoordinatorEntity[TadoXDataUpdateCoordinator], SensorEntity):
-    """Tado X device sensor entity."""
-
-    _attr_has_entity_name = True
     entity_description: TadoXDeviceSensorEntityDescription
 
     def __init__(
         self,
-        coordinator: TadoXDataUpdateCoordinator,
-        serial_number: str,
+        coordinator: DevicesCoordinator,
         description: TadoXDeviceSensorEntityDescription,
+        serial: str,
     ) -> None:
-        """Initialize the sensor entity."""
-        super().__init__(coordinator)
-        self._serial_number = serial_number
-        self.entity_description = description
-        self._attr_unique_id = f"{serial_number}_{description.key}"
+        """Initialize a sensor of a physical device."""
+        super().__init__(
+            coordinator,
+            description,
+            unique_id=f"{serial}_{description.key}",
+            device=device_identifier(serial),
+        )
+        self._serial = serial
+
+    @override
+    def _present(self) -> bool:
+        return self._serial in self.coordinator.data.topology.devices
 
     @property
-    def _device(self) -> TadoXDevice | None:
-        """Get the device data."""
-        return self.coordinator.data.devices.get(self._serial_number)
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        device = self._device
-        if not device:
-            return DeviceInfo(
-                identifiers={(DOMAIN, self._serial_number)},
-            )
-
-        # French names for device types (used in device name)
-        device_type_names_fr = {
-            "VA04": "Vanne",
-            "SU04": "Capteur Temp",
-            "TR04": "Récepteur",  # Wireless Receiver X
-            "RU04": "Thermostat",  # Wired Smart Thermostat X
-            "IB02": "Bridge X",
-        }
-
-        # English model names (used in device model field)
-        device_type_models = {
-            "VA04": "Radiator Valve X",
-            "SU04": "Temperature Sensor X",
-            "TR04": "Wireless Receiver X",
-            "RU04": "Wired Smart Thermostat X",
-            "IB02": "Bridge X",
-        }
-
-        # Determine via_device - link to room if device has one, otherwise to home
-        via_device_id = (
-            (DOMAIN, f"{self.coordinator.home_id}_{device.room_id}")
-            if device.room_id
-            else (DOMAIN, str(self.coordinator.home_id))
+    @override
+    def native_value(self) -> StateType:
+        """Return the value."""
+        return self.entity_description.value_fn(
+            self.coordinator.data.topology.devices[self._serial]
         )
 
-        # Generate device name with room name and numbering
-        base_name = device_type_names_fr.get(device.device_type, device.device_type)
 
-        if device.room_id and device.room_name:
-            # Count devices of same type in same room to determine numbering
-            same_type_in_room = sorted([
-                d.serial_number for d in self.coordinator.data.devices.values()
-                if d.room_id == device.room_id and d.device_type == device.device_type
-            ])
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: TadoXConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up the sensors of a tado X home."""
+    data = entry.runtime_data
+    monitor = data.monitor
+    async_add_entities(
+        TadoXStatusSensor(data, description) for description in STATUS_SENSORS
+    )
+    async_add_entities(
+        TadoXHomeSensor(data.home, description)
+        for description in HOME_SENSORS
+        if description.feature is None or monitor.enabled(description.feature)
+    )
+    air_comfort = monitor.enabled("air_comfort")
+    running_times = monitor.enabled("running_times")
 
-            if len(same_type_in_room) > 1:
-                # Multiple devices of same type - add number
-                device_number = same_type_in_room.index(self._serial_number) + 1
-                device_name = f"{base_name} {device_number} - {device.room_name}"
-            else:
-                # Only one device of this type - no number needed
-                device_name = f"{base_name} - {device.room_name}"
-        else:
-            # No room - use serial number suffix (e.g., Bridge)
-            device_name = f"{base_name} ({self._serial_number[-4:]})"
+    def build() -> Iterator[TadoXEntity[Any]]:
+        topology = data.devices.data.topology
+        for room_id in topology.rooms:
+            for description in ROOM_SENSORS:
+                yield TadoXRoomSensor(data.rooms, description, room_id)
+            if air_comfort:
+                for comfort in COMFORT_SENSORS:
+                    yield TadoXComfortSensor(data.home, comfort, room_id)
+            if running_times:
+                yield TadoXHeatingTimeSensor(data.devices, HEATING_TIME, room_id)
+        for device in topology.devices.values():
+            for sensor in DEVICE_SENSORS:
+                if sensor.exists_fn(device):
+                    yield TadoXDeviceSensor(data.devices, sensor, device.serial)
 
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._serial_number)},
-            name=device_name,
-            manufacturer="Tado",
-            model=device_type_models.get(device.device_type, device.device_type),
-            sw_version=device.firmware_version,
-            via_device=via_device_id,
-        )
-
-    @property
-    def native_value(self) -> Any:
-        """Return the sensor value."""
-        device = self._device
-        if not device:
-            return None
-        return self.entity_description.value_fn(device)
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
-
-
-class TadoXAirComfortSensor(CoordinatorEntity[TadoXDataUpdateCoordinator], SensorEntity):
-    """Tado X air comfort sensor entity."""
-
-    _attr_has_entity_name = True
-    entity_description: TadoXAirComfortSensorEntityDescription
-
-    def __init__(
-        self,
-        coordinator: TadoXDataUpdateCoordinator,
-        room_id: int,
-        description: TadoXAirComfortSensorEntityDescription,
-    ) -> None:
-        """Initialize the air comfort sensor entity."""
-        super().__init__(coordinator)
-        self._room_id = room_id
-        self.entity_description = description
-        self._attr_unique_id = f"{coordinator.home_id}_{room_id}_{description.key}"
-
-    @property
-    def _air_comfort(self) -> TadoXRoomAirComfort | None:
-        """Get the air comfort data for this room."""
-        return self.coordinator.data.air_comfort.get(self._room_id)
-
-    @property
-    def _room(self) -> TadoXRoom | None:
-        """Get the room data."""
-        return self.coordinator.data.rooms.get(self._room_id)
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        room = self._room
-        room_name = room.name if room else f"Room {self._room_id}"
-
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self.coordinator.home_id}_{self._room_id}")},
-            name=room_name,
-            manufacturer="Tado",
-            model="Tado X Room",
-            via_device=(DOMAIN, str(self.coordinator.home_id)),
-        )
-
-    @property
-    def native_value(self) -> Any:
-        """Return the sensor value."""
-        air_comfort = self._air_comfort
-        if not air_comfort:
-            return None
-        return self.entity_description.value_fn(air_comfort)
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
+    async_add_dynamic_entities(entry, data.devices, async_add_entities, build)

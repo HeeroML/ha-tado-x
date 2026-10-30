@@ -1,80 +1,106 @@
-"""Constants for the Tado X integration."""
-from typing import Final
+"""Constants of the tado X integration."""
+
+from collections.abc import Mapping
+from datetime import timedelta
+import logging
+from types import MappingProxyType
+from typing import Any, Final
+
+from .termination import TerminationPolicy
 
 DOMAIN: Final = "tado_x"
+LOGGER: Final = logging.getLogger(__package__)
 
-# API URLs
-TADO_AUTH_URL: Final = "https://login.tado.com/oauth2/device_authorize"
-TADO_TOKEN_URL: Final = "https://login.tado.com/oauth2/token"
-TADO_HOPS_API_URL: Final = "https://hops.tado.com"
-TADO_MY_API_URL: Final = "https://my.tado.com/api/v2"
-TADO_EIQ_API_URL: Final = "https://energy-insights.tado.com/api"
-TADO_MINDER_API_URL: Final = "https://minder.tado.com/v1"
+MANUFACTURER: Final = "Tado"
+CONFIGURATION_URL: Final = "https://app.tado.com"
+DOCUMENTATION_URL: Final = "https://github.com/HeeroML/ha-tado-x"
 
-# OAuth2 Client ID (public client for device linking)
-TADO_CLIENT_ID: Final = "1bb50063-6b0c-4d11-bd99-387f4a91cc46"
-
-# Config keys
+# Config entry data (flat keys, readable by 1.8.11 after a rollback).
 CONF_HOME_ID: Final = "home_id"
 CONF_HOME_NAME: Final = "home_name"
+CONF_USER_ID: Final = "user_id"
 CONF_ACCESS_TOKEN: Final = "access_token"
 CONF_REFRESH_TOKEN: Final = "refresh_token"
 CONF_TOKEN_EXPIRY: Final = "token_expiry"
-CONF_API_CALLS_TODAY: Final = "api_calls_today"
-CONF_API_RESET_TIME: Final = "api_reset_time"
-CONF_HAS_AUTO_ASSIST: Final = "has_auto_assist"
 
-# Update intervals (in seconds)
-# Free tier: 100 req/day ÷ 3 req/update = 33 updates max → 45 min interval = 32 updates × 3 = 96 req/day
-SCAN_INTERVAL_FREE_TIER: Final = 2700  # 45 minutes - stays under 100 req/day quota
-SCAN_INTERVAL_AUTO_ASSIST: Final = 30  # 30 seconds - for 20k req/day quota
-DEFAULT_SCAN_INTERVAL: Final = 30  # seconds (legacy, use tier-specific)
+# Config entry options, stored flat.
+OPT_DAILY_CALL_BUDGET: Final = "daily_call_budget"
+OPT_QUOTA_RESERVE: Final = "quota_reserve"
+OPT_WEATHER: Final = "weather"
+OPT_AIR_COMFORT: Final = "air_comfort"
+OPT_RUNNING_TIMES: Final = "running_times"
+OPT_MOBILE_DEVICES: Final = "mobile_devices"
+OPT_HOLIDAY_MODE: Final = "holiday_mode"
+OPT_MANUAL_TERMINATION: Final = "manual_termination"
+OPT_TIMER_MINUTES: Final = "timer_minutes"
+OPT_OFF_FOLLOWS_POLICY: Final = "off_follows_policy"
+OPT_PRESENCE_ZONE: Final = "presence_zone"
 
-# API Rate Limits
-API_QUOTA_FREE_TIER: Final = 100  # requests per day without Auto-Assist
-API_QUOTA_PREMIUM: Final = 20000  # requests per day with Auto-Assist
-API_CALLS_PER_UPDATE: Final = 6  # get_rooms + get_rooms_and_devices + get_home_state + get_weather + get_mobile_devices + get_running_times
+DEFAULT_DAILY_CALL_BUDGET: Final = 3000
+MIN_DAILY_CALL_BUDGET: Final = 100
+MAX_DAILY_CALL_BUDGET: Final = 20000
+DEFAULT_QUOTA_RESERVE: Final = 1000
+MIN_QUOTA_RESERVE: Final = 0
+MAX_QUOTA_RESERVE: Final = 10000
+DEFAULT_TIMER_MINUTES: Final = 60
+MIN_TIMER_MINUTES: Final = 5
+MAX_TIMER_MINUTES: Final = 1440
+DEFAULT_PRESENCE_ZONE: Final = "zone.home"
 
-# Config keys for options
-CONF_SCAN_INTERVAL: Final = "scan_interval"
+DEFAULT_OPTIONS: Final[Mapping[str, Any]] = MappingProxyType(
+    {
+        OPT_DAILY_CALL_BUDGET: DEFAULT_DAILY_CALL_BUDGET,
+        OPT_QUOTA_RESERVE: DEFAULT_QUOTA_RESERVE,
+        OPT_WEATHER: True,
+        OPT_AIR_COMFORT: True,
+        OPT_RUNNING_TIMES: True,
+        OPT_MOBILE_DEVICES: False,
+        OPT_HOLIDAY_MODE: False,
+        OPT_MANUAL_TERMINATION: TerminationPolicy.FOLLOW_APP.value,
+        OPT_TIMER_MINUTES: DEFAULT_TIMER_MINUTES,
+        OPT_OFF_FOLLOWS_POLICY: False,
+        OPT_PRESENCE_ZONE: DEFAULT_PRESENCE_ZONE,
+    }
+)
 
-# Feature toggles for optional API calls
-CONF_ENABLE_WEATHER: Final = "enable_weather"
-CONF_ENABLE_MOBILE_DEVICES: Final = "enable_mobile_devices"
-CONF_ENABLE_AIR_COMFORT: Final = "enable_air_comfort"
-CONF_ENABLE_RUNNING_TIMES: Final = "enable_running_times"
-CONF_ENABLE_FLOW_TEMP: Final = "enable_flow_temp"
+# Entry data keys of 1.8.x. 1.9.0 ignores and never writes them; they stay in
+# the entry so that a rollback to 1.8.11 keeps its settings.
+LEGACY_API_CALLS_TODAY: Final = "api_calls_today"
+LEGACY_API_RESET_TIME: Final = "api_reset_time"
+LEGACY_HAS_AUTO_ASSIST: Final = "has_auto_assist"
+LEGACY_SCAN_INTERVAL: Final = "scan_interval"
+LEGACY_ENABLE_WEATHER: Final = "enable_weather"
+LEGACY_ENABLE_MOBILE_DEVICES: Final = "enable_mobile_devices"
+LEGACY_ENABLE_AIR_COMFORT: Final = "enable_air_comfort"
+LEGACY_ENABLE_RUNNING_TIMES: Final = "enable_running_times"
+LEGACY_ENABLE_FLOW_TEMP: Final = "enable_flow_temp"
+LEGACY_DATA_KEYS: Final = frozenset(
+    {
+        LEGACY_API_CALLS_TODAY,
+        LEGACY_API_RESET_TIME,
+        LEGACY_HAS_AUTO_ASSIST,
+        LEGACY_SCAN_INTERVAL,
+        LEGACY_ENABLE_WEATHER,
+        LEGACY_ENABLE_MOBILE_DEVICES,
+        LEGACY_ENABLE_AIR_COMFORT,
+        LEGACY_ENABLE_RUNNING_TIMES,
+        LEGACY_ENABLE_FLOW_TEMP,
+    }
+)
 
-# Base API calls (required): get_rooms, get_rooms_and_devices, get_home_state
-API_CALLS_BASE: Final = 3
-
-# Device types
-DEVICE_TYPE_VALVE: Final = "VA04"  # Tado X Radiator Valve
-DEVICE_TYPE_WIRELESS_RECEIVER: Final = "TR04"  # Tado X Wireless Receiver
-DEVICE_TYPE_THERMOSTAT: Final = "RU04"  # Tado X Wired Smart Thermostat
-DEVICE_TYPE_BRIDGE: Final = "IB02"  # Tado X Bridge
-DEVICE_TYPE_SENSOR: Final = "SU04"  # Tado X Temperature Sensor
-
-# Termination types
-TERMINATION_MANUAL: Final = "MANUAL"
-TERMINATION_TIMER: Final = "TIMER"
-TERMINATION_NEXT_TIME_BLOCK: Final = "NEXT_TIME_BLOCK"
-
-# Default timer duration (30 minutes)
-DEFAULT_TIMER_DURATION: Final = 1800
-
-# Temperature limits
+# Limits of the tado X API.
 MIN_TEMP: Final = 5.0
 MAX_TEMP: Final = 30.0
 TEMP_STEP: Final = 0.5
+DEFAULT_TARGET_TEMP: Final = 21.0
+OFFSET_MIN: Final = -9.9
+OFFSET_MAX: Final = 9.9
+OFFSET_STEP: Final = 0.1
+MIN_TERMINATION_TIMER_MINUTES: Final = 1
+MAX_TERMINATION_TIMER_MINUTES: Final = 1440
 
-# Battery states
-BATTERY_STATE_NORMAL: Final = "NORMAL"
-BATTERY_STATE_LOW: Final = "LOW"
-
-# Connection states
-CONNECTION_STATE_CONNECTED: Final = "CONNECTED"
-CONNECTION_STATE_DISCONNECTED: Final = "DISCONNECTED"
-
-# Platforms
-PLATFORMS: Final = ["climate", "sensor", "binary_sensor", "switch", "button", "device_tracker", "select", "number"]
+# How long a snapshot is served during a quota hold without a reset time from
+# tado before entities go unavailable; with one, it is served until the reset.
+MAX_STALE_ROOMS: Final = timedelta(hours=6)
+MAX_STALE_HOME: Final = timedelta(hours=12)
+MAX_STALE_DEVICES: Final = timedelta(hours=48)

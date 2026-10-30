@@ -1,308 +1,418 @@
-"""Climate platform for Tado X."""
-from __future__ import annotations
+"""Climate platform: one entity per tado X room."""
 
-import logging
-from typing import Any
+from collections.abc import Callable, Mapping
+from dataclasses import asdict
+import datetime as dt
+from typing import Any, Final, override
 
-from homeassistant.components.climate import (
-    ClimateEntity,
+from homeassistant.components.climate import ClimateEntity, ClimateEntityDescription
+from homeassistant.components.climate.const import (
+    ATTR_HVAC_MODE,
+    PRESET_AWAY,
+    PRESET_HOME,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.core import HomeAssistant, ServiceResponse, callback
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
+from .client import (
+    ActiveOverride,
+    ConnectionState,
+    DayType,
+    Power,
+    PresenceSetting,
+    RoomState,
+    Setting,
+    TadoXError,
+    TadoXForbiddenError,
+    Termination,
+    TerminationType,
+    summarize_day_report,
+)
 from .const import (
-    DEFAULT_TIMER_DURATION,
+    DEFAULT_OPTIONS,
+    DEFAULT_TARGET_TEMP,
     DOMAIN,
     MAX_TEMP,
     MIN_TEMP,
+    OPT_MANUAL_TERMINATION,
+    OPT_OFF_FOLLOWS_POLICY,
+    OPT_TIMER_MINUTES,
     TEMP_STEP,
-    TERMINATION_MANUAL,
-    TERMINATION_TIMER,
 )
-from .coordinator import TadoXDataUpdateCoordinator, TadoXRoom
+from .coordinator import RoomsCoordinator, home_today
+from .devices import room_identifier
+from .entity import (
+    TadoXEntity,
+    async_add_dynamic_entities,
+    handle_tado_errors,
+    raise_for_tado_error,
+)
+from .runtime import RoomsSnapshot, TadoXConfigEntry
+from .select import async_set_presence
+from .services import schedule_blocks, schedule_response, termination_override
+from .termination import TerminationPolicy, resolve_termination
 
-_LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 1
 
-PRESET_HOME = "home"
-PRESET_AWAY = "away"
-PRESET_AUTO = "auto"
-PRESET_SCHEDULE = "schedule"
+PRESET_AUTO: Final = "auto"
+PRESETS: Final[Mapping[str, PresenceSetting]] = {
+    PRESET_HOME: PresenceSetting.HOME,
+    PRESET_AWAY: PresenceSetting.AWAY,
+    PRESET_AUTO: PresenceSetting.AUTO,
+}
+ATTR_MANUAL_CONTROL_TYPE: Final = "manual_control_type"
+DESCRIPTION = ClimateEntityDescription(key="climate", translation_key=DOMAIN)
+
+type RoomPatch = Callable[[RoomsSnapshot], RoomsSnapshot]
+
+
+def control_target(room_id: int) -> tuple[str, int]:
+    """Return the optimistic patch target of the setting and manual control of a room."""
+    return ("control", room_id)
+
+
+def _manual_patch(
+    room_id: int, setting: Setting, termination: Termination
+) -> RoomPatch:
+    """Return a patch that shows a manual control until the server reports it."""
+    now = dt_util.utcnow()
+    duration = termination.duration
+
+    def patch(snapshot: RoomsSnapshot) -> RoomsSnapshot:
+        room = snapshot.rooms.get(room_id)
+        if room is None or (
+            room.setting == setting
+            and room.manual_control is not None
+            and room.manual_control.type is termination.type
+        ):
+            return snapshot
+        expiry = room.next_time_block
+        if duration is not None:
+            expiry = now + duration
+        elif termination.type is TerminationType.MANUAL:
+            expiry = None
+        override = ActiveOverride(
+            type=termination.type, remaining=duration, projected_expiry=expiry
+        )
+        return snapshot.with_room(room_id, setting=setting, manual_control=override)
+
+    return patch
+
+
+def resume_patch(room_id: int) -> RoomPatch:
+    """Return a patch that shows the schedule until the server reports it."""
+
+    def patch(snapshot: RoomsSnapshot) -> RoomsSnapshot:
+        room = snapshot.rooms.get(room_id)
+        if room is None or room.manual_control is None:
+            return snapshot
+        return snapshot.with_room(room_id, manual_control=None)
+
+    return patch
+
+
+def _hvac_mode(room: RoomState) -> HVACMode:
+    if room.manual_control is None:
+        return HVACMode.AUTO
+    return HVACMode.OFF if room.setting.power is Power.OFF else HVACMode.HEAT
+
+
+def _hvac_action(room: RoomState) -> HVACAction:
+    if room.setting.power is Power.OFF:
+        return HVACAction.OFF
+    return HVACAction.HEATING if room.heating_power else HVACAction.IDLE
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: TadoXConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up Tado X climate entities."""
-    coordinator: TadoXDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    """Set up the room climate entities of a tado X home."""
+    data = entry.runtime_data
+    # Rooms follow the topology, which also registers their devices.
+    async_add_dynamic_entities(
+        entry,
+        data.devices,
+        async_add_entities,
+        lambda: [
+            TadoXClimate(data.rooms, room_id)
+            for room_id in data.devices.data.topology.rooms
+        ],
+    )
 
-    entities = []
-    for room_id, room in coordinator.data.rooms.items():
-        entities.append(TadoXClimate(coordinator, room_id))
 
-    async_add_entities(entities)
+class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
+    """Climate entity of one room; presets set the home-wide presence."""
 
-
-class TadoXClimate(CoordinatorEntity[TadoXDataUpdateCoordinator], ClimateEntity):
-    """Tado X Climate entity for a room."""
-
-    _attr_has_entity_name = True
     _attr_name = None
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
+    _attr_preset_modes = list(PRESETS)
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.PRESET_MODE
-        | ClimateEntityFeature.TURN_OFF
         | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF
     )
-    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF, HVACMode.AUTO]
-    _attr_preset_modes = [PRESET_SCHEDULE, PRESET_HOME, PRESET_AWAY, PRESET_AUTO]
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_min_temp = MIN_TEMP
     _attr_max_temp = MAX_TEMP
     _attr_target_temperature_step = TEMP_STEP
-    _enable_turn_on_off_backwards_compat = False
 
-    def __init__(
-        self,
-        coordinator: TadoXDataUpdateCoordinator,
-        room_id: int,
-    ) -> None:
-        """Initialize the climate entity."""
-        super().__init__(coordinator)
+    def __init__(self, coordinator: RoomsCoordinator, room_id: int) -> None:
+        """Initialize the climate entity of a room."""
+        home_id = coordinator.api.home_id
+        super().__init__(
+            coordinator,
+            DESCRIPTION,
+            unique_id=f"{home_id}_{room_id}_climate",
+            device=room_identifier(home_id, room_id),
+        )
         self._room_id = room_id
-        self._attr_unique_id = f"{coordinator.home_id}_{room_id}_climate"
+        self._last_target: float | None = None
+        self._remember_target()
 
     @property
-    def _room(self) -> TadoXRoom | None:
-        """Get the room data."""
+    def _room(self) -> RoomState | None:
         return self.coordinator.data.rooms.get(self._room_id)
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
+    def _entry(self) -> TadoXConfigEntry:
+        return self.coordinator.config_entry
+
+    @override
+    def _present(self) -> bool:
         room = self._room
-        room_name = room.name if room else f"Room {self._room_id}"
+        return room is not None and room.connection is not ConnectionState.DISCONNECTED
 
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self.coordinator.home_id}_{self._room_id}")},
-            name=room_name,
-            manufacturer="Tado",
-            model="Tado X Room",
-            via_device=(DOMAIN, str(self.coordinator.home_id)),
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        room = self._room
-        if not room:
-            return False
-        return room.connection_state == "CONNECTED"
-
-    @property
-    def current_temperature(self) -> float | None:
-        """Return the current temperature."""
-        room = self._room
-        return room.current_temperature if room else None
-
-    @property
-    def target_temperature(self) -> float | None:
-        """Return the target temperature."""
-        room = self._room
-        if not room:
-            return None
-        # Only hide target temp if truly OFF (manual control with power OFF)
-        # In AUTO mode with power OFF (idle), still show the schedule target
-        if room.power == "OFF" and room.manual_control_active:
-            return None
-        return room.target_temperature
-
-    @property
-    def current_humidity(self) -> float | None:
-        """Return the current humidity."""
-        room = self._room
-        return room.humidity if room else None
-
-    @property
-    def hvac_mode(self) -> HVACMode:
-        """Return the current HVAC mode."""
-        room = self._room
-        if not room:
-            return HVACMode.OFF
-
-        _LOGGER.debug(
-            "Room %s hvac_mode check - power: %s, manual_control_active: %s",
-            room.name,
-            room.power,
-            room.manual_control_active,
-        )
-
-        # If manual control is active with power OFF, it's truly OFF
-        # (user explicitly turned off the heating)
-        if room.power == "OFF" and room.manual_control_active:
-            return HVACMode.OFF
-
-        # If manual control is active with power ON, it's HEAT mode
-        if room.manual_control_active:
-            return HVACMode.HEAT
-
-        # Otherwise, it's following the schedule (AUTO)
-        # Even if power is "OFF" (idle because target temp reached),
-        # the mode is still AUTO since it's controlled by the schedule
-        return HVACMode.AUTO
-
-    @property
-    def hvac_action(self) -> HVACAction:
-        """Return the current HVAC action."""
-        room = self._room
-        if not room:
-            return HVACAction.OFF
-
-        if room.power == "OFF":
-            return HVACAction.OFF
-
-        if room.heating_power > 0:
-            return HVACAction.HEATING
-
-        return HVACAction.IDLE
-
-    @property
-    def preset_mode(self) -> str | None:
-        """Return the current preset mode."""
-        room = self._room
-        if not room:
-            return None
-
-        # Check presence state
-        presence = self.coordinator.data.presence
-        presence_locked = self.coordinator.data.presence_locked
-
-        if presence_locked:
-            if presence == "HOME":
-                return PRESET_HOME
-            if presence == "AWAY":
-                return PRESET_AWAY
-        elif presence is not None:
-            # Geofencing is active (AUTO mode)
-            return PRESET_AUTO
-
-        # Check schedule
-        if not room.manual_control_active:
-            return PRESET_SCHEDULE
-
-        return None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return extra state attributes."""
-        room = self._room
-        if not room:
-            return {}
-
-        attrs: dict[str, Any] = {
-            "heating_power": room.heating_power,
-            "manual_control_active": room.manual_control_active,
-        }
-
-        if room.manual_control_active:
-            attrs["manual_control_type"] = room.manual_control_type
-            if room.manual_control_remaining_seconds:
-                attrs["manual_control_remaining_minutes"] = round(
-                    room.manual_control_remaining_seconds / 60
-                )
-
-        if room.next_schedule_change:
-            attrs["next_schedule_change"] = room.next_schedule_change
-            attrs["next_schedule_temperature"] = room.next_schedule_temperature
-
-        if room.open_window_detected:
-            attrs["open_window_detected"] = True
-
-        return attrs
-
-    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set the HVAC mode."""
-        room = self._room
-        if not room:
-            return
-
-        if hvac_mode == HVACMode.OFF:
-            await self.coordinator.api.set_room_off(
-                self._room_id,
-                termination_type=TERMINATION_MANUAL,
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Follow the presence of the home too, which drives the preset."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._entry.runtime_data.home.async_add_listener(
+                self._handle_coordinator_update
             )
-        elif hvac_mode == HVACMode.HEAT:
-            # Set to current target or default 21
-            temp = room.target_temperature or 21.0
-            await self.coordinator.api.set_room_temperature(
-                self._room_id,
-                temperature=temp,
-                termination_type=TERMINATION_MANUAL,
-            )
-        elif hvac_mode == HVACMode.AUTO:
-            # Resume schedule
-            await self.coordinator.api.resume_schedule(self._room_id)
-
-        await self.coordinator.async_request_refresh()
-
-    async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set the target temperature."""
-        temperature = kwargs.get(ATTR_TEMPERATURE)
-        if temperature is None:
-            return
-
-        await self.coordinator.api.set_room_temperature(
-            self._room_id,
-            temperature=temperature,
-            termination_type=TERMINATION_TIMER,
-            duration_seconds=DEFAULT_TIMER_DURATION,
         )
-        await self.coordinator.async_request_refresh()
-
-    async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set the preset mode."""
-        if preset_mode == PRESET_SCHEDULE:
-            await self.coordinator.api.resume_schedule(self._room_id)
-        elif preset_mode == PRESET_HOME:
-            await self.coordinator.api.set_presence_home()
-        elif preset_mode == PRESET_AWAY:
-            await self.coordinator.api.set_presence_away()
-        elif preset_mode == PRESET_AUTO:
-            await self.coordinator.api.set_presence_auto()
-
-        await self.coordinator.async_request_refresh()
-
-    async def async_turn_on(self) -> None:
-        """Turn on heating."""
-        room = self._room
-        temp = room.target_temperature if room else 21.0
-        if temp is None:
-            temp = 21.0
-
-        await self.coordinator.api.set_room_temperature(
-            self._room_id,
-            temperature=temp,
-            termination_type=TERMINATION_MANUAL,
-        )
-        await self.coordinator.async_request_refresh()
-
-    async def async_turn_off(self) -> None:
-        """Turn off heating."""
-        await self.coordinator.api.set_room_off(
-            self._room_id,
-            termination_type=TERMINATION_MANUAL,
-        )
-        await self.coordinator.async_request_refresh()
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
+        self._remember_target()
+        super()._handle_coordinator_update()
+
+    def _remember_target(self) -> None:
+        room = self._room
+        if room is not None and room.setting.temperature is not None:
+            self._last_target = room.setting.temperature
+
+    @property
+    @override
+    def current_temperature(self) -> float | None:
+        """Return the room temperature."""
+        return None if (room := self._room) is None else room.current_temperature
+
+    @property
+    @override
+    def current_humidity(self) -> float | None:
+        """Return the room humidity."""
+        return None if (room := self._room) is None else room.humidity
+
+    @property
+    @override
+    def target_temperature(self) -> float | None:
+        """Return the target; None while the room is off."""
+        return None if (room := self._room) is None else room.setting.temperature
+
+    @property
+    @override
+    def hvac_mode(self) -> HVACMode | None:
+        """Return OFF or HEAT under manual control, else AUTO for the schedule."""
+        return None if (room := self._room) is None else _hvac_mode(room)
+
+    @property
+    @override
+    def hvac_action(self) -> HVACAction | None:
+        """Return whether the room is off, heating or idle."""
+        return None if (room := self._room) is None else _hvac_action(room)
+
+    @property
+    @override
+    def preset_mode(self) -> str | None:
+        """Return the presence of the home."""
+        return self._entry.runtime_data.home.data.state.setting.lower()
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return how the manual control of the room ends."""
+        room = self._room
+        manual = None if room is None else room.manual_control
+        kind = None if manual is None else manual.type
+        return {ATTR_MANUAL_CONTROL_TYPE: None if kind is None else kind.lower()}
+
+    def _termination(
+        self, override: Termination | None = None, *, off: bool = False
+    ) -> Termination:
+        """Return the termination of a manual change per the options (#94)."""
+        options = {**DEFAULT_OPTIONS, **self._entry.options}
+        if off and not options[OPT_OFF_FOLLOWS_POLICY]:
+            return Termination.manual()
+        topology = self._entry.runtime_data.devices.data.topology
+        room = topology.rooms.get(self._room_id)
+        return resolve_termination(
+            policy=TerminationPolicy(options[OPT_MANUAL_TERMINATION]),
+            timer=dt.timedelta(minutes=int(options[OPT_TIMER_MINUTES])),
+            room_default=None if room is None else room.manual_termination_default,
+            override=override,
+        )
+
+    def _heat_temperature(self) -> float:
+        """Return the target for turning on: current, last seen, next schedule, 21 °C."""
+        room = self._room
+        if room is not None and room.setting.temperature is not None:
+            return room.setting.temperature
+        if self._last_target is not None:
+            return self._last_target
+        change = None if room is None else room.next_schedule_change
+        if change is not None and change.setting.temperature is not None:
+            return change.setting.temperature
+        return DEFAULT_TARGET_TEMP
+
+    async def _async_set_manual(
+        self, setting: Setting, termination: Termination
+    ) -> None:
+        await self.coordinator.api.async_set_manual_control(
+            self._room_id, setting, termination
+        )
+        self.coordinator.async_apply_optimistic(
+            {
+                control_target(self._room_id): _manual_patch(
+                    self._room_id, setting, termination
+                )
+            }
+        )
+        await self.coordinator.async_request_refresh()
+
+    @handle_tado_errors
+    async def _async_heat(
+        self, temperature: float, override: Termination | None = None
+    ) -> None:
+        await self._async_set_manual(
+            Setting(power=Power.ON, temperature=temperature),
+            self._termination(override),
+        )
+
+    @handle_tado_errors
+    async def _async_off(self) -> None:
+        await self._async_set_manual(
+            Setting(power=Power.OFF), self._termination(off=True)
+        )
+
+    @handle_tado_errors
+    async def _async_resume(self) -> None:
+        await self.coordinator.api.async_resume_schedule(self._room_id)
+        self.coordinator.async_apply_optimistic(
+            {control_target(self._room_id): resume_patch(self._room_id)}
+        )
+        await self.coordinator.async_request_refresh()
+
+    @override
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        """Set a manual target; it ends as the termination options say."""
+        if kwargs.get(ATTR_HVAC_MODE) == HVACMode.OFF:
+            await self._async_off()
+            return
+        await self._async_heat(float(kwargs[ATTR_TEMPERATURE]))
+
+    @override
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Turn the room off, heat it manually, or resume the schedule."""
+        if hvac_mode == HVACMode.OFF:
+            await self._async_off()
+        elif hvac_mode == HVACMode.HEAT:
+            await self._async_heat(self._heat_temperature())
+        else:
+            await self._async_resume()
+
+    @override
+    async def async_turn_on(self) -> None:
+        """Heat the room manually."""
+        await self._async_heat(self._heat_temperature())
+
+    @override
+    async def async_turn_off(self) -> None:
+        """Turn the room off."""
+        await self._async_off()
+
+    @override
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set the presence of the whole home."""
+        await async_set_presence(self._entry, PRESETS[preset_mode])
+
+    async def async_set_climate_timer(
+        self,
+        temperature: float,
+        duration: int | None = None,
+        termination: str | None = None,
+    ) -> None:
+        """Set a temperature; duration in minutes means a timer (v1 compatible)."""
+        await self._async_heat(temperature, termination_override(duration, termination))
+
+    @handle_tado_errors
+    async def async_get_schedule(self) -> ServiceResponse:
+        """Return the weekly schedule of the room."""
+        schedule = await self.coordinator.api.async_get_schedule(self._room_id)
+        return schedule_response(schedule)
+
+    async def async_set_schedule(
+        self, days: list[str], blocks: list[dict[str, Any]]
+    ) -> None:
+        """Replace the schedule of the given weekdays with the same blocks.
+
+        Every day is validated before the first request; tado takes one
+        request per day.
+        """
+        chosen = {DayType(day.upper()) for day in days}
+        plan = {day: schedule_blocks(day, blocks) for day in DayType if day in chosen}
+        done: list[str] = []
+        for day, day_blocks in plan.items():
+            try:
+                await self.coordinator.api.async_set_day_schedule(
+                    self._room_id, day, day_blocks
+                )
+            except TadoXError as err:
+                if not done:
+                    raise_for_tado_error(err, self._entry)
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="schedule_partially_written",
+                    translation_placeholders={"done_days": ", ".join(done)},
+                ) from err
+            done.append(day.lower())
+        await self.coordinator.async_request_refresh()
+
+    async def async_get_day_report(
+        self, date: dt.date | None = None
+    ) -> ServiceResponse:
+        """Return the summary and the raw day report; today in the home's zone by default."""
+        devices = self._entry.runtime_data.devices.data
+        day = date or home_today(devices.home_info)
+        try:
+            report = await self.coordinator.api.async_get_day_report(self._room_id, day)
+        except TadoXForbiddenError as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="day_report_forbidden"
+            ) from err
+        except TadoXError as err:
+            raise_for_tado_error(err, self._entry)
+        return {
+            "summary": asdict(summarize_day_report(report)),
+            "report": dict(report.raw),
+        }

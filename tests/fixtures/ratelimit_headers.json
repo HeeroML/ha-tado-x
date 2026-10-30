@@ -1,0 +1,10 @@
+{
+  "normal": {
+    "ratelimit-policy": "\"perday\";q=20000;w=86400",
+    "ratelimit": "\"perday\";r=17833"
+  },
+  "exhausted": {
+    "ratelimit-policy": "\"perday\";q=20000;w=86400",
+    "ratelimit": "\"perday\";r=0;t=7082"
+  }
+}

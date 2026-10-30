@@ -1,39 +1,37 @@
-"""Binary sensor platform for Tado X."""
-from __future__ import annotations
+"""Binary sensor platform of the tado X integration."""
 
-import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import Any, override
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import TadoXDataUpdateCoordinator, TadoXDevice, TadoXRoom
+from .client import ConnectionState, Device, RoomState
+from .coordinator import DevicesCoordinator, HomeCoordinator, RoomsCoordinator
+from .devices import (
+    device_identifier,
+    home_identifier,
+    mobile_identifier,
+    room_identifier,
+)
+from .entity import TadoXEntity, async_add_dynamic_entities
+from .runtime import TadoXConfigEntry
 
-_LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
 class TadoXRoomBinarySensorEntityDescription(BinarySensorEntityDescription):
-    """Describes a Tado X room binary sensor entity."""
+    """Describes a binary sensor of the live state of a room."""
 
-    value_fn: Callable[[TadoXRoom], bool | None]
-
-
-@dataclass(frozen=True, kw_only=True)
-class TadoXDeviceBinarySensorEntityDescription(BinarySensorEntityDescription):
-    """Describes a Tado X device binary sensor entity."""
-
-    value_fn: Callable[[TadoXDevice], bool | None]
+    is_on_fn: Callable[[RoomState], bool | None]
 
 
 ROOM_BINARY_SENSORS: tuple[TadoXRoomBinarySensorEntityDescription, ...] = (
@@ -41,212 +39,222 @@ ROOM_BINARY_SENSORS: tuple[TadoXRoomBinarySensorEntityDescription, ...] = (
         key="window_open",
         translation_key="window_open",
         device_class=BinarySensorDeviceClass.WINDOW,
-        value_fn=lambda room: room.open_window_detected,
+        is_on_fn=lambda room: (
+            room.open_window is not None and room.open_window.activated
+        ),
     ),
     TadoXRoomBinarySensorEntityDescription(
         key="heating",
         translation_key="heating",
         device_class=BinarySensorDeviceClass.HEAT,
-        value_fn=lambda room: room.heating_power > 0,
+        is_on_fn=lambda room: (
+            None if room.heating_power is None else room.heating_power > 0
+        ),
     ),
     TadoXRoomBinarySensorEntityDescription(
         key="overlay_active",
         translation_key="overlay_active",
-        icon="mdi:hand-back-left",
-        value_fn=lambda room: room.manual_control_active,
+        is_on_fn=lambda room: room.manual_control is not None,
+    ),
+    TadoXRoomBinarySensorEntityDescription(
+        key="boost",
+        translation_key="boost",
+        entity_registry_enabled_default=False,
+        is_on_fn=lambda room: room.boost is not None,
     ),
 )
+
+
+@dataclass(frozen=True, kw_only=True)
+class TadoXDeviceBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Describes a binary sensor of a physical device that reports the field it reads."""
+
+    is_on_fn: Callable[[Device], bool | None]
+    exists_fn: Callable[[Device], bool] = lambda _: True
+
 
 DEVICE_BINARY_SENSORS: tuple[TadoXDeviceBinarySensorEntityDescription, ...] = (
     TadoXDeviceBinarySensorEntityDescription(
         key="connectivity",
         translation_key="connectivity",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        value_fn=lambda device: device.connection_state == "CONNECTED",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        is_on_fn=lambda device: (
+            None
+            if device.connection is None
+            else device.connection is ConnectionState.CONNECTED
+        ),
     ),
     TadoXDeviceBinarySensorEntityDescription(
         key="battery_low",
         translation_key="battery_low",
         device_class=BinarySensorDeviceClass.BATTERY,
-        value_fn=lambda device: device.battery_state == "LOW" if device.battery_state else None,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        exists_fn=lambda device: device.has_battery,
+        is_on_fn=lambda device: (
+            None if device.battery is None else device.battery.is_low
+        ),
     ),
 )
 
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up Tado X binary sensor entities."""
-    coordinator: TadoXDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-
-    entities: list[BinarySensorEntity] = []
-
-    # Add room binary sensors
-    for room_id in coordinator.data.rooms:
-        for description in ROOM_BINARY_SENSORS:
-            entities.append(TadoXRoomBinarySensor(coordinator, room_id, description))
-
-    # Add device binary sensors
-    for device in coordinator.data.devices.values():
-        for description in DEVICE_BINARY_SENSORS:
-            # Skip battery low for devices without batteries
-            if description.key == "battery_low" and not device.battery_state:
-                continue
-            entities.append(TadoXDeviceBinarySensor(coordinator, device.serial_number, description))
-
-    async_add_entities(entities)
+HOLIDAY_MODE = BinarySensorEntityDescription(
+    key="holiday_mode", translation_key="holiday_mode"
+)
+AT_HOME = BinarySensorEntityDescription(
+    key="at_home",
+    translation_key="at_home",
+    device_class=BinarySensorDeviceClass.PRESENCE,
+)
 
 
-class TadoXRoomBinarySensor(CoordinatorEntity[TadoXDataUpdateCoordinator], BinarySensorEntity):
-    """Tado X room binary sensor entity."""
+class TadoXRoomBinarySensor(TadoXEntity[RoomsCoordinator], BinarySensorEntity):
+    """Binary sensor of the live state of a room."""
 
-    _attr_has_entity_name = True
     entity_description: TadoXRoomBinarySensorEntityDescription
 
     def __init__(
         self,
-        coordinator: TadoXDataUpdateCoordinator,
-        room_id: int,
+        coordinator: RoomsCoordinator,
         description: TadoXRoomBinarySensorEntityDescription,
+        room_id: int,
     ) -> None:
-        """Initialize the binary sensor entity."""
-        super().__init__(coordinator)
+        """Initialize a binary sensor of a room device."""
+        home_id = coordinator.api.home_id
+        super().__init__(
+            coordinator,
+            description,
+            unique_id=f"{home_id}_{room_id}_{description.key}",
+            device=room_identifier(home_id, room_id),
+        )
         self._room_id = room_id
-        self.entity_description = description
-        self._attr_unique_id = f"{coordinator.home_id}_{room_id}_{description.key}"
+
+    @override
+    def _present(self) -> bool:
+        return self._room_id in self.coordinator.data.rooms
 
     @property
-    def _room(self) -> TadoXRoom | None:
-        """Get the room data."""
-        return self.coordinator.data.rooms.get(self._room_id)
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        room = self._room
-        room_name = room.name if room else f"Room {self._room_id}"
-
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self.coordinator.home_id}_{self._room_id}")},
-            name=room_name,
-            manufacturer="Tado",
-            model="Tado X Room",
-            via_device=(DOMAIN, str(self.coordinator.home_id)),
+    @override
+    def is_on(self) -> bool | None:
+        """Return the state."""
+        return self.entity_description.is_on_fn(
+            self.coordinator.data.rooms[self._room_id]
         )
 
-    @property
-    def is_on(self) -> bool | None:
-        """Return the binary sensor state."""
-        room = self._room
-        if not room:
-            return None
-        return self.entity_description.value_fn(room)
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
+class TadoXDeviceBinarySensor(TadoXEntity[DevicesCoordinator], BinarySensorEntity):
+    """Binary sensor of a physical device."""
 
-
-class TadoXDeviceBinarySensor(CoordinatorEntity[TadoXDataUpdateCoordinator], BinarySensorEntity):
-    """Tado X device binary sensor entity."""
-
-    _attr_has_entity_name = True
     entity_description: TadoXDeviceBinarySensorEntityDescription
 
     def __init__(
         self,
-        coordinator: TadoXDataUpdateCoordinator,
-        serial_number: str,
+        coordinator: DevicesCoordinator,
         description: TadoXDeviceBinarySensorEntityDescription,
+        serial: str,
     ) -> None:
-        """Initialize the binary sensor entity."""
-        super().__init__(coordinator)
-        self._serial_number = serial_number
-        self.entity_description = description
-        self._attr_unique_id = f"{serial_number}_{description.key}"
-        # Simple name without serial suffix - device name already has it
-
-    @property
-    def _device(self) -> TadoXDevice | None:
-        """Get the device data."""
-        return self.coordinator.data.devices.get(self._serial_number)
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        device = self._device
-        if not device:
-            return DeviceInfo(
-                identifiers={(DOMAIN, self._serial_number)},
-            )
-
-        # French names for device types (used in device name)
-        device_type_names_fr = {
-            "VA04": "Vanne",
-            "SU04": "Capteur Temp",
-            "TR04": "Récepteur",  # Wireless Receiver X
-            "RU04": "Thermostat",  # Wired Smart Thermostat X
-            "IB02": "Bridge X",
-        }
-
-        # English model names (used in device model field)
-        device_type_models = {
-            "VA04": "Radiator Valve X",
-            "SU04": "Temperature Sensor X",
-            "TR04": "Wireless Receiver X",
-            "RU04": "Wired Smart Thermostat X",
-            "IB02": "Bridge X",
-        }
-
-        # Determine via_device - link to room if device has one, otherwise to home
-        via_device_id = (
-            (DOMAIN, f"{self.coordinator.home_id}_{device.room_id}")
-            if device.room_id
-            else (DOMAIN, str(self.coordinator.home_id))
+        """Initialize a binary sensor of a physical device."""
+        super().__init__(
+            coordinator,
+            description,
+            unique_id=f"{serial}_{description.key}",
+            device=device_identifier(serial),
         )
+        self._serial = serial
 
-        # Generate device name with room name and numbering
-        base_name = device_type_names_fr.get(device.device_type, device.device_type)
-
-        if device.room_id and device.room_name:
-            # Count devices of same type in same room to determine numbering
-            same_type_in_room = sorted([
-                d.serial_number for d in self.coordinator.data.devices.values()
-                if d.room_id == device.room_id and d.device_type == device.device_type
-            ])
-
-            if len(same_type_in_room) > 1:
-                # Multiple devices of same type - add number
-                device_number = same_type_in_room.index(self._serial_number) + 1
-                device_name = f"{base_name} {device_number} - {device.room_name}"
-            else:
-                # Only one device of this type - no number needed
-                device_name = f"{base_name} - {device.room_name}"
-        else:
-            # No room - use serial number suffix (e.g., Bridge)
-            device_name = f"{base_name} ({self._serial_number[-4:]})"
-
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._serial_number)},
-            name=device_name,
-            manufacturer="Tado",
-            model=device_type_models.get(device.device_type, device.device_type),
-            sw_version=device.firmware_version,
-            via_device=via_device_id,
-        )
+    @override
+    def _present(self) -> bool:
+        return self._serial in self.coordinator.data.topology.devices
 
     @property
+    @override
     def is_on(self) -> bool | None:
-        """Return the binary sensor state."""
-        device = self._device
-        if not device:
-            return None
-        return self.entity_description.value_fn(device)
+        """Return the state."""
+        return self.entity_description.is_on_fn(
+            self.coordinator.data.topology.devices[self._serial]
+        )
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
+
+class TadoXHolidayBinarySensor(TadoXEntity[DevicesCoordinator], BinarySensorEntity):
+    """Whether the holiday mode of the home is active."""
+
+    def __init__(self, coordinator: DevicesCoordinator) -> None:
+        """Initialize a binary sensor of the home device."""
+        home_id = coordinator.api.home_id
+        super().__init__(
+            coordinator,
+            HOLIDAY_MODE,
+            unique_id=f"{home_id}_{HOLIDAY_MODE.key}",
+            device=home_identifier(home_id),
+        )
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return True while the holiday mode is active."""
+        holiday = self.coordinator.data.holiday_mode
+        return None if holiday is None else holiday.active
+
+
+class TadoXAtHomeBinarySensor(TadoXEntity[HomeCoordinator], BinarySensorEntity):
+    """Whether tado's geofencing sees a phone at the home, independent of zones.
+
+    The state is unknown while geofencing is off for the phone or its
+    location is unknown or outdated, as on the phone's tracker.
+    """
+
+    def __init__(self, coordinator: HomeCoordinator, mobile_id: int) -> None:
+        """Initialize a binary sensor of a phone device."""
+        home_id = coordinator.api.home_id
+        super().__init__(
+            coordinator,
+            AT_HOME,
+            unique_id=f"{home_id}_mobile_{mobile_id}_{AT_HOME.key}",
+            device=mobile_identifier(mobile_id),
+        )
+        self._mobile_id = mobile_id
+
+    @override
+    def _present(self) -> bool:
+        return self._mobile_id in (self.coordinator.data.mobile_devices or {})
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the state; None without geofencing or a current location."""
+        phone = (self.coordinator.data.mobile_devices or {})[self._mobile_id]
+        if not phone.geo_tracking or phone.stale:
+            return None
+        return phone.at_home
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: TadoXConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up the binary sensors of a tado X home."""
+    data = entry.runtime_data
+    if data.monitor.enabled("holiday_mode"):
+        async_add_entities([TadoXHolidayBinarySensor(data.devices)])
+
+    def build_topology() -> Iterator[TadoXEntity[Any]]:
+        topology = data.devices.data.topology
+        for room_id in topology.rooms:
+            for room_sensor in ROOM_BINARY_SENSORS:
+                yield TadoXRoomBinarySensor(data.rooms, room_sensor, room_id)
+        for device in topology.devices.values():
+            for device_sensor in DEVICE_BINARY_SENSORS:
+                if device_sensor.exists_fn(device):
+                    yield TadoXDeviceBinarySensor(
+                        data.devices, device_sensor, device.serial
+                    )
+
+    async_add_dynamic_entities(entry, data.devices, async_add_entities, build_topology)
+    if not data.monitor.enabled("mobile_devices"):
+        return
+
+    def build_phones() -> Iterator[TadoXEntity[Any]]:
+        for mobile_id in data.home.data.mobile_devices or {}:
+            yield TadoXAtHomeBinarySensor(data.home, mobile_id)
+
+    async_add_dynamic_entities(entry, data.home, async_add_entities, build_phones)

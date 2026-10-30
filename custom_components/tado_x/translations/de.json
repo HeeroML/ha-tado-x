@@ -1,310 +1,662 @@
 {
   "config": {
+    "abort": {
+      "access_denied": "Die Anmeldung wurde in tado abgelehnt.",
+      "already_configured": "Dieses Zuhause mit tado X ist bereits eingerichtet.",
+      "cannot_connect": "tado ist nicht erreichbar. Prüfe die Internetverbindung von Home Assistant und versuche es erneut.",
+      "home_not_found": "Dieses tado-Konto hat keinen Zugriff auf dieses Zuhause mit tado X.",
+      "no_tado_x_homes": "Zu diesem tado-Konto gehört kein Zuhause mit tado X. Zuhause der vorherigen tado-Generation gehören in die in Home Assistant enthaltene tado-Integration. Übersprungene Zuhause: {hidden}",
+      "rate_limited": "Das tado-API-Kontingent dieses Kontos ist aufgebraucht. Versuche es erneut, sobald tado es zurückgesetzt hat.",
+      "reauth_account_mismatch": "Du hast dich mit einem tado-Konto angemeldet, zu dem dieses Zuhause nicht gehört. Melde dich mit dem bisher verwendeten Konto an.",
+      "reauth_successful": "Du bist wieder bei tado angemeldet.",
+      "reconfigure_successful": "Dieses Zuhause verwendet jetzt das neue tado-Konto.",
+      "unique_id_mismatch": "Das ausgewählte Zuhause ist nicht das Zuhause dieses Eintrags.",
+      "unknown": "Unerwarteter Fehler. Details findest du im Protokoll von Home Assistant."
+    },
+    "progress": {
+      "wait_for_device": "Öffne {url} und melde dich mit deinem tado-Konto an. Falls der Code nicht schon eingetragen ist, gib diesen Code ein:\n\n```{code}```\n\nSobald du die Anmeldung bestätigt hast, geht es hier von selbst weiter. Der Code läuft nach wenigen Minuten ab."
+    },
     "step": {
-      "user": {
-        "title": "Tado X Authentifizierung",
-        "description": "Klicken Sie auf „OK“, um den Authentifizierungsprozess mit Tado zu starten. Sie werden weitergeleitet, um diese Integration zu autorisieren."
+      "reauth_confirm": {
+        "description": "tado akzeptiert die gespeicherte Anmeldung nicht mehr. Fahre fort, um einen neuen Code zu erhalten, und bestätige ihn mit dem tado-Konto, zu dem dieses Zuhause gehört.",
+        "title": "Erneut bei tado anmelden"
       },
-      "auth": {
-        "title": "Tado X autorisieren",
-        "description": "Bitte besuchen Sie die folgende URL und geben Sie den Code ein, um Home Assistant zu autorisieren:\n\n**URL:** {verification_uri}\n\n**Code:** `{user_code}`\n\nNach der Autorisierung klicken Sie auf „OK“."
+      "reconfigure_confirm": {
+        "description": "Melde dich mit einem anderen tado-Konto an, das Zugriff auf dieses Zuhause hat, zum Beispiel mit einem eigenen Konto nur für Home Assistant. Entitäten und ihr Verlauf bleiben erhalten. Fahre fort, um einen Code zu erhalten.",
+        "title": "tado-Konto wechseln"
       },
       "select_home": {
-        "title": "Zuhause auswählen",
-        "description": "Es wurden mehrere Tado Häuser gefunden. Bitte wählen Sie das zuhause aus, das Sie konfigurieren möchten.",
         "data": {
-          "home_id": "Home"
-        }
-      },
-      "reauth_confirm": {
-        "title": "Tado X erneut authentifizieren",
-        "description": "Ihre Tado X-Authentifizierung ist abgelaufen. Klicken Sie auf „OK“, um sich erneut zu authentifizieren."
-      },
-      "reauth_auth": {
-        "title": "Tado X autorisieren",
-        "description": "Bitte besuchen Sie die folgende URL und geben Sie den Code ein, um Home Assistant zu autorisieren:\n\n**URL:** {verification_uri}\n\n**Code:** `{user_code}`\n\nNach der Autorisierung klicken Sie auf „OK“."
-      }
-    },
-    "error": {
-      "auth_error": "Authentifizierung ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
-      "auth_timeout": "Authentifizierung ist abgelaufen. Bitte stellen Sie sicher, dass Sie die Autorisierung abgeschlossen haben, und versuchen Sie es erneut.",
-      "cannot_connect": "Verbindung zu Tado nicht möglich. Bitte überprüfen Sie Ihre Internetverbindung.",
-      "no_homes": "Kein Tado Zuhause gefunden.",
-      "unknown": "Ein unbekannter Fehler ist aufgetreten."
-    },
-    "abort": {
-      "already_configured": "Dieses Tado Zuhause ist bereits konfiguriert.",
-      "reauth_successful": "Erneute Authentifizierung erfolgreich.",
-      "unknown": "Ein unbekannter Fehler ist aufgetreten."
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Tado X Einstellungen",
-        "description": "Konfigurieren Sie Ihre Tado X-Integration-Einstellungen.\n\n**API-Kontingent:**\n- Ohne AI-Assist: 100 Anfragen/Tag → Aktualisierungen alle 45 Minuten\n- Mit AI-Assist: 20.000 Anfragen/Tag → Aktualisierungen alle 30 Sekunden",
-        "data": {
-          "has_auto_assist": "AI-Assist Abonnement",
-          "scan_interval": "Aktualisierungsintervall (Sekunden)",
-          "enable_weather": "Wettersensoren aktivieren",
-          "enable_mobile_devices": "Tracking für mobile Geräte aktivieren",
-          "enable_air_comfort": "Luftkomfortsensoren aktivieren",
-          "enable_running_times": "Heizzeit-Sensoren aktivieren"
+          "home_id": "Zuhause"
         },
         "data_description": {
-          "has_auto_assist": "Aktivieren Sie diese Option, wenn Sie ein AI-Assist-Abonnement haben. Dadurch wird das Aktualisierungsintervall automatisch angepasst.",
-          "scan_interval": "Wie oft die Tado-API abgefragt werden soll (in Sekunden). Minimum: 30 s, Maximum: 3600 s (1 Stunde). Ohne AI-Assist bei 2700 s (45 min) bleiben, um unter 100 Anfragen/Tag zu bleiben.",
-          "enable_weather": "Aktiviert Sensoren für Außentemperatur, Sonnenintensität und Wetterbedingungen. Verwendet 1 API-Aufruf pro Aktualisierung.",
-          "enable_mobile_devices": "Aktiviert Gerätetracker für Mobiltelefone mit Geofencing. Verwendet 1 API-Aufruf pro Aktualisierung.",
-          "enable_air_comfort": "Aktiviert Sensoren für Luftfrische und Komfort pro Raum. Verwendet 1 API-Aufruf pro Aktualisierung.",
-          "enable_running_times": "Aktiviert den Heizzeit-Sensor für jeden Raum. Verwendet 1 API-Aufruf pro Aktualisierung."
-        }
+          "home_id": "Das Zuhause mit tado X, das dieser Eintrag steuert."
+        },
+        "description": "Zu diesem tado-Konto gehört mehr als ein Zuhause mit tado X. Wähle das Zuhause aus, das du hinzufügen möchtest.\n\nZuhause der vorherigen tado-Generation werden hier nicht angezeigt; füge sie mit der in Home Assistant enthaltenen tado-Integration hinzu. Übersprungene Zuhause: {hidden}",
+        "title": "Zuhause mit tado X auswählen"
+      },
+      "timeout": {
+        "description": "Der Code ist abgelaufen, bevor du die Anmeldung bestätigt hast. Fahre fort, um einen neuen Code zu erhalten.",
+        "title": "Anmeldecode abgelaufen"
       }
     }
   },
-  "services": {
-    "set_temperature_offset": {
-      "name": "Temperatur-Offset einstellen",
-      "description": "Passen Sie den Temperatur-Offset für ein Tado X-Gerät (Ventil oder Sensor) an, um die Temperaturmesswerte zu kalibrieren.",
-      "fields": {
-        "device_id": {
-          "name": "Gerät",
-          "description": "Das Tado X-Gerät zum Kalibrieren"
-        },
-        "offset": {
-          "name": "Temperatur-Offset",
-          "description": "Temperatur-Offset in °C. Positive Werte erhöhen den Messwert, negative Werte verringern ihn."
-        }
-      }
+  "device": {
+    "bridge": {
+      "name": "Bridge X"
     },
-    "add_meter_reading": {
-      "name": "Zählerstand hinzufügen",
-      "description": "Zählerstand zu Tado Energy IQ hochladen",
-      "fields": {
-        "reading": {
-          "name": "Zählerstand",
-          "description": "Zählerstandwert (integer)"
-        },
-        "date": {
-          "name": "Datum",
-          "description": "Datum der Ablesung (Format JJJJ-MM-TT, Standardwert ist das heutige Datum)"
-        }
-      }
+    "device": {
+      "name": "Gerät {room}{index}"
     },
-    "set_eiq_tariff": {
-      "name": "Energietarif festlegen",
-      "description": "Legen Sie in Tado Energy IQ einen Energietarif für die Kostenberechnung fest.",
-      "fields": {
-        "tariff": {
-          "name": "Tarif",
-          "description": "Preis pro Einheit (z. B. 0,85 für 0,85 €/m³)"
-        },
-        "unit": {
-          "name": "Einheit",
-          "description": "Energieeinheit (m³ oder kWh)"
-        },
-        "start_date": {
-          "name": "Startdatum",
-          "description": "Startdatum für den Tarif (Format JJJJ-MM-TT)"
-        },
-        "end_date": {
-          "name": "Enddatum",
-          "description": "Enddatum für den Tarif (Format JJJJ-MM-TT)"
-        }
-      }
+    "radiator_valve": {
+      "name": "Heizkörperthermostat {room}{index}"
+    },
+    "smart_thermostat": {
+      "name": "Smartes Thermostat {room}{index}"
+    },
+    "temperature_sensor": {
+      "name": "Temperatursensor {room}{index}"
+    },
+    "wireless_receiver": {
+      "name": "Funkempfänger {room}{index}"
     }
   },
   "entity": {
+    "binary_sensor": {
+      "at_home": {
+        "name": "Zuhause"
+      },
+      "battery_low": {
+        "name": "Batterie schwach"
+      },
+      "boost": {
+        "name": "Boost"
+      },
+      "connectivity": {
+        "name": "Verbindung"
+      },
+      "heating": {
+        "name": "Heizen"
+      },
+      "holiday_mode": {
+        "name": "Urlaubsmodus"
+      },
+      "overlay_active": {
+        "name": "Manuelle Steuerung"
+      },
+      "window_open": {
+        "name": "Fenster offen"
+      }
+    },
+    "button": {
+      "boost_all": {
+        "name": "Boost für alle Räume"
+      },
+      "disable_all": {
+        "name": "Alle Räume ausschalten"
+      },
+      "identify": {
+        "name": "Identifizieren"
+      },
+      "resume_schedules": {
+        "name": "Alle Zeitpläne fortsetzen"
+      }
+    },
     "climate": {
       "tado_x": {
         "state_attributes": {
+          "manual_control_type": {
+            "name": "Dauer der manuellen Steuerung",
+            "state": {
+              "manual": "Bis zum Beenden",
+              "next_time_block": "Bis zum nächsten Zeitblock",
+              "timer": "Timer"
+            }
+          },
           "preset_mode": {
             "state": {
-              "home": "Zuhause",
+              "auto": "Automatisch (Geofencing)",
               "away": "Unterwegs",
-              "auto": "Auto (Geofencing)",
-              "schedule": "Zeitplan"
+              "home": "Zuhause"
             }
           }
         }
       }
     },
-    "sensor": {
-      "temperature": {
-        "name": "Temperatur"
-      },
-      "humidity": {
-        "name": "Luftfeuchtigkeit"
-      },
-      "heating_power": {
-        "name": "Heizleistung"
-      },
-      "heating_time_today": {
-        "name": "Heizzeit heute"
-      },
-      "battery": {
-        "name": "Batterie",
-        "state": {
-          "normal": "Normal",
-          "low": "Niedrig"
+    "device_tracker": {
+      "phone": {
+        "state_attributes": {
+          "geofencing_enabled": {
+            "name": "Geofencing"
+          },
+          "location_stale": {
+            "name": "Standort veraltet"
+          }
         }
+      }
+    },
+    "number": {
+      "manual_termination_timer": {
+        "name": "Timer der manuellen Steuerung"
       },
-      "device_temperature": {
-        "name": "Gerätetemperatur"
+      "max_flow_temperature": {
+        "name": "Maximale Vorlauftemperatur"
       },
       "temperature_offset": {
-        "name": "Temperatur-Offset"
-      },
-      "api_calls_today": {
-        "name": "API-Aufrufe heute"
-      },
-      "api_quota_remaining": {
-        "name": "Verbleibendes API-Kontingent"
-      },
-      "api_quota_limit": {
-        "name": "API-Kontingentgrenze"
-      },
-      "api_usage_percentage": {
-        "name": "API-Nutzung"
-      },
-      "api_reset_time": {
-        "name": "API-Rücksetzzeit"
-      },
-      "api_status": {
-        "name": "API-Status",
+        "name": "Temperaturversatz"
+      }
+    },
+    "select": {
+      "manual_termination": {
+        "name": "Dauer der manuellen Steuerung",
         "state": {
-          "OK": "OK",
-          "RATE_LIMITED": "Kontingent erreicht"
-        }
-      },
-      "presence_state": {
-        "name": "Anwesenheit",
-        "state": {
-          "HOME": "Zuhause",
-          "AWAY": "Unterwegs"
+          "manual": "Bis zum Beenden",
+          "next_time_block": "Bis zum nächsten Zeitblock",
+          "timer": "Timer"
         }
       },
       "presence_mode": {
         "name": "Anwesenheitsmodus",
         "state": {
-          "MANUAL": "Manuell",
-          "AUTO": "Auto (Geofencing)"
+          "auto": "Automatisch (Geofencing)",
+          "away": "Unterwegs",
+          "home": "Zuhause"
         }
+      }
+    },
+    "sensor": {
+      "air_freshness": {
+        "name": "Luftfeuchtigkeitsstufe",
+        "state": {
+          "comfy": "Angenehm",
+          "dry": "Trocken",
+          "humid": "Feucht"
+        }
+      },
+      "api_calls_24h": {
+        "name": "API-Aufrufe dieser Integration (24 h)"
+      },
+      "api_calls_today": {
+        "name": "Verbrauchte API-Aufrufe (Konto)"
+      },
+      "api_quota_limit": {
+        "name": "API-Kontingent gesamt"
+      },
+      "api_quota_remaining": {
+        "name": "Verbleibendes API-Kontingent"
+      },
+      "api_reset_time": {
+        "name": "Zurücksetzung des API-Kontingents"
+      },
+      "api_status": {
+        "name": "API-Status",
+        "state": {
+          "conserving": "Sparmodus",
+          "ok": "OK",
+          "rate_limited": "Kontingent erschöpft",
+          "throttled": "Gedrosselt"
+        }
+      },
+      "api_usage_percentage": {
+        "name": "Verbrauchtes API-Kontingent"
+      },
+      "battery": {
+        "name": "Batterie",
+        "state": {
+          "depleted": "Leer",
+          "low": "Schwach",
+          "normal": "Normal"
+        }
+      },
+      "comfort_level": {
+        "name": "Komfortstufe",
+        "state": {
+          "cold": "Kalt",
+          "comfy": "Angenehm",
+          "hot": "Heiß",
+          "warm": "Warm"
+        }
+      },
+      "control_mode": {
+        "name": "Steuerungsmodus",
+        "state": {
+          "gas_boiler": "Standard (Gaskessel)",
+          "heat_pump": "Wärmepumpe",
+          "no_temperature_control": "Bei Heizbedarf dauerhaft an",
+          "underfloor_heating": "Fußbodenheizung"
+        }
+      },
+      "data_updated": {
+        "name": "Daten aktualisiert"
+      },
+      "device_temperature": {
+        "name": "Gerätetemperatur"
+      },
+      "heating_power": {
+        "name": "Heizleistung"
+      },
+      "heating_time_today": {
+        "name": "Heizdauer heute"
+      },
+      "humidity": {
+        "name": "Luftfeuchtigkeit"
+      },
+      "manual_control_end": {
+        "name": "Ende der manuellen Steuerung"
+      },
+      "next_schedule_change": {
+        "name": "Nächste Zeitplanänderung"
+      },
+      "next_schedule_temperature": {
+        "name": "Nächste Zeitplantemperatur"
+      },
+      "next_time_block": {
+        "name": "Nächster Zeitblock"
       },
       "outdoor_temperature": {
         "name": "Außentemperatur"
       },
+      "presence_mode": {
+        "name": "Anwesenheitsmodus",
+        "state": {
+          "auto": "Automatisch (Geofencing)",
+          "manual": "Manuell"
+        }
+      },
+      "presence_state": {
+        "name": "Anwesenheit",
+        "state": {
+          "away": "Unterwegs",
+          "home": "Zuhause"
+        }
+      },
       "solar_intensity": {
-        "name": "Sonnenintensität"
+        "name": "Sonneneinstrahlung"
+      },
+      "temperature": {
+        "name": "Temperatur"
+      },
+      "temperature_offset": {
+        "name": "Temperaturversatz"
       },
       "weather_state": {
-        "name": "Wetterlage",
+        "name": "Wetter",
         "state": {
-          "SUNNY": "Sonnig",
-          "CLOUDY": "Wolkig",
-          "CLOUDY_PARTLY": "Teilweise bewölkt",
-          "CLOUDY_MOSTLY": "Meist bewölkt",
-          "NIGHT_CLEAR": "Klare Nacht",
-          "NIGHT_CLOUDY": "Wolkige Nacht",
-          "RAIN": "Regen",
-          "DRIZZLE": "Nieselregen",
-          "SNOW": "Schnee",
-          "FOGGY": "Nebelig",
-          "THUNDERSTORMS": "Gewitter",
-          "WINDY": "Windig"
+          "cloudy": "Bewölkt",
+          "cloudy_mostly": "Überwiegend bewölkt",
+          "cloudy_partly": "Teilweise bewölkt",
+          "drizzle": "Nieselregen",
+          "foggy": "Nebel",
+          "freezing": "Frost",
+          "hail": "Hagel",
+          "night_clear": "Klare Nacht",
+          "night_cloudy": "Bewölkte Nacht",
+          "rain": "Regen",
+          "rain_hail": "Regen und Hagel",
+          "rain_snow": "Schneeregen",
+          "scattered_rain": "Vereinzelt Regen",
+          "scattered_rain_snow": "Vereinzelt Schneeregen",
+          "scattered_snow": "Vereinzelt Schnee",
+          "snow": "Schnee",
+          "sun": "Sonne",
+          "sunny": "Sonnig",
+          "thunderstorm": "Gewitter",
+          "thunderstorms": "Gewitterschauer",
+          "windy": "Windig"
         }
-      },
-      "air_freshness": {
-        "name": "Luftkomfort",
-        "state": {
-          "humid": "Feucht",
-          "comfy": "Angenehm",
-          "dry": "Trocken"
-        }
-      },
-      "comfort_level": {
-        "name": "Komfortniveau",
-        "state": {
-          "cold": "Kalt",
-          "comfy": "Angenehm",
-          "warm": "Warm"
-        }
-      }
-    },
-    "binary_sensor": {
-      "window_open": {
-        "name": "Fenster offen"
-      },
-      "heating": {
-        "name": "Heizen"
-      },
-      "overlay_active": {
-        "name": "Manuelle Steuerung"
-      },
-      "connectivity": {
-        "name": "Konnektivität"
-      },
-      "battery_low": {
-        "name": "Batterie schwach"
       }
     },
     "switch": {
       "child_lock": {
         "name": "Kindersicherung"
       },
-      "open_window": {
-        "name": "Fenster offen"
-      },
       "flow_temp_auto_adaptation": {
-        "name": "Vorlauftemperatur Auto-Anpassung"
-      }
-    },
-    "number": {
-      "max_flow_temperature": {
-        "name": "Max. Vorlauftemperatur"
-      }
-    },
-    "button": {
-      "boost_all": {
-        "name": "Alle auf max. stellen"
+        "name": "Automatische Anpassung der Vorlauftemperatur"
       },
-      "disable_all": {
-        "name": "Alle ausschalten"
-      },
-      "resume_schedules": {
-        "name": "Zeitplan fortsetzen"
+      "open_window": {
+        "name": "Fenster-offen-Modus"
       }
+    }
+  },
+  "exceptions": {
+    "api_error": {
+      "message": "tado hat eine unerwartete Antwort gesendet: {error}"
     },
-    "device_tracker": {
-      "mobile_device": {
-        "name": "Mobiles Gerät",
-        "state": {
-          "home": "Zuhause",
-          "away": "Unterwegs",
-          "not_tracking": "Nicht verfolgt",
-          "unknown": "Unbekannt"
-        },
-        "state_attributes": {
-          "geofencing_enabled": {
-            "name": "Geofencing aktiviert"
+    "auth_failed": {
+      "message": "tado akzeptiert die Anmeldung für dieses Zuhause nicht mehr. Melde dich auf der Seite der Integration erneut an."
+    },
+    "cannot_connect": {
+      "message": "tado ist nicht erreichbar. Prüfe die Internetverbindung von Home Assistant."
+    },
+    "day_report_forbidden": {
+      "message": "Tagesberichte vergangener Tage gibt es bei tado nur mit einem Auto-Assist-Abo."
+    },
+    "device_not_offset_capable": {
+      "message": "{device} hat keinen Temperaturversatz. Wähle ein Heizkörperthermostat, einen Temperatursensor oder ein smartes Thermostat."
+    },
+    "duration_requires_timer": {
+      "message": "Eine Dauer lässt sich nur mit dem Ende per Timer kombinieren."
+    },
+    "feature_unavailable": {
+      "message": "{feature} ist für dieses Zuhause nicht verfügbar."
+    },
+    "holiday_mode_unavailable": {
+      "message": "Der Urlaubsmodus ist für dieses Zuhause nicht verfügbar."
+    },
+    "invalid_schedule": {
+      "message": "Der Zeitplan ist ungültig: {reason}"
+    },
+    "not_found": {
+      "message": "tado kennt dieses Element oder diese Funktion nicht."
+    },
+    "not_tado_x_home": {
+      "message": "{home} ist kein Zuhause mit tado X. Verwende für Zuhause der vorherigen tado-Generation die in Home Assistant enthaltene tado-Integration."
+    },
+    "open_window_not_detected": {
+      "message": "Der Fenster-offen-Modus lässt sich erst einschalten, wenn tado in diesem Raum ein offenes Fenster erkannt hat."
+    },
+    "presence_auto_requires_auto_assist": {
+      "message": "Für die automatische Anwesenheit (Geofencing) brauchst du ein Auto-Assist-Abo."
+    },
+    "quota_exhausted": {
+      "message": "Das tado-API-Kontingent dieses Kontos ist aufgebraucht. tado nimmt ab {reset} wieder Anfragen an."
+    },
+    "quota_exhausted_unknown_reset": {
+      "message": "Das tado-API-Kontingent dieses Kontos ist aufgebraucht. tado hat nicht mitgeteilt, wann es zurückgesetzt wird."
+    },
+    "request_rejected": {
+      "message": "tado hat die Anfrage abgelehnt (HTTP {status}): {title}"
+    },
+    "schedule_partially_written": {
+      "message": "Der Zeitplan wurde nur teilweise geschrieben. Bereits gespeicherte Tage: {done_days}"
+    },
+    "server_error": {
+      "message": "tado hat mit dem Serverfehler {status} geantwortet. Versuche es später erneut."
+    },
+    "setup_quota_exhausted": {
+      "message": "Das tado-API-Kontingent dieses Kontos ist aufgebraucht, und es gibt noch keine gespeicherten Daten. Die Einrichtung geht ab {reset} weiter."
+    },
+    "timer_requires_duration": {
+      "message": "Für das Ende per Timer brauchst du eine Dauer."
+    }
+  },
+  "issues": {
+    "breaking_changes_1_9": {
+      "description": "Version 1.9 hat Entitäten, Zustände und Optionen geändert. Prüfe deine Automatisierungen und Skripte:\n\n- Die Zustände von API-Status, Anwesenheit, Anwesenheitsmodus und Wetter sind kleingeschrieben.\n- Smartphone-Tracker melden not_home statt away und unknown statt not_tracking.\n- Klima: Die Voreinstellung „schedule“ und die Attribute zum nächsten Zeitplan, zur Heizleistung und zum offenen Fenster sind entfallen; eigene Entitäten ersetzen sie.\n- Manuelle Änderungen richten sich nach der Einstellung jedes Raums in der tado° App, statt nach 30 Minuten zu enden.\n- Gerätenamen werden übersetzt, und Thermostate und Sensoren sind über die Bridge X verbunden.\n- Abfragen richten sich nach einem täglichen Budget für API-Aufrufe statt nach einem Aktualisierungsintervall.\n\nDie Versionshinweise listen alle Änderungen auf. Du kannst diesen Hinweis ignorieren.",
+      "title": "tado X 1.9 hat Entitäten und Optionen geändert"
+    },
+    "duplicate_home": {
+      "description": "Zwei Einträge der Integration tado X steuern {home}. Entferne einen davon, um doppelte Entitäten und doppelt so viele API-Aufrufe zu vermeiden.",
+      "title": "{home} ist doppelt eingerichtet"
+    },
+    "low_quota_tier": {
+      "description": "Das tado-Konto von {home} erlaubt nur {limit} API-Aufrufe pro Tag, deshalb werden die Räume nur etwa alle {rooms_minutes} Minuten aktualisiert. Mit einem Auto-Assist-Abo erlaubt tado 20.000 Aufrufe pro Tag.",
+      "title": "Kleines tado-API-Kontingent für {home}"
+    },
+    "not_tado_x_home": {
+      "description": "Laut tado ist {home} kein Zuhause mit tado X, deshalb kann diese Integration es nicht steuern. Entferne diesen Eintrag und füge das Zuhause mit der in Home Assistant enthaltenen tado-Integration hinzu.",
+      "title": "{home} ist kein Zuhause mit tado X"
+    },
+    "quota_exhausted": {
+      "description": "Das tado-API-Kontingent des Kontos, das {home} verwendet, ist aufgebraucht. Bis tado es zurücksetzt ({reset}), sendet die Integration keine Anfragen, zeigt die zuletzt bekannten Werte an, und Befehle schlagen fehl.\n\nDie tado° App und andere Integrationen mit demselben Konto teilen sich dieses Kontingent. Wenn das öfter passiert, verringere das tägliche Aufrufbudget in den Optionen.",
+      "title": "tado-API-Kontingent für {home} aufgebraucht"
+    },
+    "quota_low": {
+      "description": "Vom Konto, das {home} verwendet, sind nur noch {remaining} API-Aufrufe übrig, nicht mehr als die Reserve von {reserve}. Bis tado das Kontingent zurücksetzt, werden die Räume im langsamsten Takt aktualisiert und optionale Daten pausieren. Befehle funktionieren weiterhin.",
+      "title": "tado-API-Kontingent für {home} wird knapp"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Mit diesen Einstellungen werden die Räume alle {rooms_interval} aktualisiert, und die Integration plant {calls_per_day} API-Aufrufe pro Tag ein. Das tado-Konto erlaubt {limit} Aufrufe pro Tag; gerade sind noch {remaining} übrig.",
+        "sections": {
+          "control": {
+            "data": {
+              "manual_termination": "Ende manueller Änderungen",
+              "off_follows_policy": "Ausschalten eines Raums endet genauso",
+              "presence_zone": "Zone dieses Zuhauses",
+              "timer_minutes": "Timer"
+            },
+            "data_description": {
+              "manual_termination": "Wann eine in Home Assistant eingestellte Temperatur wieder dem Zeitplan folgt. „Wie in der tado° App“ verwendet die Einstellung, die jeder Raum in der tado° App hat.",
+              "off_follows_policy": "Ist diese Option an, kehrt ein Raum, den du in Home Assistant ausgeschaltet hast, wie andere manuelle Änderungen zum Zeitplan zurück. Ist sie aus, bleibt er aus, bis du ihn wieder änderst.",
+              "presence_zone": "Die Zone, die ein Smartphone-Tracker meldet, solange das Smartphone in diesem Zuhause ist. Wähle eine Zone dieses Zuhauses, wenn die Zuhause-Zone von Home Assistant an einem anderen Ort liegt.",
+              "timer_minutes": "Minuten, bis wieder der Zeitplan gilt, wenn oben der Timer ausgewählt ist."
+            },
+            "name": "Steuerung"
           },
-          "at_home": {
-            "name": "Zuhause"
+          "features": {
+            "data": {
+              "air_comfort": "Luftkomfort",
+              "holiday_mode": "Urlaubsmodus",
+              "mobile_devices": "Smartphones",
+              "running_times": "Heizdauer heute",
+              "weather": "Wetter"
+            },
+            "data_description": {
+              "air_comfort": "Luftfeuchtigkeits- und Komfortstufe jedes Raums. Etwa 96 Aufrufe pro Tag.",
+              "holiday_mode": "Zeigt, ob der Urlaubsmodus aktiv ist. Experimentell. Etwa 96 Aufrufe pro Tag.",
+              "mobile_devices": "Ein Tracker und ein Zuhause-Sensor für jedes Smartphone mit Geofencing. Etwa 288 Aufrufe pro Tag.",
+              "running_times": "Heizdauer jedes Raums am heutigen Tag. Etwa 24 Aufrufe pro Tag.",
+              "weather": "Außentemperatur, Sonneneinstrahlung und Wetterlage. Etwa 96 Aufrufe pro Tag."
+            },
+            "description": "Jede Option kostet jeden Tag API-Aufrufe.",
+            "name": "Optionale Daten"
           },
-          "platform": {
-            "name": "Plattform"
-          },
-          "os_version": {
-            "name": "OS Version"
-          },
-          "model": {
-            "name": "Modell"
-          },
-          "locale": {
-            "name": "Locale"
+          "polling": {
+            "data": {
+              "daily_call_budget": "Tägliches Aufrufbudget",
+              "quota_reserve": "Kontingentreserve"
+            },
+            "data_description": {
+              "daily_call_budget": "So viele API-Aufrufe pro Tag plant diese Integration für Abfragen ein. Ein kleineres Budget bedeutet seltenere Aktualisierungen der Räume. Eingeplant werden höchstens 80 % des Kontolimits.",
+              "quota_reserve": "So viele API-Aufrufe bleiben für den Rest des Kontos übrig. Darunter werden die Räume nur noch im langsamsten Takt aktualisiert, optionale Daten pausieren, und Befehle funktionieren weiterhin."
+            },
+            "description": "tado begrenzt die API-Aufrufe jedes Kontos pro Tag. Die tado° App und andere Integrationen mit demselben Konto, etwa die in Home Assistant enthaltene tado-Integration, teilen sich dieses Limit.",
+            "name": "API-Aufrufbudget"
           }
+        },
+        "title": "Optionen für tado X"
+      }
+    }
+  },
+  "selector": {
+    "manual_termination": {
+      "options": {
+        "follow_app": "Wie in der tado° App für den Raum eingestellt",
+        "manual": "Bis du sie beendest",
+        "next_time_block": "Bis zum nächsten Zeitblock",
+        "timer": "Nach Ablauf des Timers"
+      }
+    },
+    "power": {
+      "options": {
+        "off": "Aus",
+        "on": "An"
+      }
+    },
+    "schedule_block": {
+      "fields": {
+        "end": {
+          "description": "Ende im Format HH:MM; 24:00 ist das Ende des Tages.",
+          "name": "Ende"
+        },
+        "power": {
+          "description": "Ob der Raum in diesem Zeitblock heizt.",
+          "name": "Heizen"
+        },
+        "start": {
+          "description": "Beginn im Format HH:MM.",
+          "name": "Beginn"
+        },
+        "temperature": {
+          "description": "Zieltemperatur von 5 bis 30 °C, solange geheizt wird.",
+          "name": "Temperatur"
         }
       }
+    },
+    "tariff_unit": {
+      "options": {
+        "kwh": "Kilowattstunden (kWh)",
+        "m3": "Kubikmeter (m³)"
+      }
+    },
+    "termination": {
+      "options": {
+        "manual": "Bis du sie beendest",
+        "next_time_block": "Bis zum nächsten Zeitblock",
+        "timer": "Nach Ablauf der Dauer"
+      }
+    },
+    "weekday": {
+      "options": {
+        "friday": "Freitag",
+        "monday": "Montag",
+        "saturday": "Samstag",
+        "sunday": "Sonntag",
+        "thursday": "Donnerstag",
+        "tuesday": "Dienstag",
+        "wednesday": "Mittwoch"
+      }
+    }
+  },
+  "services": {
+    "add_meter_reading": {
+      "description": "Fügt tado Energy IQ einen Zählerstand hinzu.",
+      "fields": {
+        "config_entry_id": {
+          "description": "Das Zuhause mit tado X. Nötig, wenn mehr als ein Zuhause eingerichtet ist.",
+          "name": "Zuhause"
+        },
+        "date": {
+          "description": "Tag des Zählerstands. Standardmäßig heute in der Zeitzone des Zuhauses.",
+          "name": "Datum"
+        },
+        "reading": {
+          "description": "Der abgelesene Zählerstand.",
+          "name": "Zählerstand"
+        }
+      },
+      "name": "Zählerstand hinzufügen"
+    },
+    "get_day_report": {
+      "description": "Gibt den Tagesbericht von Räumen mit einer Zusammenfassung von Temperatur, Luftfeuchtigkeit und Heizdauer zurück.",
+      "fields": {
+        "date": {
+          "description": "Tag des Berichts. Standardmäßig heute in der Zeitzone des Zuhauses. Für vergangene Tage brauchst du ein Auto-Assist-Abo.",
+          "name": "Datum"
+        }
+      },
+      "name": "Tagesbericht abrufen"
+    },
+    "get_holiday_mode": {
+      "description": "Gibt den Urlaubsmodus eines Zuhauses zurück. Experimentell.",
+      "fields": {
+        "config_entry_id": {
+          "description": "Das Zuhause mit tado X. Nötig, wenn mehr als ein Zuhause eingerichtet ist.",
+          "name": "Zuhause"
+        }
+      },
+      "name": "Urlaubsmodus abrufen"
+    },
+    "get_schedule": {
+      "description": "Gibt den Wochenzeitplan von Räumen zurück.",
+      "name": "Zeitplan abrufen"
+    },
+    "set_climate_timer": {
+      "description": "Stellt eine Raumtemperatur ein, bis eine Dauer abgelaufen ist, bis zum nächsten Zeitblock oder bis du sie beendest.",
+      "fields": {
+        "duration": {
+          "description": "Minuten, bis wieder der Zeitplan gilt. Eine Dauer ohne Ende bedeutet Timer.",
+          "name": "Dauer"
+        },
+        "temperature": {
+          "description": "Zieltemperatur.",
+          "name": "Temperatur"
+        },
+        "termination": {
+          "description": "Wann wieder der Zeitplan gilt. Ohne Dauer und ohne Ende gilt die entsprechende Option der Integration.",
+          "name": "Ende"
+        }
+      },
+      "name": "Klima-Timer setzen"
+    },
+    "set_eiq_tariff": {
+      "description": "Fügt tado Energy IQ einen Energietarif für die Kostenberechnung hinzu.",
+      "fields": {
+        "config_entry_id": {
+          "description": "Das Zuhause mit tado X. Nötig, wenn mehr als ein Zuhause eingerichtet ist.",
+          "name": "Zuhause"
+        },
+        "end_date": {
+          "description": "Letzter Tag des Tarifs. Leer lassen, wenn der Tarif weiterläuft.",
+          "name": "Enddatum"
+        },
+        "start_date": {
+          "description": "Erster Tag des Tarifs. Standardmäßig heute in der Zeitzone des Zuhauses.",
+          "name": "Startdatum"
+        },
+        "tariff": {
+          "description": "Preis pro Einheit, zum Beispiel 0,85 für 0,85 pro Kubikmeter. tado speichert ganze Cent, daher wird der Preis kaufmännisch auf zwei Nachkommastellen gerundet.",
+          "name": "Tarif"
+        },
+        "unit": {
+          "description": "Einheit, auf die sich der Preis bezieht.",
+          "name": "Einheit"
+        }
+      },
+      "name": "Energietarif festlegen"
+    },
+    "set_holiday_mode": {
+      "description": "Schaltet den Urlaubsmodus eines Zuhauses ein oder aus und legt seinen Zeitraum fest. Experimentell; erfordert ein Auto-Assist-Abo.",
+      "fields": {
+        "config_entry_id": {
+          "description": "Das Zuhause mit tado X. Nötig, wenn mehr als ein Zuhause eingerichtet ist.",
+          "name": "Zuhause"
+        },
+        "enabled": {
+          "description": "Ob der Urlaubsmodus eingeschaltet ist.",
+          "name": "Aktiviert"
+        },
+        "end": {
+          "description": "Wann der Urlaub endet.",
+          "name": "Ende"
+        },
+        "start": {
+          "description": "Wann der Urlaub beginnt.",
+          "name": "Beginn"
+        }
+      },
+      "name": "Urlaubsmodus festlegen"
+    },
+    "set_schedule": {
+      "description": "Ersetzt den Zeitplan von Räumen an den gewählten Wochentagen. Die Zeitblöcke müssen den Tag von 00:00 bis 24:00 lückenlos abdecken.",
+      "fields": {
+        "blocks": {
+          "description": "Die Zeitblöcke jedes gewählten Tages in zeitlicher Reihenfolge.",
+          "name": "Zeitblöcke"
+        },
+        "days": {
+          "description": "Wochentage, die diese Zeitblöcke erhalten.",
+          "name": "Tage"
+        }
+      },
+      "name": "Zeitplan festlegen"
+    },
+    "set_temperature_offset": {
+      "description": "Kalibriert die gemessene Temperatur eines Heizkörperthermostats, Temperatursensors oder smarten Thermostats.",
+      "fields": {
+        "device_id": {
+          "description": "Das Gerät, das kalibriert wird.",
+          "name": "Gerät"
+        },
+        "offset": {
+          "description": "Wird in °C zur gemessenen Temperatur addiert.",
+          "name": "Versatz"
+        }
+      },
+      "name": "Temperaturversatz festlegen"
     }
   }
 }

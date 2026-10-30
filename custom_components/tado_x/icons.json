@@ -1,0 +1,251 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "boost": {
+        "default": "mdi:rocket-launch",
+        "state": {
+          "off": "mdi:rocket-launch-outline"
+        }
+      },
+      "holiday_mode": {
+        "default": "mdi:beach",
+        "state": {
+          "off": "mdi:home"
+        }
+      },
+      "overlay_active": {
+        "default": "mdi:hand-back-left",
+        "state": {
+          "off": "mdi:hand-back-left-outline"
+        }
+      }
+    },
+    "button": {
+      "boost_all": {
+        "default": "mdi:fire"
+      },
+      "disable_all": {
+        "default": "mdi:power-off"
+      },
+      "resume_schedules": {
+        "default": "mdi:calendar-sync"
+      }
+    },
+    "climate": {
+      "tado_x": {
+        "state_attributes": {
+          "preset_mode": {
+            "default": "mdi:home-account",
+            "state": {
+              "auto": "mdi:home-automation",
+              "away": "mdi:home-export-outline",
+              "home": "mdi:home"
+            }
+          }
+        }
+      }
+    },
+    "number": {
+      "manual_termination_timer": {
+        "default": "mdi:timer-cog-outline"
+      },
+      "max_flow_temperature": {
+        "default": "mdi:thermometer-water"
+      },
+      "temperature_offset": {
+        "default": "mdi:plus-minus-variant"
+      }
+    },
+    "select": {
+      "manual_termination": {
+        "default": "mdi:timer-cog-outline",
+        "state": {
+          "manual": "mdi:hand-back-right",
+          "next_time_block": "mdi:calendar-arrow-right",
+          "timer": "mdi:timer-outline"
+        }
+      },
+      "presence_mode": {
+        "default": "mdi:home-account",
+        "state": {
+          "auto": "mdi:home-automation",
+          "away": "mdi:home-export-outline"
+        }
+      }
+    },
+    "sensor": {
+      "air_freshness": {
+        "default": "mdi:water-percent",
+        "state": {
+          "dry": "mdi:water-off",
+          "humid": "mdi:water"
+        }
+      },
+      "api_calls_24h": {
+        "default": "mdi:counter"
+      },
+      "api_calls_today": {
+        "default": "mdi:api"
+      },
+      "api_quota_limit": {
+        "default": "mdi:gauge-full"
+      },
+      "api_quota_remaining": {
+        "default": "mdi:gauge"
+      },
+      "api_reset_time": {
+        "default": "mdi:timer-refresh-outline"
+      },
+      "api_status": {
+        "default": "mdi:cloud-check-outline",
+        "state": {
+          "conserving": "mdi:leaf",
+          "rate_limited": "mdi:cloud-alert",
+          "throttled": "mdi:speedometer-slow"
+        }
+      },
+      "api_usage_percentage": {
+        "default": "mdi:percent"
+      },
+      "battery": {
+        "default": "mdi:battery",
+        "state": {
+          "depleted": "mdi:battery-alert",
+          "low": "mdi:battery-low"
+        }
+      },
+      "comfort_level": {
+        "default": "mdi:thermometer",
+        "state": {
+          "cold": "mdi:snowflake",
+          "hot": "mdi:fire",
+          "warm": "mdi:sun-thermometer"
+        }
+      },
+      "control_mode": {
+        "default": "mdi:tune-variant"
+      },
+      "data_updated": {
+        "default": "mdi:update"
+      },
+      "heating_power": {
+        "default": "mdi:radiator"
+      },
+      "heating_time_today": {
+        "default": "mdi:clock-outline"
+      },
+      "manual_control_end": {
+        "default": "mdi:timer-sand"
+      },
+      "next_schedule_change": {
+        "default": "mdi:calendar-clock"
+      },
+      "next_schedule_temperature": {
+        "default": "mdi:calendar-arrow-right"
+      },
+      "next_time_block": {
+        "default": "mdi:calendar-start"
+      },
+      "presence_mode": {
+        "default": "mdi:home-automation",
+        "state": {
+          "manual": "mdi:hand-back-right"
+        }
+      },
+      "presence_state": {
+        "default": "mdi:home-account",
+        "state": {
+          "away": "mdi:home-export-outline"
+        }
+      },
+      "solar_intensity": {
+        "default": "mdi:white-balance-sunny"
+      },
+      "temperature_offset": {
+        "default": "mdi:plus-minus-variant"
+      },
+      "weather_state": {
+        "default": "mdi:weather-partly-cloudy",
+        "state": {
+          "cloudy": "mdi:weather-cloudy",
+          "cloudy_mostly": "mdi:weather-cloudy",
+          "drizzle": "mdi:weather-rainy",
+          "foggy": "mdi:weather-fog",
+          "freezing": "mdi:snowflake-thermometer",
+          "hail": "mdi:weather-hail",
+          "night_clear": "mdi:weather-night",
+          "night_cloudy": "mdi:weather-night-partly-cloudy",
+          "rain": "mdi:weather-pouring",
+          "rain_hail": "mdi:weather-hail",
+          "rain_snow": "mdi:weather-snowy-rainy",
+          "scattered_rain": "mdi:weather-partly-rainy",
+          "scattered_rain_snow": "mdi:weather-partly-snowy-rainy",
+          "scattered_snow": "mdi:weather-partly-snowy",
+          "snow": "mdi:weather-snowy",
+          "sun": "mdi:weather-sunny",
+          "sunny": "mdi:weather-sunny",
+          "thunderstorm": "mdi:weather-lightning-rainy",
+          "thunderstorms": "mdi:weather-lightning-rainy",
+          "windy": "mdi:weather-windy"
+        }
+      }
+    },
+    "switch": {
+      "child_lock": {
+        "default": "mdi:lock",
+        "state": {
+          "off": "mdi:lock-open-variant"
+        }
+      },
+      "flow_temp_auto_adaptation": {
+        "default": "mdi:auto-fix"
+      },
+      "open_window": {
+        "default": "mdi:window-open-variant",
+        "state": {
+          "off": "mdi:window-closed-variant"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "sections": {
+          "control": "mdi:tune",
+          "features": "mdi:toggle-switch-outline",
+          "polling": "mdi:gauge"
+        }
+      }
+    }
+  },
+  "services": {
+    "add_meter_reading": {
+      "service": "mdi:meter-gas"
+    },
+    "get_day_report": {
+      "service": "mdi:chart-timeline-variant"
+    },
+    "get_holiday_mode": {
+      "service": "mdi:beach"
+    },
+    "get_schedule": {
+      "service": "mdi:calendar-search"
+    },
+    "set_climate_timer": {
+      "service": "mdi:timer-outline"
+    },
+    "set_eiq_tariff": {
+      "service": "mdi:currency-eur"
+    },
+    "set_holiday_mode": {
+      "service": "mdi:airplane-takeoff"
+    },
+    "set_schedule": {
+      "service": "mdi:calendar-edit"
+    },
+    "set_temperature_offset": {
+      "service": "mdi:plus-minus-variant"
+    }
+  }
+}

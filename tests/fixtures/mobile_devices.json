@@ -1,0 +1,22 @@
+[
+  {
+    "id": 5000001,
+    "name": "Phone",
+    "settings": {"geoTrackingEnabled": true, "specialOffersEnabled": false, "onDemandLogRetrievalEnabled": false, "pushNotifications": {"lowBatteryReminder": true}},
+    "location": {"stale": false, "atHome": true, "bearingFromHome": {"degrees": 0.0, "radians": 0.0}, "relativeDistanceFromHomeFence": 0.0},
+    "deviceMetadata": {"platform": "Android", "osVersion": "15", "model": "Model1", "locale": "de"}
+  },
+  {
+    "id": 5000002,
+    "name": "Phone 2",
+    "settings": {"geoTrackingEnabled": true, "specialOffersEnabled": false, "onDemandLogRetrievalEnabled": false},
+    "location": {"stale": true, "atHome": false, "bearingFromHome": {"degrees": 0.0, "radians": 0.0}, "relativeDistanceFromHomeFence": 0.0},
+    "deviceMetadata": {"platform": "iOS", "osVersion": "18.1", "model": "Model2", "locale": "de"}
+  },
+  {
+    "id": 5000003,
+    "name": "Tablet",
+    "settings": {"geoTrackingEnabled": false, "specialOffersEnabled": false, "onDemandLogRetrievalEnabled": false},
+    "deviceMetadata": {"platform": "Android", "osVersion": "14", "model": "Model3", "locale": "de"}
+  }
+]

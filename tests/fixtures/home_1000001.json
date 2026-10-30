@@ -1,0 +1,49 @@
+{
+  "id": 1000001,
+  "name": "Haus A",
+  "dateTimeZone": "Europe/Berlin",
+  "dateCreated": "2025-01-15T10:00:00.000Z",
+  "temperatureUnit": "CELSIUS",
+  "partner": null,
+  "simpleSmartScheduleEnabled": true,
+  "awayRadiusInMeters": 400.0,
+  "installationCompleted": true,
+  "incidentDetection": {
+    "supported": true,
+    "enabled": true
+  },
+  "generation": "PRE_LINE_X",
+  "zonesCount": 4,
+  "language": "de",
+  "skills": [
+    "AUTO_ASSIST"
+  ],
+  "christmasModeEnabled": false,
+  "showAutoAssistReminders": false,
+  "contactDetails": {
+    "name": "Test User",
+    "email": "user@example.invalid",
+    "phone": null
+  },
+  "address": {
+    "addressLine1": "Musterstrasse 1",
+    "addressLine2": null,
+    "zipCode": "00000",
+    "city": "Musterstadt",
+    "state": null,
+    "country": "DEU"
+  },
+  "geolocation": {
+    "latitude": 50.0,
+    "longitude": 8.0
+  },
+  "consentGrantSkippable": true,
+  "enabledFeatures": [],
+  "isAirComfortEligible": true,
+  "isBalanceAcEligible": false,
+  "isBalanceHpEligible": false,
+  "isEnergyIqEligible": true,
+  "isHeatSourceInstalled": false,
+  "isHeatPumpInstalled": false,
+  "supportsFlowTemperatureOptimization": false
+}

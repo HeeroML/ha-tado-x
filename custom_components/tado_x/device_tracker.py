@@ -1,134 +1,93 @@
-"""Device tracker platform for Tado X mobile devices."""
-from __future__ import annotations
+"""Device tracker platform: phones with geofencing."""
 
-import logging
+from collections.abc import Iterator
+from typing import Any, override
 
-from homeassistant.components.device_tracker import SourceType, TrackerEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.device_tracker.entity import (
+    TrackerEntity,
+    TrackerEntityDescription,
+)
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import TadoXDataUpdateCoordinator, TadoXMobileDevice
+from .client import MobileDevice
+from .const import DEFAULT_PRESENCE_ZONE, OPT_PRESENCE_ZONE
+from .coordinator import HomeCoordinator
+from .devices import mobile_identifier
+from .entity import TadoXEntity, async_add_dynamic_entities
+from .runtime import TadoXConfigEntry
 
-_LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
+
+PHONE = TrackerEntityDescription(key="phone", translation_key="phone", name=None)
+
+
+class TadoXPhoneTracker(TadoXEntity[HomeCoordinator], TrackerEntity):
+    """Phone in the presence zone or away, as tado's geofencing sees it.
+
+    The state is unknown while geofencing is off for the phone or its
+    location is unknown or outdated.
+    """
+
+    def __init__(self, coordinator: HomeCoordinator, mobile_id: int, zone: str) -> None:
+        """Initialize the tracker of a phone device."""
+        home_id = coordinator.api.home_id
+        super().__init__(
+            coordinator,
+            PHONE,
+            unique_id=f"{home_id}_mobile_{mobile_id}",
+            device=mobile_identifier(mobile_id),
+        )
+        self._mobile_id = mobile_id
+        self._zone = zone
+        self._attr_in_zones = self._zones()
+
+    def _phone(self) -> MobileDevice | None:
+        return (self.coordinator.data.mobile_devices or {}).get(self._mobile_id)
+
+    @override
+    def _present(self) -> bool:
+        return self._phone() is not None
+
+    def _zones(self) -> list[str] | None:
+        phone = self._phone()
+        if (
+            phone is None
+            or not phone.geo_tracking
+            or phone.stale
+            or phone.at_home is None
+        ):
+            return None
+        return [self._zone] if phone.at_home else []
+
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        """Update the zones, then write the state."""
+        self._attr_in_zones = self._zones()
+        super()._handle_coordinator_update()
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return whether geofencing is on and whether the location is outdated."""
+        phone = (self.coordinator.data.mobile_devices or {})[self._mobile_id]
+        return {"geofencing_enabled": phone.geo_tracking, "location_stale": phone.stale}
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: TadoXConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up Tado X device tracker entities."""
-    coordinator: TadoXDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    """Set up the phone trackers of a tado X home."""
+    data = entry.runtime_data
+    if not data.monitor.enabled("mobile_devices"):
+        return
+    zone: str = entry.options.get(OPT_PRESENCE_ZONE, DEFAULT_PRESENCE_ZONE)
 
-    entities: list[TrackerEntity] = []
+    def build() -> Iterator[TadoXEntity[Any]]:
+        for mobile_id in data.home.data.mobile_devices or {}:
+            yield TadoXPhoneTracker(data.home, mobile_id, zone)
 
-    # Add device trackers for each mobile device (only if feature is enabled)
-    if coordinator.enable_mobile_devices:
-        for device_id in coordinator.data.mobile_devices:
-            entities.append(TadoXMobileDeviceTracker(coordinator, device_id))
-
-    async_add_entities(entities)
-
-
-class TadoXMobileDeviceTracker(
-    CoordinatorEntity[TadoXDataUpdateCoordinator], TrackerEntity
-):
-    """Tado X mobile device tracker entity."""
-
-    _attr_has_entity_name = True
-
-    def __init__(
-        self,
-        coordinator: TadoXDataUpdateCoordinator,
-        device_id: int,
-    ) -> None:
-        """Initialize the device tracker entity."""
-        super().__init__(coordinator)
-        self._device_id = device_id
-        self._attr_unique_id = f"{coordinator.home_id}_mobile_{device_id}"
-
-    @property
-    def _mobile_device(self) -> TadoXMobileDevice | None:
-        """Get the mobile device data."""
-        return self.coordinator.data.mobile_devices.get(self._device_id)
-
-    @property
-    def name(self) -> str:
-        """Return the name of the device."""
-        mobile = self._mobile_device
-        if mobile:
-            return mobile.name
-        return f"Mobile {self._device_id}"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        mobile = self._mobile_device
-        metadata = mobile.device_metadata if mobile else {}
-
-        # Get device details from metadata
-        platform = metadata.get("platform", "Unknown")
-        os_version = metadata.get("osVersion", "")
-        model = metadata.get("model", "")
-
-        # Build model string
-        model_str = "Mobile Device"
-        if platform and model:
-            model_str = f"{platform} - {model}"
-        elif platform:
-            model_str = platform
-
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"mobile_{self._device_id}")},
-            name=mobile.name if mobile else f"Mobile {self._device_id}",
-            manufacturer="Tado",
-            model=model_str,
-            sw_version=os_version if os_version else None,
-            via_device=(DOMAIN, str(self.coordinator.home_id)),
-        )
-
-    @property
-    def source_type(self) -> SourceType:
-        """Return the source type of the device tracker."""
-        return SourceType.GPS
-
-    @property
-    def location_name(self) -> str | None:
-        """Return the location name of the device."""
-        mobile = self._mobile_device
-        if not mobile:
-            return None
-
-        if not mobile.geofencing_enabled:
-            return "not_tracking"
-
-        if mobile.location is None:
-            return "unknown"
-
-        return mobile.location.lower()
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return extra state attributes."""
-        mobile = self._mobile_device
-        if not mobile:
-            return {}
-
-        metadata = mobile.device_metadata
-        return {
-            "geofencing_enabled": mobile.geofencing_enabled,
-            "at_home": mobile.at_home,
-            "platform": metadata.get("platform"),
-            "os_version": metadata.get("osVersion"),
-            "model": metadata.get("model"),
-            "locale": metadata.get("locale"),
-        }
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
+    async_add_dynamic_entities(entry, data.home, async_add_entities, build)

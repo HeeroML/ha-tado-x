@@ -1,0 +1,27 @@
+{
+  "room": {"id": 1, "name": "Wohnzimmer"},
+  "otherRooms": [{"id": 2, "name": "Kueche"}, {"id": 3, "name": "Schlafzimmer"}, {"id": 4, "name": "Kinderzimmer"}, {"id": 5, "name": "Bad"}, {"id": 6, "name": "Arbeitszimmer"}],
+  "schedule": [
+    {"dayType": "MONDAY", "start": "00:00", "end": "06:30", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "MONDAY", "start": "06:30", "end": "22:00", "setting": {"power": "ON", "temperature": {"value": 21.0}}},
+    {"dayType": "MONDAY", "start": "22:00", "end": "24:00", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "TUESDAY", "start": "00:00", "end": "06:30", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "TUESDAY", "start": "06:30", "end": "22:00", "setting": {"power": "ON", "temperature": {"value": 21.0}}},
+    {"dayType": "TUESDAY", "start": "22:00", "end": "24:00", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "WEDNESDAY", "start": "00:00", "end": "06:30", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "WEDNESDAY", "start": "06:30", "end": "22:00", "setting": {"power": "ON", "temperature": {"value": 21.0}}},
+    {"dayType": "WEDNESDAY", "start": "22:00", "end": "24:00", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "THURSDAY", "start": "00:00", "end": "06:30", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "THURSDAY", "start": "06:30", "end": "22:00", "setting": {"power": "ON", "temperature": {"value": 21.0}}},
+    {"dayType": "THURSDAY", "start": "22:00", "end": "24:00", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "FRIDAY", "start": "00:00", "end": "06:30", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "FRIDAY", "start": "06:30", "end": "22:00", "setting": {"power": "ON", "temperature": {"value": 21.0}}},
+    {"dayType": "FRIDAY", "start": "22:00", "end": "24:00", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "SATURDAY", "start": "00:00", "end": "06:30", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "SATURDAY", "start": "06:30", "end": "22:00", "setting": {"power": "ON", "temperature": {"value": 21.0}}},
+    {"dayType": "SATURDAY", "start": "22:00", "end": "24:00", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "SUNDAY", "start": "00:00", "end": "06:30", "setting": {"power": "ON", "temperature": {"value": 18.0}}},
+    {"dayType": "SUNDAY", "start": "06:30", "end": "22:00", "setting": {"power": "ON", "temperature": {"value": 21.0}}},
+    {"dayType": "SUNDAY", "start": "22:00", "end": "24:00", "setting": {"power": "ON", "temperature": {"value": 18.0}}}
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "lastUpdated": "2026-10-30T09:55:00Z",
+  "runningTimes": [
+    {
+      "startTime": "2026-10-30 00:00:00",
+      "endTime": "2026-10-30 23:59:59",
+      "runningTimeInSeconds": 9000,
+      "zones": [
+        {"id": 1, "runningTimeInSeconds": 3600},
+        {"id": 2, "runningTimeInSeconds": 2700},
+        {"id": 3, "runningTimeInSeconds": 0},
+        {"id": 4, "runningTimeInSeconds": 1800},
+        {"id": 5, "runningTimeInSeconds": 900},
+        {"id": 6, "runningTimeInSeconds": 0}
+      ]
+    }
+  ],
+  "summary": {"startTime": "2026-10-30 00:00:00", "endTime": "2026-10-30 23:59:59", "meanInSecondsPerDay": 9000, "totalRunningTimeInSeconds": 9000}
+}

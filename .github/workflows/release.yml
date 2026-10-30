@@ -1,0 +1,69 @@
+name: Release
+
+# Pushing a tag v<version> creates the GitHub release, and only after the
+# tag matches the manifest and lint and tests pass. HACS offers releases,
+# so a tag that fails a check is never offered.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to check (dry run; no release is created)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  version:
+    name: tag, manifest and changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ${{ github.workflow }}-version-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tag, manifest version, minimum Home Assistant and release notes
+        run: python3 scripts/release_check.py "$TAG"
+
+  tests:
+    name: lint and tests
+    needs: version
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    name: GitHub release with tado_x.zip
+    needs: [version, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.workflow }}-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build tado_x.zip with the integration files at its top level
+        working-directory: custom_components/tado_x
+        run: |
+          zip -r -X "$GITHUB_WORKSPACE/tado_x.zip" . -x '*__pycache__*' '*.pyc'
+          unzip -l "$GITHUB_WORKSPACE/tado_x.zip"
+      - name: Release notes from CHANGELOG.md
+        run: |
+          python3 scripts/release_check.py "$TAG" --notes release_notes.md
+          cat release_notes.md
+      - name: Create the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          gh release create "$TAG" tado_x.zip
+          --verify-tag
+          --title "$TAG"
+          --notes-file release_notes.md

@@ -1,0 +1,764 @@
+# serializer version: 1
+# name: test_device_diagnostics[home]
+  None
+# ---
+# name: test_device_diagnostics[room]
+  dict({
+    'devices': list([
+      dict({
+        'battery': 'NORMAL',
+        'child_lock': False,
+        'connection': 'CONNECTED',
+        'control_mode': None,
+        'firmware': '280.1',
+        'has_battery': True,
+        'mounting_state': 'CALIBRATED',
+        'room_id': 1,
+        'serial': 'VA…0101',
+        'temperature_measured': 22.4,
+        'temperature_offset': -1.5,
+        'type': 'VA04',
+        'type_raw': 'VA04',
+      }),
+      dict({
+        'battery': 'NORMAL',
+        'child_lock': None,
+        'connection': 'CONNECTED',
+        'control_mode': None,
+        'firmware': '287.1',
+        'has_battery': True,
+        'mounting_state': None,
+        'room_id': 1,
+        'serial': 'SU…0101',
+        'temperature_measured': 21.1,
+        'temperature_offset': 0.0,
+        'type': 'SU04',
+        'type_raw': 'SU04',
+      }),
+    ]),
+    'id': 1,
+    'manual_termination_default': dict({
+      'duration': None,
+      'type': 'NEXT_TIME_BLOCK',
+    }),
+    'name': 'Wohnzimmer',
+  })
+# ---
+# name: test_device_diagnostics[valve]
+  dict({
+    'battery': 'NORMAL',
+    'child_lock': False,
+    'connection': 'CONNECTED',
+    'control_mode': None,
+    'firmware': '280.1',
+    'has_battery': True,
+    'mounting_state': 'CALIBRATED',
+    'room_id': 1,
+    'serial': 'VA…0101',
+    'temperature_measured': 22.4,
+    'temperature_offset': -1.5,
+    'type': 'VA04',
+    'type_raw': 'VA04',
+  })
+# ---
+# name: test_entry_diagnostics
+  dict({
+    'cache': dict({
+      'flow_status': 'absent',
+      'schema': 1,
+      'slices': dict({
+        'air_comfort': '2026-10-30T10:00:00+00:00',
+        'home_info': '2026-10-30T10:00:00+00:00',
+        'home_state': '2026-10-30T10:00:00+00:00',
+        'rooms': '2026-10-30T10:00:00+00:00',
+        'running_times': '2026-10-30T10:00:00+00:00',
+        'topology': '2026-10-30T10:00:00+00:00',
+        'weather': '2026-10-30T10:00:00+00:00',
+      }),
+      'unsaved_changes': True,
+    }),
+    'coordinators': dict({
+      'devices': dict({
+        'last_exception': None,
+        'last_fetched': dict({
+          'flow_temperature': '2026-10-30T10:00:00+00:00',
+          'home_info': '2026-10-30T10:00:00+00:00',
+          'running_times': '2026-10-30T10:00:00+00:00',
+          'topology': '2026-10-30T10:00:00+00:00',
+        }),
+        'last_live_update': '2026-10-30T10:00:00+00:00',
+        'last_update_success': True,
+        'stale_since': None,
+        'update_interval': 900.0,
+      }),
+      'home': dict({
+        'last_exception': None,
+        'last_fetched': dict({
+          'air_comfort': '2026-10-30T10:00:00+00:00',
+          'home_state': '2026-10-30T10:00:00+00:00',
+          'mobile_devices': '2026-10-30T10:00:00+00:00',
+          'weather': '2026-10-30T10:00:00+00:00',
+        }),
+        'last_live_update': '2026-10-30T10:00:00+00:00',
+        'last_update_success': True,
+        'stale_since': None,
+        'update_interval': 300.0,
+      }),
+      'rooms': dict({
+        'last_exception': None,
+        'last_fetched': dict({
+          'rooms': '2026-10-30T10:00:00+00:00',
+        }),
+        'last_live_update': '2026-10-30T10:00:00+00:00',
+        'last_update_success': True,
+        'stale_since': None,
+        'update_interval': 50.0,
+      }),
+    }),
+    'entry': dict({
+      'data': dict({
+        'access_token': '**REDACTED**',
+        'home_id': 1000002,
+        'home_name': 'Haus 1000002',
+        'refresh_token': '**REDACTED**',
+        'token_expiry': '**REDACTED**',
+        'user_id': '**REDACTED**',
+      }),
+      'options': dict({
+        'air_comfort': True,
+        'daily_call_budget': 3000,
+        'holiday_mode': False,
+        'manual_termination': 'follow_app',
+        'mobile_devices': True,
+        'off_follows_policy': False,
+        'presence_zone': 'zone.home',
+        'quota_reserve': 1000,
+        'running_times': True,
+        'timer_minutes': 60,
+        'weather': True,
+      }),
+      'title': 'Haus 1000002',
+      'version': '1.2',
+    }),
+    'flow_status': 'absent',
+    'payloads': dict({
+      'air_comfort': dict({
+        'at': '2026-10-30T10:00:00+00:00',
+        'raw': dict({
+          'comfort': list([
+            dict({
+              'coordinate': dict({
+                'angular': 90,
+                'radial': 0.2,
+              }),
+              'humidityLevel': 'COMFY',
+              'roomId': 1,
+              'temperatureLevel': 'COMFY',
+            }),
+            dict({
+              'coordinate': dict({
+                'angular': 60,
+                'radial': 0.4,
+              }),
+              'humidityLevel': 'HUMID',
+              'roomId': 2,
+              'temperatureLevel': 'COMFY',
+            }),
+            dict({
+              'coordinate': dict({
+                'angular': 200,
+                'radial': 0.6,
+              }),
+              'humidityLevel': 'COMFY',
+              'roomId': 3,
+              'temperatureLevel': 'COLD',
+            }),
+            dict({
+              'coordinate': dict({
+                'angular': 120,
+                'radial': 0.3,
+              }),
+              'humidityLevel': 'DRY',
+              'roomId': 4,
+              'temperatureLevel': 'COMFY',
+            }),
+            dict({
+              'coordinate': dict({
+                'angular': 30,
+                'radial': 0.7,
+              }),
+              'humidityLevel': 'HUMID',
+              'roomId': 5,
+              'temperatureLevel': 'WARM',
+            }),
+            dict({
+              'roomId': 6,
+            }),
+          ]),
+          'freshness': dict({
+            'lastOpenWindow': '2026-10-30T07:12:00Z',
+            'value': 'FAIR',
+          }),
+        }),
+      }),
+      'home_state': dict({
+        'at': '2026-10-30T10:00:00+00:00',
+        'raw': dict({
+          'presence': 'HOME',
+          'presenceLocked': False,
+        }),
+      }),
+      'rooms': dict({
+        'at': '2026-10-30T10:00:00+00:00',
+        'raw': list([
+          dict({
+            'balanceControl': None,
+            'boostMode': None,
+            'connection': dict({
+              'state': 'CONNECTED',
+            }),
+            'heatingPower': dict({
+              'percentage': 12,
+            }),
+            'id': 1,
+            'manualControlTermination': None,
+            'name': 'Wohnzimmer',
+            'nextScheduleChange': dict({
+              'setting': dict({
+                'power': 'ON',
+                'temperature': dict({
+                  'value': 18.0,
+                }),
+              }),
+              'start': '2026-10-30T21:00:00Z',
+            }),
+            'nextTimeBlock': dict({
+              'start': '2026-10-30T21:00:00Z',
+            }),
+            'openWindow': None,
+            'sensorDataPoints': dict({
+              'humidity': dict({
+                'percentage': 52.0,
+              }),
+              'insideTemperature': dict({
+                'value': 21.1,
+              }),
+            }),
+            'setting': dict({
+              'power': 'ON',
+              'temperature': dict({
+                'value': 21.0,
+              }),
+            }),
+          }),
+          dict({
+            'balanceControl': None,
+            'boostMode': None,
+            'connection': dict({
+              'state': 'CONNECTED',
+            }),
+            'heatingPower': dict({
+              'percentage': 64,
+            }),
+            'id': 2,
+            'manualControlTermination': dict({
+              'projectedExpiry': '2026-10-30T10:45:10Z',
+              'remainingTimeInSeconds': 2710,
+              'type': 'TIMER',
+            }),
+            'name': 'Kueche',
+            'nextScheduleChange': dict({
+              'setting': dict({
+                'power': 'ON',
+                'temperature': dict({
+                  'value': 20.0,
+                }),
+              }),
+              'start': '2026-10-30T10:45:10Z',
+            }),
+            'nextTimeBlock': dict({
+              'start': '2026-10-30T17:00:00Z',
+            }),
+            'openWindow': None,
+            'sensorDataPoints': dict({
+              'humidity': dict({
+                'percentage': 58.5,
+              }),
+              'insideTemperature': dict({
+                'value': 20.2,
+              }),
+            }),
+            'setting': dict({
+              'power': 'ON',
+              'temperature': dict({
+                'value': 22.5,
+              }),
+            }),
+          }),
+          dict({
+            'balanceControl': None,
+            'boostMode': None,
+            'connection': dict({
+              'state': 'CONNECTED',
+            }),
+            'heatingPower': dict({
+              'percentage': 0,
+            }),
+            'id': 3,
+            'manualControlTermination': dict({
+              'projectedExpiry': None,
+              'remainingTimeInSeconds': None,
+              'type': 'MANUAL',
+            }),
+            'name': 'Schlafzimmer',
+            'nextScheduleChange': None,
+            'nextTimeBlock': dict({
+              'start': '2026-10-30T20:00:00Z',
+            }),
+            'openWindow': None,
+            'sensorDataPoints': dict({
+              'humidity': dict({
+                'percentage': 55.0,
+              }),
+              'insideTemperature': dict({
+                'value': 18.0,
+              }),
+            }),
+            'setting': dict({
+              'power': 'OFF',
+              'temperature': None,
+            }),
+          }),
+          dict({
+            'balanceControl': None,
+            'boostMode': None,
+            'connection': dict({
+              'state': 'CONNECTED',
+            }),
+            'heatingPower': dict({
+              'percentage': 30,
+            }),
+            'id': 4,
+            'manualControlTermination': dict({
+              'projectedExpiry': '2026-10-30T16:00:00Z',
+              'remainingTimeInSeconds': 25200,
+              'type': 'NEXT_TIME_BLOCK',
+            }),
+            'name': 'Kinderzimmer',
+            'nextScheduleChange': dict({
+              'setting': dict({
+                'power': 'ON',
+                'temperature': dict({
+                  'value': 20.0,
+                }),
+              }),
+              'start': '2026-10-30T16:00:00Z',
+            }),
+            'nextTimeBlock': dict({
+              'start': '2026-10-30T16:00:00Z',
+            }),
+            'openWindow': None,
+            'sensorDataPoints': dict({
+              'humidity': dict({
+                'percentage': 50.0,
+              }),
+              'insideTemperature': dict({
+                'value': 20.5,
+              }),
+            }),
+            'setting': dict({
+              'power': 'ON',
+              'temperature': dict({
+                'value': 21.5,
+              }),
+            }),
+          }),
+          dict({
+            'balanceControl': None,
+            'boostMode': None,
+            'connection': dict({
+              'state': 'CONNECTED',
+            }),
+            'heatingPower': dict({
+              'percentage': 0,
+            }),
+            'id': 5,
+            'manualControlTermination': None,
+            'name': 'Bad',
+            'nextScheduleChange': dict({
+              'setting': dict({
+                'power': 'ON',
+                'temperature': dict({
+                  'value': 19.0,
+                }),
+              }),
+              'start': '2026-10-30T12:00:00Z',
+            }),
+            'nextTimeBlock': dict({
+              'start': '2026-10-30T12:00:00Z',
+            }),
+            'openWindow': dict({
+              'activated': True,
+              'expiryInSeconds': 840,
+            }),
+            'sensorDataPoints': dict({
+              'humidity': dict({
+                'percentage': 71.0,
+              }),
+              'insideTemperature': dict({
+                'value': 19.4,
+              }),
+            }),
+            'setting': dict({
+              'power': 'ON',
+              'temperature': dict({
+                'value': 22.0,
+              }),
+            }),
+          }),
+          dict({
+            'balanceControl': None,
+            'boostMode': dict({
+              'projectedExpiry': '2026-10-30T10:25:00Z',
+              'remainingTimeInSeconds': 1500,
+              'type': 'TIMER',
+            }),
+            'connection': dict({
+              'state': 'CONNECTED',
+            }),
+            'heatingPower': dict({
+              'percentage': 100,
+            }),
+            'id': 6,
+            'manualControlTermination': None,
+            'name': 'Arbeitszimmer',
+            'nextScheduleChange': dict({
+              'setting': dict({
+                'power': 'ON',
+                'temperature': dict({
+                  'value': 20.0,
+                }),
+              }),
+              'start': '2026-10-30T10:25:00Z',
+            }),
+            'nextTimeBlock': dict({
+              'start': '2026-10-30T18:00:00Z',
+            }),
+            'openWindow': None,
+            'sensorDataPoints': None,
+            'setting': dict({
+              'power': 'ON',
+              'temperature': dict({
+                'value': 25.0,
+              }),
+            }),
+          }),
+        ]),
+      }),
+      'topology': dict({
+        'at': '2026-10-30T10:00:00+00:00',
+        'raw': dict({
+          'otherDevices': list([
+            dict({
+              'connection': dict({
+                'state': 'CONNECTED',
+              }),
+              'firmwareVersion': '279.1',
+              'serialNumber': 'IB…0001',
+              'type': 'IB02',
+            }),
+          ]),
+          'rooms': list([
+            dict({
+              'deviceManualControlTermination': dict({
+                'durationInSeconds': None,
+                'type': 'NEXT_TIME_BLOCK',
+              }),
+              'devices': list([
+                dict({
+                  'batteryState': 'NORMAL',
+                  'childLockEnabled': False,
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '280.1',
+                  'mountingState': 'CALIBRATED',
+                  'serialNumber': 'VA…0101',
+                  'temperatureAsMeasured': 22.4,
+                  'temperatureOffset': -1.5,
+                  'type': 'VA04',
+                }),
+                dict({
+                  'batteryState': 'NORMAL',
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '287.1',
+                  'serialNumber': 'SU…0101',
+                  'temperatureAsMeasured': 21.1,
+                  'temperatureOffset': 0.0,
+                  'type': 'SU04',
+                }),
+              ]),
+              'roomId': 1,
+              'roomLinkAvailable': True,
+              'roomName': 'Wohnzimmer',
+              'zoneControllerAssignable': False,
+              'zoneControllers': list([
+              ]),
+            }),
+            dict({
+              'deviceManualControlTermination': dict({
+                'durationInSeconds': 3600,
+                'type': 'TIMER',
+              }),
+              'devices': list([
+                dict({
+                  'batteryState': 'LOW',
+                  'childLockEnabled': False,
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '280.1',
+                  'mountingState': 'CALIBRATED',
+                  'serialNumber': 'VA…0102',
+                  'temperatureAsMeasured': 20.9,
+                  'temperatureOffset': -1.0,
+                  'type': 'VA04',
+                }),
+                dict({
+                  'batteryState': 'NORMAL',
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '287.1',
+                  'serialNumber': 'SU…0102',
+                  'temperatureAsMeasured': 20.2,
+                  'temperatureOffset': 0.0,
+                  'type': 'SU04',
+                }),
+              ]),
+              'roomId': 2,
+              'roomLinkAvailable': True,
+              'roomName': 'Kueche',
+              'zoneControllerAssignable': False,
+              'zoneControllers': list([
+              ]),
+            }),
+            dict({
+              'deviceManualControlTermination': dict({
+                'durationInSeconds': None,
+                'type': 'MANUAL',
+              }),
+              'devices': list([
+                dict({
+                  'batteryState': 'DEPLETED',
+                  'childLockEnabled': True,
+                  'connection': dict({
+                    'state': 'DISCONNECTED',
+                  }),
+                  'firmwareVersion': '280.1',
+                  'mountingState': 'CALIBRATED',
+                  'serialNumber': 'VA…0103',
+                  'temperatureAsMeasured': 18.2,
+                  'temperatureOffset': 0.0,
+                  'type': 'VA04',
+                }),
+                dict({
+                  'batteryState': 'NORMAL',
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '287.1',
+                  'serialNumber': 'SU…0103',
+                  'temperatureAsMeasured': 18.0,
+                  'temperatureOffset': -0.3,
+                  'type': 'SU04',
+                }),
+              ]),
+              'roomId': 3,
+              'roomLinkAvailable': True,
+              'roomName': 'Schlafzimmer',
+              'zoneControllerAssignable': False,
+              'zoneControllers': list([
+              ]),
+            }),
+            dict({
+              'deviceManualControlTermination': dict({
+                'durationInSeconds': None,
+                'type': 'NEXT_TIME_BLOCK',
+              }),
+              'devices': list([
+                dict({
+                  'batteryState': 'NORMAL',
+                  'childLockEnabled': True,
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '280.1',
+                  'mountingState': 'CALIBRATED',
+                  'serialNumber': 'VA…0104',
+                  'temperatureAsMeasured': 21.0,
+                  'temperatureOffset': -1.0,
+                  'type': 'VA04',
+                }),
+                dict({
+                  'batteryState': 'NORMAL',
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '287.1',
+                  'serialNumber': 'SU…0104',
+                  'temperatureAsMeasured': 20.5,
+                  'temperatureOffset': 0.0,
+                  'type': 'SU04',
+                }),
+              ]),
+              'roomId': 4,
+              'roomLinkAvailable': True,
+              'roomName': 'Kinderzimmer',
+              'zoneControllerAssignable': False,
+              'zoneControllers': list([
+              ]),
+            }),
+            dict({
+              'deviceManualControlTermination': dict({
+                'durationInSeconds': None,
+                'type': 'NEXT_TIME_BLOCK',
+              }),
+              'devices': list([
+                dict({
+                  'batteryState': 'NORMAL',
+                  'childLockEnabled': False,
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '280.1',
+                  'mountingState': 'CALIBRATED',
+                  'serialNumber': 'VA…0105',
+                  'temperatureAsMeasured': 23.1,
+                  'temperatureOffset': -2.0,
+                  'type': 'VA04',
+                }),
+                dict({
+                  'batteryState': 'NORMAL',
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '287.1',
+                  'serialNumber': 'SU…0105',
+                  'temperatureAsMeasured': 22.0,
+                  'temperatureOffset': 0.0,
+                  'type': 'SU04',
+                }),
+              ]),
+              'roomId': 5,
+              'roomLinkAvailable': True,
+              'roomName': 'Bad',
+              'zoneControllerAssignable': False,
+              'zoneControllers': list([
+              ]),
+            }),
+            dict({
+              'deviceManualControlTermination': dict({
+                'durationInSeconds': 1800,
+                'type': 'TIMER',
+              }),
+              'devices': list([
+                dict({
+                  'batteryState': 'NORMAL',
+                  'childLockEnabled': False,
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '280.1',
+                  'mountingState': 'CALIBRATED',
+                  'serialNumber': 'VA…0106',
+                  'temperatureAsMeasured': 20.7,
+                  'temperatureOffset': -0.5,
+                  'type': 'VA04',
+                }),
+                dict({
+                  'batteryState': 'NORMAL',
+                  'connection': dict({
+                    'state': 'CONNECTED',
+                  }),
+                  'firmwareVersion': '287.1',
+                  'serialNumber': 'SU…0106',
+                  'temperatureAsMeasured': 20.3,
+                  'temperatureOffset': 0.0,
+                  'type': 'SU04',
+                }),
+              ]),
+              'roomId': 6,
+              'roomLinkAvailable': True,
+              'roomName': 'Arbeitszimmer',
+              'zoneControllerAssignable': False,
+              'zoneControllers': list([
+              ]),
+            }),
+          ]),
+        }),
+      }),
+      'weather': dict({
+        'at': '2026-10-30T10:00:00+00:00',
+        'raw': dict({
+          'outsideTemperature': dict({
+            'celsius': 8.4,
+            'fahrenheit': 47.12,
+            'precision': dict({
+              'celsius': 0.01,
+              'fahrenheit': 0.01,
+            }),
+            'timestamp': '2026-10-30T09:00:00.000Z',
+            'type': 'TEMPERATURE',
+          }),
+          'solarIntensity': dict({
+            'percentage': 12.0,
+            'timestamp': '2026-10-30T09:00:00.000Z',
+            'type': 'PERCENTAGE',
+          }),
+          'weatherState': dict({
+            'timestamp': '2026-10-30T09:00:00.000Z',
+            'type': 'WEATHER_STATE',
+            'value': 'CLOUDY_PARTLY',
+          }),
+        }),
+      }),
+    }),
+    'quota': dict({
+      'blocked_until': None,
+      'calls_24h': 9,
+      'factor': 1.0,
+      'info': dict({
+        'limit': 20000,
+        'observed_at': '2026-10-30T10:00:00+00:00',
+        'remaining': 17824,
+        'reset_in': None,
+        'window': 86400.0,
+      }),
+      'mode': 'ok',
+      'plan': dict({
+        'budget': 3000,
+        'calls_per_day': 2617,
+        'periods': dict({
+          'air_comfort': 900.0,
+          'home_info': 86400.0,
+          'home_state': 300.0,
+          'mobile_devices': 300.0,
+          'rooms': 50.0,
+          'running_times': 3600.0,
+          'topology': 900.0,
+          'weather': 900.0,
+        }),
+      }),
+      'reset_at': None,
+      'status': 'ok',
+    }),
+    'tokens': dict({
+      'auth_failed': False,
+      'expires_at': '2026-10-30T10:10:00+00:00',
+      'has_refresh_token': True,
+    }),
+  })
+# ---

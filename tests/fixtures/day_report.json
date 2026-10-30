@@ -1,0 +1,67 @@
+{
+  "zoneType": "HEATING",
+  "interval": {"from": "2026-10-29T23:00:00.000Z", "to": "2026-10-30T23:00:00.000Z"},
+  "hoursInDay": 24,
+  "measuredData": {
+    "measuringDeviceConnected": {
+      "timeSeriesType": "dataIntervals",
+      "valueType": "boolean",
+      "dataIntervals": [{"from": "2026-10-29T23:00:00.000Z", "to": "2026-10-30T09:00:00.000Z", "value": true}]
+    },
+    "insideTemperature": {
+      "timeSeriesType": "dataPoints",
+      "valueType": "temperature",
+      "min": {"celsius": 19.5, "fahrenheit": 67.1},
+      "max": {"celsius": 21.5, "fahrenheit": 70.7},
+      "dataPoints": [
+        {"timestamp": "2026-10-29T23:00:00.000Z", "value": {"celsius": 20.0, "fahrenheit": 68.0}},
+        {"timestamp": "2026-10-30T03:00:00.000Z", "value": {"celsius": 19.5, "fahrenheit": 67.1}},
+        {"timestamp": "2026-10-30T07:00:00.000Z", "value": {"celsius": 21.5, "fahrenheit": 70.7}},
+        {"timestamp": "2026-10-30T09:00:00.000Z", "value": {"celsius": 21.0, "fahrenheit": 69.8}}
+      ]
+    },
+    "humidity": {
+      "timeSeriesType": "dataPoints",
+      "valueType": "percentage",
+      "percentageUnit": "UNIT_INTERVAL",
+      "min": 0.48,
+      "max": 0.56,
+      "dataPoints": [
+        {"timestamp": "2026-10-29T23:00:00.000Z", "value": 0.5},
+        {"timestamp": "2026-10-30T03:00:00.000Z", "value": 0.48},
+        {"timestamp": "2026-10-30T07:00:00.000Z", "value": 0.56},
+        {"timestamp": "2026-10-30T09:00:00.000Z", "value": 0.54}
+      ]
+    }
+  },
+  "stripes": {
+    "timeSeriesType": "dataIntervals",
+    "valueType": "stripes",
+    "dataIntervals": [
+      {"from": "2026-10-29T23:00:00.000Z", "to": "2026-10-30T05:30:00.000Z", "value": {"stripeType": "HOME", "setting": {"type": "HEATING", "power": "ON", "temperature": {"celsius": 18.0, "fahrenheit": 64.4}}}},
+      {"from": "2026-10-30T05:30:00.000Z", "to": "2026-10-30T09:00:00.000Z", "value": {"stripeType": "HOME", "setting": {"type": "HEATING", "power": "ON", "temperature": {"celsius": 21.0, "fahrenheit": 69.8}}}}
+    ]
+  },
+  "settings": {
+    "timeSeriesType": "dataIntervals",
+    "valueType": "heatingSetting",
+    "dataIntervals": [
+      {"from": "2026-10-29T23:00:00.000Z", "to": "2026-10-30T05:30:00.000Z", "value": {"type": "HEATING", "power": "ON", "temperature": {"celsius": 18.0, "fahrenheit": 64.4}}},
+      {"from": "2026-10-30T05:30:00.000Z", "to": "2026-10-30T09:00:00.000Z", "value": {"type": "HEATING", "power": "ON", "temperature": {"celsius": 21.0, "fahrenheit": 69.8}}}
+    ]
+  },
+  "callForHeat": {
+    "timeSeriesType": "dataIntervals",
+    "valueType": "callForHeat",
+    "dataIntervals": [
+      {"from": "2026-10-29T23:00:00.000Z", "to": "2026-10-30T05:30:00.000Z", "value": "NONE"},
+      {"from": "2026-10-30T05:30:00.000Z", "to": "2026-10-30T07:00:00.000Z", "value": "HIGH"},
+      {"from": "2026-10-30T07:00:00.000Z", "to": "2026-10-30T09:00:00.000Z", "value": "LOW"}
+    ]
+  },
+  "weather": {
+    "condition": {"timeSeriesType": "dataIntervals", "valueType": "weatherCondition", "dataIntervals": []},
+    "sunny": {"timeSeriesType": "dataIntervals", "valueType": "boolean", "dataIntervals": []},
+    "slots": {"timeSeriesType": "slots", "valueType": "weatherCondition", "slots": {}}
+  }
+}

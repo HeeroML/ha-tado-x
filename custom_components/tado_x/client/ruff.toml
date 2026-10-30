@@ -1,0 +1,9 @@
+# The client must stay free of Home Assistant so it can be published on its own.
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"homeassistant".msg = "the tado X client must not depend on Home Assistant"
+"async_timeout".msg = "use asyncio.timeout instead"
+"pytz".msg = "use zoneinfo instead"
+"voluptuous".msg = "use probatio instead"
+"__future__.annotations".msg = "It should not be needed because Home Assistant requires Python 3.14+"

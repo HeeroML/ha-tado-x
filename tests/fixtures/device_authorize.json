@@ -1,0 +1,8 @@
+{
+  "device_code": "fake-device-code-0000000000000000",
+  "expires_in": 300,
+  "interval": 5,
+  "user_code": "ABC123",
+  "verification_uri": "https://login.tado.com/oauth2/device",
+  "verification_uri_complete": "https://login.tado.com/oauth2/device?user_code=ABC123"
+}

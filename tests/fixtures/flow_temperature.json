@@ -1,0 +1,7 @@
+{
+  "maxFlowTemperature": 50,
+  "maxFlowTemperatureConstraints": {"min": 30, "max": 80},
+  "openThermDeviceSerialNumber": "TR0000000001",
+  "hasMultipleBoilerControlDevices": false,
+  "autoAdaptation": {"enabled": false, "maxFlowTemperature": null}
+}
