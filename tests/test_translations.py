@@ -477,3 +477,43 @@ UpdateFailed(
         ("quota_exhausted", ["reset"]),
         ("setup_quota_exhausted", ["reset"]),
     ]
+
+
+DOCUMENTS = sorted([*ROOT.glob("*.md"), *(ROOT / "docs").glob("*.md")])
+MARKDOWN_LINK = re.compile(r"\]\((?!https?://)([^)\s]*)\)")
+HEADING = re.compile(r"^#{1,6} (.+)$", re.MULTILINE)
+
+
+def _anchors(path: Path) -> set[str]:
+    """Return the GitHub anchors of the headings of a Markdown file."""
+    return {
+        re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+        for heading in HEADING.findall(path.read_text(encoding="utf-8"))
+    }
+
+
+def _broken_link(source: Path, target: str) -> bool:
+    file, _, anchor = target.partition("#")
+    path = (source.parent / file) if file else source
+    if not path.exists():
+        return True
+    return bool(anchor) and anchor not in _anchors(path)
+
+
+@pytest.mark.parametrize("path", DOCUMENTS, ids=_relative)
+def test_document_links_resolve(path: Path) -> None:
+    """Relative links of the Markdown documents reach a file and a heading."""
+    broken = [
+        target
+        for target in MARKDOWN_LINK.findall(path.read_text(encoding="utf-8"))
+        if _broken_link(path, target)
+    ]
+    assert broken == []
+
+
+def test_issue_links_reach_readme_headings() -> None:
+    """The learn-more links of the repair issues point at README headings."""
+    issues = (PACKAGE / "issues.py").read_text(encoding="utf-8")
+    anchors = re.findall(r'f"\{DOCUMENTATION_URL\}#([\w-]+)"', issues)
+    assert anchors
+    assert set(anchors) <= _anchors(ROOT / "README.md")
