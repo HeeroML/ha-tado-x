@@ -102,6 +102,15 @@ class Transport:
         """Set the callback that receives (home_id, key, raw, at) of cached reads."""
         self._observer = cb
 
+    def publish(self, home_id: int, key: str, raw: Any) -> None:
+        """Hand the raw payload of a cached read to the observer.
+
+        Callers publish only after the endpoint parser accepted the payload,
+        so a malformed answer never replaces what a restart starts from.
+        """
+        if self._observer is not None:
+            self._observer(home_id, key, raw, self._clock())
+
     async def request(
         self,
         method: str,
@@ -110,9 +119,12 @@ class Transport:
         json: Any = None,
         params: Mapping[str, str] | None = None,
         priority: Priority = Priority.POLL,
-        cache: tuple[int, str] | None = None,
+        endpoint: str | None = None,
     ) -> Any:
-        """Send one request and return the parsed JSON body, or None if empty."""
+        """Send one request and return the parsed JSON body, or None if empty.
+
+        endpoint names the payload in a parse error; the URL path is the default.
+        """
         target = URL(url)
         self._quota.check(priority)
         token = await self._tokens.async_get_access_token()
@@ -124,10 +136,7 @@ class Transport:
                 raise TadoXAuthError("unauthorized_after_refresh")
         if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
             raise self._error(method, target, status, raw)
-        data = _decode(raw, cache[1] if cache else target.path)
-        if cache is not None and data is not None and self._observer is not None:
-            self._observer(cache[0], cache[1], data, self._clock())
-        return data
+        return _decode(raw, endpoint or target.path)
 
     async def _send(
         self,

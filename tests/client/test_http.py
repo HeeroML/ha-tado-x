@@ -84,40 +84,31 @@ def transport(
 
 
 async def test_json_without_content_type(
-    mock_tado: TadoCloudMock,
-    transport: Transport,
-    observed: Observed,
-    freezer: FrozenDateTimeFactory,
+    mock_tado: TadoCloudMock, transport: Transport, observed: Observed
 ) -> None:
-    """Hops answers JSON without a content type; cached reads reach the observer."""
-    rooms = await transport.request("GET", ROOMS_B, cache=(HOME_B, "rooms"))
+    """Hops answers JSON without a content type; a request alone caches nothing."""
+    rooms = await transport.request("GET", ROOMS_B, endpoint="rooms")
     assert [room["id"] for room in rooms] == [1, 2, 3, 4, 5, 6]
-    assert observed == [(HOME_B, "rooms", rooms, datetime.now(UTC))]
+    assert observed == []
 
     state = await transport.request("GET", STATE_B)
     assert state == {"presence": "HOME", "presenceLocked": False}
-    assert len(observed) == 1
 
     [call] = mock_tado.calls("GET", ROOMS_B)
     assert call.headers["Authorization"] == f"Bearer {ACCESS_B}"
     assert "Content-Type" not in call.headers
 
 
-async def test_empty_2xx_bodies(
-    mock_tado: TadoCloudMock, transport: Transport, observed: Observed
-) -> None:
+async def test_empty_2xx_bodies(mock_tado: TadoCloudMock, transport: Transport) -> None:
     """A 204 and an empty 200 are a success with no body."""
     url = f"{ROOMS_B}/2/manualControl"
     assert await transport.request("DELETE", url, priority=Priority.COMMAND) is None
     assert (
         await transport.request(
-            "POST",
-            f"{HOPS_API_URL}/homes/{HOME_B}/quickActions/boost",
-            cache=(HOME_B, "boost"),
+            "POST", f"{HOPS_API_URL}/homes/{HOME_B}/quickActions/boost"
         )
         is None
     )
-    assert observed == []
 
 
 async def test_json_body_and_params(
@@ -371,25 +362,29 @@ async def test_unusual_error_bodies(
 
 
 @pytest.mark.parametrize(
-    ("cache", "endpoint"),
-    [((HOME_B, "rooms"), "rooms"), (None, f"/homes/{HOME_B}/rooms")],
+    ("name", "endpoint"),
+    [("rooms", "rooms"), (None, f"/homes/{HOME_B}/rooms")],
 )
 async def test_invalid_json_is_a_parse_error(
     aioclient_mock: AiohttpClientMocker,
     transport: Transport,
-    observed: Observed,
-    cache: tuple[int, str] | None,
+    name: str | None,
     endpoint: str,
 ) -> None:
-    """A 2xx whose body is not JSON fails as a parse error and is not cached."""
+    """A 2xx whose body is not JSON fails as a parse error named by its endpoint."""
     aioclient_mock.get(ROOMS_B, text="[{]")
     with pytest.raises(TadoXParseError) as err:
-        await transport.request("GET", ROOMS_B, cache=cache)
+        await transport.request("GET", ROOMS_B, endpoint=name)
     assert err.value.endpoint == endpoint
-    assert observed == []
 
 
-async def test_without_observer(mock_tado: TadoCloudMock, transport: Transport) -> None:
-    """Cached reads work when no observer is set."""
+async def test_publish(
+    transport: Transport, observed: Observed, freezer: FrozenDateTimeFactory
+) -> None:
+    """A published payload reaches the observer with the time it was published."""
+    transport.publish(HOME_B, "rooms", [{"id": 1}])
+    assert observed == [(HOME_B, "rooms", [{"id": 1}], datetime.now(UTC))]
+
     transport.set_payload_observer(None)
-    assert len(await transport.request("GET", ROOMS_B, cache=(HOME_B, "rooms"))) == 6
+    transport.publish(HOME_B, "rooms", [])
+    assert len(observed) == 1

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 import logging
-from typing import Any, Self
+from typing import Any, Final, Self
 
 from yarl import URL
 
@@ -574,6 +574,19 @@ class Account:
         return cls(user_id=reader.req_str("id"), homes=tuple(homes))
 
 
+# The keys HomeInfo.from_api reads; only these of a home's details are cached.
+_HOME_INFO_KEYS: Final = (
+    "id",
+    "name",
+    "generation",
+    "dateTimeZone",
+    "temperatureUnit",
+    "supportsFlowTemperatureOptimization",
+    "isAirComfortEligible",
+    "isEnergyIqEligible",
+)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class HomeInfo:
     """Details of a home (my GET homes/{id})."""
@@ -609,6 +622,15 @@ class HomeInfo:
             air_comfort_eligible=reader.opt_bool("isAirComfortEligible"),
             energy_iq_eligible=reader.opt_bool("isEnergyIqEligible"),
         )
+
+    @staticmethod
+    def cache_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
+        """Return the part of GET homes/{id} that from_api reads.
+
+        The owner's contact details, postal address and location are left out,
+        so they never reach the cache on disk.
+        """
+        return {key: raw[key] for key in _HOME_INFO_KEYS if key in raw}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
