@@ -218,16 +218,6 @@ def test_service_selector_translation_keys() -> None:
     assert missing == []
 
 
-def _is_stub(tree: ast.Module) -> bool:
-    """Return whether a module still has interface stubs of a later package."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Raise) and node.exc is not None:
-            exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
-            if isinstance(exc, ast.Name) and exc.id == "NotImplementedError":
-                return True
-    return False
-
-
 def _string_constants(tree: ast.Module) -> dict[str, str]:
     constants: dict[str, str] = {}
     for node in tree.body:
@@ -337,8 +327,6 @@ def _platform(path: Path) -> str | None:
 def test_code_translation_keys_exist(path: Path) -> None:
     """Every translation key the code uses is defined in strings.json."""
     source = path.read_text(encoding="utf-8")
-    if _is_stub(ast.parse(source)):
-        pytest.skip("interface stub of a package that is not merged yet")
     missing = [
         f"line {line}: {key}"
         for line, key in code_translation_keys(source, _platform(path))
@@ -351,10 +339,6 @@ def test_code_translation_keys_exist(path: Path) -> None:
 def test_exception_and_issue_keys_are_used() -> None:
     """Every exception and issue key of strings.json appears in the code."""
     trees = [ast.parse(path.read_text(encoding="utf-8")) for path in MODULES]
-    if any(_is_stub(tree) for tree in trees):
-        pytest.skip(
-            "interface stubs left; the dead-key check needs the whole integration"
-        )
     literals = {
         node.value
         for tree in trees
@@ -415,10 +399,3 @@ def test_code_key_scanner_finds_every_kind() -> None:
     assert [key for key in keys if not _defined(key)] == [
         "entity.sensor.no_such_sensor"
     ]
-
-
-def test_stub_detection() -> None:
-    """A module with a NotImplementedError body counts as a stub."""
-    assert _is_stub(ast.parse("def f():\n    raise NotImplementedError\n"))
-    assert _is_stub(ast.parse("def f():\n    raise NotImplementedError('later')\n"))
-    assert not _is_stub(ast.parse("def f():\n    raise ValueError\n"))

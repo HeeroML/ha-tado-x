@@ -19,10 +19,10 @@ from custom_components.tado_x.runtime import FeatureStatus, RoomsSnapshot
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 from tests.tado_mock import HOME_B, HOME_C, TadoCloudMock, load_fixture
-from tests.test_init import PLATFORMS_STUBBED, make_entry, state
+from tests.test_init import make_entry, state
 
 START = "2026-10-30T10:00:00+00:00"
 CACHED_AT = datetime(2026, 10, 30, 9, 30, tzinfo=UTC)
@@ -155,28 +155,33 @@ async def test_restart_during_quota_hold_serves_the_cache(
     )
 
 
-@pytest.mark.skipif(
-    PLATFORMS_STUBBED, reason="the platforms of WP4 and WP5 are interface stubs"
-)
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_restart_during_quota_hold_creates_every_entity(
     hass: HomeAssistant,
     hass_storage: dict[str, Any],
+    entity_registry: er.EntityRegistry,
     mock_tado: TadoCloudMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Every entity of home B exists with cached values during a quota hold."""
+    """Every entity of home B exists with cached values during a quota hold.
+
+    Only the timer numbers of rooms whose app default is not TIMER are
+    unavailable, as they are outside a hold.
+    """
     entry = make_entry()
     hass_storage.update(_store(entry))
     mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=2))
 
     await _start(hass, freezer, entry)
 
-    states = hass.states.async_all()
-    assert len(states) == 216
+    entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    assert len(entities) == 216
     assert [
-        state.entity_id for state in states if state.state == STATE_UNAVAILABLE
-    ] == []
+        entity.unique_id
+        for entity in entities
+        if (current := hass.states.get(entity.entity_id)) is None
+        or current.state == STATE_UNAVAILABLE
+    ] == [f"{HOME_B}_{room}_manual_termination_timer" for room in (1, 3, 4, 5)]
 
 
 async def test_quota_hold_without_cache_retries_without_requests(

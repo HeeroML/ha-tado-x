@@ -8,7 +8,7 @@ from aiohttp import ClientConnectionError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.tado_x import PLATFORMS, async_remove_config_entry_device
+from custom_components.tado_x import async_remove_config_entry_device
 from custom_components.tado_x.cache import SnapshotCache
 from custom_components.tado_x.const import (
     CONF_ACCESS_TOKEN,
@@ -35,18 +35,9 @@ from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.util import dt as dt_util
-from tests.conftest import is_stub
 from tests.tado_mock import HOME_A, HOME_B, USER_ID, TadoCloudMock, entry_tokens
 
 FORBIDDEN_LOG_WORDS = ("deprecated", "via_device", "location_name", "config_entry")
-PLATFORMS_STUBBED = any(is_stub(platform.value) for platform in PLATFORMS)
-requires_config_flow = pytest.mark.skipif(
-    is_stub("config_flow"),
-    reason="a reauth flow needs config_flow.py, still the WP3 interface stub",
-)
-requires_services = pytest.mark.skipif(
-    is_stub("services"), reason="services.py is still the WP4 interface stub"
-)
 
 
 def entry_data(home_id: int = HOME_B, **changes: Any) -> dict[str, Any]:
@@ -189,7 +180,6 @@ async def test_server_error_retries_setup(
     assert config_entry.state is ConfigEntryState.SETUP_RETRY
 
 
-@requires_config_flow
 async def test_invalid_grant_starts_reauth(
     hass: HomeAssistant, mock_tado: TadoCloudMock
 ) -> None:
@@ -313,7 +303,6 @@ async def test_entries_of_two_homes_load_independently(
     assert second.state is ConfigEntryState.LOADED
 
 
-@requires_services
 async def test_services_registered_once_for_two_entries(
     hass: HomeAssistant,
     two_home_entries: tuple[MockConfigEntry, MockConfigEntry],

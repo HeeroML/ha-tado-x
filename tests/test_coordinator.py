@@ -44,7 +44,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from tests.tado_mock import HOME_B, TadoCloudMock
-from tests.test_init import make_entry, requires_config_flow, setup_entry
+from tests.test_init import make_entry, setup_entry
 
 START = "2026-10-30T10:00:00+00:00"
 ROOMS = "/homes/1000002/rooms"
@@ -678,7 +678,6 @@ async def test_entity_actions_raise_translated_errors(
     assert probe.available
 
 
-@requires_config_flow
 async def test_entity_action_auth_error_starts_reauth(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
