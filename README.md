@@ -289,7 +289,7 @@ For the 6-room home above, a new installation creates 216 entities, 165 of them 
 
 **Phones** (option Phones): a device tracker per phone. It reports the zone from the options while tado says the phone is at home, `not_home` while it is away, and `unknown` when geofencing is off or the location is stale. An at-home binary sensor per phone gives the same answer without zones.
 
-Valves and sensors are connected via the Bridge X, and rooms belong to the home. A new room device suggests an area with its name to Home Assistant.
+Valves and sensors are connected via the Bridge X, and rooms belong to the home. The integration does not suggest areas, so new entity ids stay short (`climate.wohnzimmer`, `sensor.radiator_valve_wohnzimmer_battery`). Assign the room devices to your areas after setup; Home Assistant keeps the ids it already generated.
 
 ## Supported devices
 
@@ -578,7 +578,6 @@ When you report a bug, attach the diagnostics and, if you can, a debug log. Both
 - **The reset time is often unknown.** tado documents `t=` only for a used-up quota. Without it, the reset sensor is `unknown` and throttling assumes a whole day is still ahead.
 - **Login calls.** It is unknown whether token refreshes at login.tado.com count against the quota. The plan leaves room for them.
 - **Power loss right after a token rotation.** Home Assistant writes the config entry about 1 s after a change. If the power fails in that second, the new refresh token is lost and you have to sign in again. Home Assistant's own OAuth helper has the same exposure.
-- **Entity ids of new installations.** Room devices carry the room name and suggest an area with the same name. Home Assistant 2026.10 builds new entity ids from the area and device names, so a new installation can get ids such as `climate.living_room_living_room`. Existing installations keep their ids. You can rename entity ids in the UI.
 - **A device that disappears and comes back** while the entry stays loaded is registered again, but its entities return only after the entry is reloaded.
 - **Presence is home-wide.** The climate presets and the presence select change the whole home, as in the tado app. The tado X API has no per-room boost; boost is a whole-home quick action.
 - **Legacy keys.** The v1.8 settings stay in the config entry so that a rollback works. They show up, redacted, in diagnostics. A future major version will remove them.

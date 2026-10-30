@@ -137,7 +137,6 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
             name=room.name,
             manufacturer=MANUFACTURER,
             model=ROOM_MODEL,
-            suggested_area=room.name,
             via_device_id=home.id,
         )
     names = device_name_placeholders(topology)
@@ -145,9 +144,6 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
         if bridge is not None and serial == bridge.serial:
             continue
         key, model = _type_key(device)
-        area = (
-            topology.rooms.get(device.room_id) if device.room_id is not None else None
-        )
         registry.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={device_identifier(serial)},
@@ -158,7 +154,6 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
             model_id=device.type_raw,
             serial_number=serial,
             sw_version=device.firmware,
-            suggested_area=area.name if area is not None else None,
             via_device_id=parent,
         )
     for mobile_id, phone in _phones(entry).items():

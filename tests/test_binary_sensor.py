@@ -19,10 +19,10 @@ from tests.test_sensor import (
 )
 
 HOME = "binary_sensor.haus_b"
-LIVING = "binary_sensor.wohnzimmer_wohnzimmer"
-LIVING_VALVE = "binary_sensor.wohnzimmer_radiator_valve_wohnzimmer"
-KITCHEN_VALVE = "binary_sensor.kueche_radiator_valve_kueche"
-BEDROOM_VALVE = "binary_sensor.schlafzimmer_radiator_valve_schlafzimmer"
+LIVING = "binary_sensor.wohnzimmer"
+LIVING_VALVE = "binary_sensor.radiator_valve_wohnzimmer"
+KITCHEN_VALVE = "binary_sensor.radiator_valve_kueche"
+BEDROOM_VALVE = "binary_sensor.radiator_valve_schlafzimmer"
 
 
 @pytest.fixture(autouse=True)
@@ -52,10 +52,7 @@ async def test_depleted_battery_is_low(
     await setup_entry(hass, config_entry)
 
     assert state_of(hass, f"{BEDROOM_VALVE}_battery_low") == STATE_ON
-    assert (
-        state_of(hass, "sensor.schlafzimmer_radiator_valve_schlafzimmer_battery")
-        == "depleted"
-    )
+    assert state_of(hass, "sensor.radiator_valve_schlafzimmer_battery") == "depleted"
     assert state_of(hass, f"{KITCHEN_VALVE}_battery_low") == STATE_ON
     assert state_of(hass, f"{LIVING_VALVE}_battery_low") == STATE_OFF
 
@@ -112,11 +109,11 @@ async def test_room_states(
     await setup_entry(hass, config_entry)
 
     assert state_of(hass, f"{LIVING}_window_open") == STATE_OFF
-    assert state_of(hass, "binary_sensor.bad_bad_window_open") == STATE_ON
+    assert state_of(hass, "binary_sensor.bad_window_open") == STATE_ON
     assert state_of(hass, f"{LIVING}_heating") == STATE_ON
-    assert state_of(hass, "binary_sensor.bad_bad_heating") == STATE_OFF
+    assert state_of(hass, "binary_sensor.bad_heating") == STATE_OFF
     assert state_of(hass, f"{LIVING}_manual_control") == STATE_OFF
-    assert state_of(hass, "binary_sensor.kueche_kueche_manual_control") == STATE_ON
+    assert state_of(hass, "binary_sensor.kueche_manual_control") == STATE_ON
     assert state_of(hass, f"{BEDROOM_VALVE}_connectivity") == STATE_OFF
     assert state_of(hass, "binary_sensor.bridge_x_connectivity") == STATE_ON
 

@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_boost-entry]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_boost-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -13,7 +13,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_boost',
+    'entity_id': 'binary_sensor.arbeitszimmer_boost',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -36,20 +36,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_boost-state]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_boost-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Arbeitszimmer Boost',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_boost',
+    'entity_id': 'binary_sensor.arbeitszimmer_boost',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_heating-entry]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_heating-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -63,7 +63,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_heating',
+    'entity_id': 'binary_sensor.arbeitszimmer_heating',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -86,21 +86,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_heating-state]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_heating-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Arbeitszimmer Heating',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_heating',
+    'entity_id': 'binary_sensor.arbeitszimmer_heating',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_manual_control-entry]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_manual_control-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -114,7 +114,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_manual_control',
+    'entity_id': 'binary_sensor.arbeitszimmer_manual_control',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -137,20 +137,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_manual_control-state]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_manual_control-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Arbeitszimmer Manual control',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_manual_control',
+    'entity_id': 'binary_sensor.arbeitszimmer_manual_control',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_window_open-entry]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_window_open-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -164,7 +164,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_window_open',
+    'entity_id': 'binary_sensor.arbeitszimmer_window_open',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -187,225 +187,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_arbeitszimmer_window_open-state]
+# name: test_binary_sensors[binary_sensor.arbeitszimmer_window_open-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Arbeitszimmer Window open',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_arbeitszimmer_window_open',
+    'entity_id': 'binary_sensor.arbeitszimmer_window_open',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'VA0000000106_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Arbeitszimmer Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'VA0000000106_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Arbeitszimmer Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_radiator_valve_arbeitszimmer_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'SU0000000106_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Arbeitszimmer Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'SU0000000106_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Arbeitszimmer Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.arbeitszimmer_temperature_sensor_arbeitszimmer_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_bad_boost-entry]
+# name: test_binary_sensors[binary_sensor.bad_boost-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -419,7 +215,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.bad_bad_boost',
+    'entity_id': 'binary_sensor.bad_boost',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -442,20 +238,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.bad_bad_boost-state]
+# name: test_binary_sensors[binary_sensor.bad_boost-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Bad Boost',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_bad_boost',
+    'entity_id': 'binary_sensor.bad_boost',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.bad_bad_heating-entry]
+# name: test_binary_sensors[binary_sensor.bad_heating-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -469,7 +265,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.bad_bad_heating',
+    'entity_id': 'binary_sensor.bad_heating',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -492,21 +288,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.bad_bad_heating-state]
+# name: test_binary_sensors[binary_sensor.bad_heating-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Bad Heating',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_bad_heating',
+    'entity_id': 'binary_sensor.bad_heating',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.bad_bad_manual_control-entry]
+# name: test_binary_sensors[binary_sensor.bad_manual_control-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -520,7 +316,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.bad_bad_manual_control',
+    'entity_id': 'binary_sensor.bad_manual_control',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -543,20 +339,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.bad_bad_manual_control-state]
+# name: test_binary_sensors[binary_sensor.bad_manual_control-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Bad Manual control',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_bad_manual_control',
+    'entity_id': 'binary_sensor.bad_manual_control',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.bad_bad_window_open-entry]
+# name: test_binary_sensors[binary_sensor.bad_window_open-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -570,7 +366,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.bad_bad_window_open',
+    'entity_id': 'binary_sensor.bad_window_open',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -593,218 +389,14 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.bad_bad_window_open-state]
+# name: test_binary_sensors[binary_sensor.bad_window_open-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Bad Window open',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_bad_window_open',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_radiator_valve_bad_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.bad_radiator_valve_bad_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'VA0000000105_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_radiator_valve_bad_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Bad Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_radiator_valve_bad_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_radiator_valve_bad_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.bad_radiator_valve_bad_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'VA0000000105_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_radiator_valve_bad_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Bad Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_radiator_valve_bad_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_temperature_sensor_bad_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.bad_temperature_sensor_bad_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'SU0000000105_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_temperature_sensor_bad_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Bad Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_temperature_sensor_bad_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_temperature_sensor_bad_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.bad_temperature_sensor_bad_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'SU0000000105_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.bad_temperature_sensor_bad_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Bad Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.bad_temperature_sensor_bad_connectivity',
+    'entity_id': 'binary_sensor.bad_window_open',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
@@ -912,7 +504,7 @@
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_boost-entry]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_boost-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -926,7 +518,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_boost',
+    'entity_id': 'binary_sensor.kinderzimmer_boost',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -949,20 +541,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_boost-state]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_boost-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kinderzimmer Boost',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_boost',
+    'entity_id': 'binary_sensor.kinderzimmer_boost',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_heating-entry]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_heating-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -976,7 +568,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_heating',
+    'entity_id': 'binary_sensor.kinderzimmer_heating',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -999,21 +591,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_heating-state]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_heating-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kinderzimmer Heating',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_heating',
+    'entity_id': 'binary_sensor.kinderzimmer_heating',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_manual_control-entry]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_manual_control-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1027,7 +619,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_manual_control',
+    'entity_id': 'binary_sensor.kinderzimmer_manual_control',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1050,20 +642,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_manual_control-state]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_manual_control-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kinderzimmer Manual control',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_manual_control',
+    'entity_id': 'binary_sensor.kinderzimmer_manual_control',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_window_open-entry]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_window_open-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1077,7 +669,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_window_open',
+    'entity_id': 'binary_sensor.kinderzimmer_window_open',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1100,225 +692,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_kinderzimmer_window_open-state]
+# name: test_binary_sensors[binary_sensor.kinderzimmer_window_open-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kinderzimmer Window open',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_kinderzimmer_window_open',
+    'entity_id': 'binary_sensor.kinderzimmer_window_open',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'VA0000000104_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kinderzimmer Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'VA0000000104_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kinderzimmer Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_radiator_valve_kinderzimmer_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'SU0000000104_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kinderzimmer Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'SU0000000104_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kinderzimmer Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kinderzimmer_temperature_sensor_kinderzimmer_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_boost-entry]
+# name: test_binary_sensors[binary_sensor.kueche_boost-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1332,7 +720,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kueche_kueche_boost',
+    'entity_id': 'binary_sensor.kueche_boost',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1355,20 +743,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_boost-state]
+# name: test_binary_sensors[binary_sensor.kueche_boost-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kueche Boost',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_kueche_boost',
+    'entity_id': 'binary_sensor.kueche_boost',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_heating-entry]
+# name: test_binary_sensors[binary_sensor.kueche_heating-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1382,7 +770,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kueche_kueche_heating',
+    'entity_id': 'binary_sensor.kueche_heating',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1405,21 +793,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_heating-state]
+# name: test_binary_sensors[binary_sensor.kueche_heating-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kueche Heating',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_kueche_heating',
+    'entity_id': 'binary_sensor.kueche_heating',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_manual_control-entry]
+# name: test_binary_sensors[binary_sensor.kueche_manual_control-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1433,7 +821,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kueche_kueche_manual_control',
+    'entity_id': 'binary_sensor.kueche_manual_control',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1456,20 +844,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_manual_control-state]
+# name: test_binary_sensors[binary_sensor.kueche_manual_control-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kueche Manual control',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_kueche_manual_control',
+    'entity_id': 'binary_sensor.kueche_manual_control',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_window_open-entry]
+# name: test_binary_sensors[binary_sensor.kueche_window_open-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1483,7 +871,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.kueche_kueche_window_open',
+    'entity_id': 'binary_sensor.kueche_window_open',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1506,222 +894,18 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.kueche_kueche_window_open-state]
+# name: test_binary_sensors[binary_sensor.kueche_window_open-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kueche Window open',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_kueche_window_open',
+    'entity_id': 'binary_sensor.kueche_window_open',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_radiator_valve_kueche_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kueche_radiator_valve_kueche_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'VA0000000102_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_radiator_valve_kueche_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kueche Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_radiator_valve_kueche_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_radiator_valve_kueche_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kueche_radiator_valve_kueche_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'VA0000000102_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_radiator_valve_kueche_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kueche Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_radiator_valve_kueche_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_temperature_sensor_kueche_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kueche_temperature_sensor_kueche_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'SU0000000102_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_temperature_sensor_kueche_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kueche Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_temperature_sensor_kueche_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_temperature_sensor_kueche_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.kueche_temperature_sensor_kueche_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'SU0000000102_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.kueche_temperature_sensor_kueche_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kueche Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.kueche_temperature_sensor_kueche_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
   })
 # ---
 # name: test_binary_sensors[binary_sensor.phone_2_at_home-entry]
@@ -1826,7 +1010,7 @@
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_battery_low-entry]
+# name: test_binary_sensors[binary_sensor.radiator_valve_arbeitszimmer_battery_low-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1840,7 +1024,415 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_battery_low',
+    'entity_id': 'binary_sensor.radiator_valve_arbeitszimmer_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'VA0000000106_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_arbeitszimmer_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Arbeitszimmer Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_arbeitszimmer_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_arbeitszimmer_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_arbeitszimmer_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'VA0000000106_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_arbeitszimmer_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Arbeitszimmer Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_arbeitszimmer_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_bad_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_bad_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'VA0000000105_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_bad_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Bad Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_bad_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_bad_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_bad_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'VA0000000105_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_bad_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Bad Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_bad_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kinderzimmer_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_kinderzimmer_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'VA0000000104_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kinderzimmer_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kinderzimmer Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_kinderzimmer_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kinderzimmer_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_kinderzimmer_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'VA0000000104_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kinderzimmer_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kinderzimmer Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_kinderzimmer_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kueche_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_kueche_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'VA0000000102_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kueche_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kueche Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_kueche_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kueche_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_kueche_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'VA0000000102_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_kueche_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Kueche Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_kueche_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_schlafzimmer_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_schlafzimmer_battery_low',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1863,21 +1455,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_battery_low-state]
+# name: test_binary_sensors[binary_sensor.radiator_valve_schlafzimmer_battery_low-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Schlafzimmer Battery low',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_battery_low',
+    'entity_id': 'binary_sensor.radiator_valve_schlafzimmer_battery_low',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_connectivity-entry]
+# name: test_binary_sensors[binary_sensor.radiator_valve_schlafzimmer_connectivity-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1891,7 +1483,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_connectivity',
+    'entity_id': 'binary_sensor.radiator_valve_schlafzimmer_connectivity',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1914,21 +1506,123 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_connectivity-state]
+# name: test_binary_sensors[binary_sensor.radiator_valve_schlafzimmer_connectivity-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Schlafzimmer Connectivity',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_radiator_valve_schlafzimmer_connectivity',
+    'entity_id': 'binary_sensor.radiator_valve_schlafzimmer_connectivity',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_boost-entry]
+# name: test_binary_sensors[binary_sensor.radiator_valve_wohnzimmer_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_wohnzimmer_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'VA0000000101_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_wohnzimmer_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Wohnzimmer Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_wohnzimmer_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_wohnzimmer_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.radiator_valve_wohnzimmer_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'VA0000000101_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.radiator_valve_wohnzimmer_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Wohnzimmer Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.radiator_valve_wohnzimmer_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.schlafzimmer_boost-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1942,7 +1636,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_boost',
+    'entity_id': 'binary_sensor.schlafzimmer_boost',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1965,20 +1659,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_boost-state]
+# name: test_binary_sensors[binary_sensor.schlafzimmer_boost-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Schlafzimmer Boost',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_boost',
+    'entity_id': 'binary_sensor.schlafzimmer_boost',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_heating-entry]
+# name: test_binary_sensors[binary_sensor.schlafzimmer_heating-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1992,7 +1686,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_heating',
+    'entity_id': 'binary_sensor.schlafzimmer_heating',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2015,21 +1709,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_heating-state]
+# name: test_binary_sensors[binary_sensor.schlafzimmer_heating-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Schlafzimmer Heating',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_heating',
+    'entity_id': 'binary_sensor.schlafzimmer_heating',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_manual_control-entry]
+# name: test_binary_sensors[binary_sensor.schlafzimmer_manual_control-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2043,7 +1737,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_manual_control',
+    'entity_id': 'binary_sensor.schlafzimmer_manual_control',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2066,20 +1760,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_manual_control-state]
+# name: test_binary_sensors[binary_sensor.schlafzimmer_manual_control-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Schlafzimmer Manual control',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_manual_control',
+    'entity_id': 'binary_sensor.schlafzimmer_manual_control',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_window_open-entry]
+# name: test_binary_sensors[binary_sensor.schlafzimmer_window_open-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2093,7 +1787,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_window_open',
+    'entity_id': 'binary_sensor.schlafzimmer_window_open',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2116,120 +1810,18 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_schlafzimmer_window_open-state]
+# name: test_binary_sensors[binary_sensor.schlafzimmer_window_open-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Schlafzimmer Window open',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_schlafzimmer_window_open',
+    'entity_id': 'binary_sensor.schlafzimmer_window_open',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_battery_low-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_battery_low',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Battery low',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
-    'original_icon': None,
-    'original_name': 'Battery low',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'battery_low',
-    'unique_id': 'SU0000000103_battery_low',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_battery_low-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Schlafzimmer Battery low',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_battery_low',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'off',
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_connectivity-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': list([
-      None,
-    ]),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'binary_sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_connectivity',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Connectivity',
-    'options': dict({
-    }),
-    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
-    'original_icon': None,
-    'original_name': 'Connectivity',
-    'platform': 'tado_x',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'connectivity',
-    'unique_id': 'SU0000000103_connectivity',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_binary_sensors[binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_connectivity-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Schlafzimmer Connectivity',
-    }),
-    'context': <ANY>,
-    'entity_id': 'binary_sensor.schlafzimmer_temperature_sensor_schlafzimmer_connectivity',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'on',
   })
 # ---
 # name: test_binary_sensors[binary_sensor.tablet_at_home-entry]
@@ -2283,7 +1875,7 @@
     'state': 'unknown',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_battery_low-entry]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_arbeitszimmer_battery_low-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2297,7 +1889,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_battery_low',
+    'entity_id': 'binary_sensor.temperature_sensor_arbeitszimmer_battery_low',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2316,25 +1908,25 @@
     'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'battery_low',
-    'unique_id': 'VA0000000101_battery_low',
+    'unique_id': 'SU0000000106_battery_low',
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_battery_low-state]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_arbeitszimmer_battery_low-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Wohnzimmer Battery low',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Arbeitszimmer Battery low',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_battery_low',
+    'entity_id': 'binary_sensor.temperature_sensor_arbeitszimmer_battery_low',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_connectivity-entry]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_arbeitszimmer_connectivity-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2348,7 +1940,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_connectivity',
+    'entity_id': 'binary_sensor.temperature_sensor_arbeitszimmer_connectivity',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2367,25 +1959,25 @@
     'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'connectivity',
-    'unique_id': 'VA0000000101_connectivity',
+    'unique_id': 'SU0000000106_connectivity',
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_connectivity-state]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_arbeitszimmer_connectivity-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator valve Wohnzimmer Connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Arbeitszimmer Connectivity',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_radiator_valve_wohnzimmer_connectivity',
+    'entity_id': 'binary_sensor.temperature_sensor_arbeitszimmer_connectivity',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_battery_low-entry]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_bad_battery_low-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2399,7 +1991,415 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_battery_low',
+    'entity_id': 'binary_sensor.temperature_sensor_bad_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'SU0000000105_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_bad_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Bad Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_bad_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_bad_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_bad_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'SU0000000105_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_bad_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Bad Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_bad_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kinderzimmer_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_kinderzimmer_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'SU0000000104_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kinderzimmer_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kinderzimmer Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_kinderzimmer_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kinderzimmer_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_kinderzimmer_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'SU0000000104_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kinderzimmer_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kinderzimmer Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_kinderzimmer_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kueche_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_kueche_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'SU0000000102_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kueche_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kueche Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_kueche_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kueche_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_kueche_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'SU0000000102_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_kueche_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Kueche Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_kueche_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_schlafzimmer_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_schlafzimmer_battery_low',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery low',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery low',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery_low',
+    'unique_id': 'SU0000000103_battery_low',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_schlafzimmer_battery_low-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Schlafzimmer Battery low',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_schlafzimmer_battery_low',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_schlafzimmer_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_schlafzimmer_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'SU0000000103_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_schlafzimmer_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Schlafzimmer Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.temperature_sensor_schlafzimmer_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.temperature_sensor_wohnzimmer_battery_low-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.temperature_sensor_wohnzimmer_battery_low',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2422,21 +2422,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_battery_low-state]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_wohnzimmer_battery_low-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Wohnzimmer Battery low',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_battery_low',
+    'entity_id': 'binary_sensor.temperature_sensor_wohnzimmer_battery_low',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_connectivity-entry]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_wohnzimmer_connectivity-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2450,7 +2450,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_connectivity',
+    'entity_id': 'binary_sensor.temperature_sensor_wohnzimmer_connectivity',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2473,21 +2473,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_connectivity-state]
+# name: test_binary_sensors[binary_sensor.temperature_sensor_wohnzimmer_connectivity-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Temperature sensor Wohnzimmer Connectivity',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_temperature_sensor_wohnzimmer_connectivity',
+    'entity_id': 'binary_sensor.temperature_sensor_wohnzimmer_connectivity',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_boost-entry]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_boost-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2501,7 +2501,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_boost',
+    'entity_id': 'binary_sensor.wohnzimmer_boost',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2524,20 +2524,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_boost-state]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_boost-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wohnzimmer Boost',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_boost',
+    'entity_id': 'binary_sensor.wohnzimmer_boost',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_heating-entry]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_heating-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2551,7 +2551,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_heating',
+    'entity_id': 'binary_sensor.wohnzimmer_heating',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2574,21 +2574,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_heating-state]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_heating-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wohnzimmer Heating',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_heating',
+    'entity_id': 'binary_sensor.wohnzimmer_heating',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_manual_control-entry]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_manual_control-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2602,7 +2602,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_manual_control',
+    'entity_id': 'binary_sensor.wohnzimmer_manual_control',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2625,20 +2625,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_manual_control-state]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_manual_control-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wohnzimmer Manual control',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_manual_control',
+    'entity_id': 'binary_sensor.wohnzimmer_manual_control',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_window_open-entry]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_window_open-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -2652,7 +2652,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_window_open',
+    'entity_id': 'binary_sensor.wohnzimmer_window_open',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -2675,14 +2675,14 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_binary_sensors[binary_sensor.wohnzimmer_wohnzimmer_window_open-state]
+# name: test_binary_sensors[binary_sensor.wohnzimmer_window_open-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
       <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wohnzimmer Window open',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.wohnzimmer_wohnzimmer_window_open',
+    'entity_id': 'binary_sensor.wohnzimmer_window_open',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,

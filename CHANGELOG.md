@@ -109,6 +109,7 @@ Not ported:
 - Rooms, devices and phones that appear later get entities without a reload; devices missing from a live read are removed.
 - Config entry version 1.2. The tokens keep their keys, `token_expiry` is a UTC timestamp, and the 1.8 settings stay in place for a rollback.
 - Brand images moved to `custom_components/tado_x/brand`.
+- Devices no longer suggest an area. Home Assistant 2026.10 puts the area name in front of new entity ids, so a suggested area named like the room produced ids such as `climate.wohnzimmer_wohnzimmer`.
 - The hard-coded `aiohttp` requirement is removed; Home Assistant's own session is used.
 
 ### Removed

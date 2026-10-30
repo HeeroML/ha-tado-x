@@ -101,8 +101,10 @@ async def test_set_climate_timer_accepts_every_target(
 ) -> None:
     """Entity lists, devices, areas and labels all reach the right rooms (#64)."""
     entry = await setup(hass, freezer)
-    area = area_registry.async_get_area_by_name("Kinderzimmer")
-    assert area is not None
+    area = area_registry.async_create("Kinderzimmer")
+    dr.async_get(hass).async_update_device(
+        device_id(hass, entry, room_identifier(HOME_B, 4)), area_id=area.id
+    )
     label = label_registry.async_create("Heizung")
     entity_registry.async_update_entity(climate_id(hass, 5), labels={label.label_id})
 

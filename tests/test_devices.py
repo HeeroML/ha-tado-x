@@ -115,16 +115,14 @@ async def test_device_hierarchy(
     assert room.name == "Wohnzimmer"
     assert room.model == "tado X room"
     assert room.via_device_id == home.id
-    area = area_registry.async_get_area_by_name("Wohnzimmer")
-    assert area is not None
-    assert room.area_id == area.id
+    assert room.area_id is None
 
     assert valve.name == "Radiator valve Wohnzimmer"
     assert (valve.model, valve.model_id) == ("Radiator Valve X", "VA04")
     assert valve.serial_number == "VA0000000101"
     assert valve.sw_version == "280.1"
     assert valve.via_device_id == bridge.id
-    assert valve.area_id == area.id
+    assert valve.area_id is None
 
     assert sensor.name == "Temperature sensor Wohnzimmer"
     assert sensor.model == "Temperature Sensor X"

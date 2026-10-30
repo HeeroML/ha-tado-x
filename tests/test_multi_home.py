@@ -3,13 +3,18 @@
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.tado_x.const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, DOMAIN
-from custom_components.tado_x.devices import device_identifier
+from custom_components.tado_x.const import (
+    CONF_ACCESS_TOKEN,
+    CONF_HOME_ID,
+    CONF_REFRESH_TOKEN,
+    DOMAIN,
+)
+from custom_components.tado_x.devices import device_identifier, room_identifier
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import area_registry as ar, device_registry as dr
 from tests.tado_mock import HOME_B, HOME_C, TadoCloudMock, entry_tokens
 from tests.test_climate import bodies, climate_id, manual_path
 from tests.test_services import call, device_id
@@ -52,8 +57,12 @@ async def test_area_target_spans_both_homes(
     area_registry: ar.AreaRegistry,
 ) -> None:
     """Both living rooms share an area; each home gets its own request."""
-    area = area_registry.async_get_area_by_name("Wohnzimmer")
-    assert area is not None
+    area = area_registry.async_create("Wohnzimmer")
+    for entry in two_home_entries:
+        dr.async_get(hass).async_update_device(
+            device_id(hass, entry, room_identifier(entry.data[CONF_HOME_ID], 1)),
+            area_id=area.id,
+        )
 
     await call(
         hass,

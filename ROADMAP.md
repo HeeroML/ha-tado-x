@@ -6,7 +6,6 @@ Plans for the HeeroML fork after 1.9.0. Items are ordered by priority. Nothing h
 
 - **Live verification.** Run `scripts/live_probe.py` against a real tado X home and settle the open points in [docs/API.md](docs/API.md#open-questions-for-a-live-check). Replace the synthesized test fixtures with the probe's `--emit-fixtures` output.
 - **Manual write test** on a real home: the room termination PATCH, manual control with each termination, presence lock removal, and open window mode without a detection.
-- **Entity ids of new installations.** Room devices are named after the room and suggest an area with the same name, so Home Assistant 2026.10 builds ids such as `climate.living_room_living_room` for new installations. Decide whether to keep the `{room}` placeholder and the suggested area, or change the naming before more installations depend on it.
 
 ## Next
 

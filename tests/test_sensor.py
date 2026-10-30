@@ -31,10 +31,10 @@ from tests.tado_mock import HOME_B, TadoCloudMock, load_fixture
 START = "2026-10-30T10:00:00+00:00"
 CACHED_AT = datetime(2026, 10, 30, 9, 30, tzinfo=UTC)
 HOME = "sensor.haus_b"
-LIVING = "sensor.wohnzimmer_wohnzimmer"
-KITCHEN = "sensor.kueche_kueche"
-STUDY = "sensor.arbeitszimmer_arbeitszimmer"
-VALVE = "sensor.wohnzimmer_radiator_valve_wohnzimmer"
+LIVING = "sensor.wohnzimmer"
+KITCHEN = "sensor.kueche"
+STUDY = "sensor.arbeitszimmer"
+VALVE = "sensor.radiator_valve_wohnzimmer"
 SERIALS = [f"{kind}00000001{room:02d}" for room in range(1, 7) for kind in ("VA", "SU")]
 
 
@@ -165,11 +165,8 @@ async def test_battery_states(
     await setup_entry(hass, config_entry)
 
     assert state_of(hass, f"{VALVE}_battery") == "normal"
-    assert state_of(hass, "sensor.kueche_radiator_valve_kueche_battery") == "low"
-    assert (
-        state_of(hass, "sensor.schlafzimmer_radiator_valve_schlafzimmer_battery")
-        == "depleted"
-    )
+    assert state_of(hass, "sensor.radiator_valve_kueche_battery") == "low"
+    assert state_of(hass, "sensor.radiator_valve_schlafzimmer_battery") == "depleted"
 
 
 async def test_unknown_battery_value(
@@ -192,12 +189,9 @@ async def test_unknown_battery_value(
 
     assert config_entry.state is ConfigEntryState.LOADED
     assert state_of(hass, f"{VALVE}_battery") == STATE_UNKNOWN
-    assert state_of(hass, "sensor.kueche_radiator_valve_kueche_battery") == (
-        STATE_UNKNOWN
-    )
+    assert state_of(hass, "sensor.radiator_valve_kueche_battery") == (STATE_UNKNOWN)
     assert (
-        state_of(hass, "sensor.wohnzimmer_temperature_sensor_wohnzimmer_battery")
-        == STATE_UNKNOWN
+        state_of(hass, "sensor.temperature_sensor_wohnzimmer_battery") == STATE_UNKNOWN
     )
     assert caplog.text.count("ALMOST_EMPTY_SENSOR_TEST") == 1
     assert not [
@@ -240,7 +234,7 @@ async def test_control_mode(
     await setup_entry(hass, config_entry)
 
     assert state_of(hass, f"{VALVE}_control_mode") == "underfloor_heating"
-    assert hass.states.get("sensor.kueche_radiator_valve_kueche_control_mode") is None
+    assert hass.states.get("sensor.radiator_valve_kueche_control_mode") is None
 
 
 async def test_enum_states_are_lowercase(
@@ -307,13 +301,10 @@ async def test_manual_control_end(
     assert state_of(hass, f"{KITCHEN}_manual_control_ends") == (
         "2026-10-30T10:45:10+00:00"
     )
-    assert state_of(hass, "sensor.kinderzimmer_kinderzimmer_manual_control_ends") == (
+    assert state_of(hass, "sensor.kinderzimmer_manual_control_ends") == (
         "2026-10-30T16:00:00+00:00"
     )
-    assert (
-        state_of(hass, "sensor.schlafzimmer_schlafzimmer_manual_control_ends")
-        == STATE_UNKNOWN
-    )
+    assert state_of(hass, "sensor.schlafzimmer_manual_control_ends") == STATE_UNKNOWN
     assert state_of(hass, f"{LIVING}_manual_control_ends") == STATE_UNKNOWN
 
 
@@ -541,8 +532,8 @@ async def test_rooms_and_devices_follow_the_topology(
     """A new room gets sensors; its live values follow once tado reports them."""
     home = mock_tado.home(HOME_B)
     await setup_entry(hass, config_entry)
-    guest_room = "sensor.gaestezimmer_gaestezimmer"
-    guest_valve = "sensor.gaestezimmer_radiator_valve_gaestezimmer"
+    guest_room = "sensor.gaestezimmer"
+    guest_valve = "sensor.radiator_valve_gaestezimmer"
     room = {
         **load_fixture("rooms_and_devices.json")["rooms"][0],
         "roomId": 7,
