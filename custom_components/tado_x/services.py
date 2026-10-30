@@ -349,18 +349,30 @@ async def _async_get_holiday_mode(call: ServiceCall) -> ServiceResponse:
 
 
 def _holiday_patch(
-    enabled: bool, start: dt.datetime | None, end: dt.datetime | None
+    enabled: bool,
+    start: dt.datetime | None,
+    end: dt.datetime | None,
+    now: dt.datetime,
 ) -> Callable[[DevicesSnapshot], DevicesSnapshot]:
-    """Return a patch that shows the written holiday mode until tado reports it."""
+    """Return a patch that shows the written holiday mode until tado reports it.
+
+    The holiday sensor shows whether the mode is active, so the patch derives
+    that from the period instead of waiting for the next holiday mode read.
+    """
 
     def patch(snapshot: DevicesSnapshot) -> DevicesSnapshot:
         if (current := snapshot.holiday_mode) is None:
             return snapshot
+        begins = start or current.start
+        ends = end or current.end
         changed = replace(
             current,
             enabled=enabled,
-            start=start or current.start,
-            end=end or current.end,
+            active=enabled
+            and (begins is None or begins <= now)
+            and (ends is None or now < ends),
+            start=begins,
+            end=ends,
         )
         return (
             snapshot if changed == current else replace(snapshot, holiday_mode=changed)
@@ -382,7 +394,9 @@ async def _async_set_holiday_mode(call: ServiceCall) -> None:
         await data.api.async_set_holiday_mode(enabled=enabled, start=start, end=end)
     except TadoXError as err:
         _raise_holiday_error(err, entry)
-    data.devices.async_apply_optimistic(_holiday_patch(enabled, start, end))
+    data.devices.async_apply_optimistic(
+        _holiday_patch(enabled, start, end, dt_util.utcnow())
+    )
 
 
 @callback

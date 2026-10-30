@@ -30,6 +30,7 @@ from tests.test_climate import (
     ROOMS,
     bodies,
     climate_id,
+    entity_id,
     manual_path,
     setup,
     state_of,
@@ -839,6 +840,53 @@ async def test_turn_off_holiday_mode_keeps_the_period(
     await call(hass, "set_holiday_mode", {"enabled": False})
 
     assert entry.runtime_data.devices.data.holiday_mode == holiday
+
+
+@pytest.mark.parametrize(
+    ("data", "shown"),
+    [
+        (
+            {
+                "enabled": True,
+                "start": "2026-10-30T09:00:00+00:00",
+                "end": "2026-11-02T18:00:00+00:00",
+            },
+            "on",
+        ),
+        ({"enabled": True}, "on"),
+        (
+            {
+                "enabled": True,
+                "start": "2026-12-20T09:00:00+00:00",
+                "end": "2027-01-02T18:00:00+00:00",
+            },
+            "off",
+        ),
+        ({"enabled": True, "end": "2026-10-30T09:00:00+00:00"}, "off"),
+    ],
+    ids=["period_now", "no_period", "period_later", "period_over"],
+)
+async def test_set_holiday_mode_shows_at_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    data: dict[str, Any],
+    shown: str,
+) -> None:
+    """The holiday sensor shows the written mode at once, without a holiday read."""
+    await setup(hass, freezer, **{OPT_HOLIDAY_MODE: True})
+    sensor = entity_id(hass, "binary_sensor", f"{HOME_B}_holiday_mode")
+    assert state_of(hass, sensor).state == "off"
+    mock_tado.clear_calls()
+
+    await call(hass, "set_holiday_mode", data)
+
+    assert state_of(hass, sensor).state == shown
+    assert len(mock_tado.calls("GET", HOLIDAY)) == 1
+
+    await call(hass, "set_holiday_mode", {"enabled": False})
+
+    assert state_of(hass, sensor).state == "off"
 
 
 async def test_set_holiday_mode_without_the_feature(
