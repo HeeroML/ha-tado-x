@@ -299,6 +299,42 @@ async def test_quota_hold_with_reset_serves_until_the_reset(
     assert _status(data) is ApiStatus.OK
 
 
+async def test_reload_during_a_known_hold_serves_until_the_reset(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A reload 7 h into an 8 h hold serves the room values until the reset."""
+    data = await _setup(hass, freezer)
+    entry = data.rooms.config_entry
+    before = data.rooms.data
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=8))
+    await _tick(hass, freezer, 45)
+    began = data.rooms.stale_since
+    await _tick(hass, freezer, 7 * 3600)
+    assert data.rooms.last_update_success
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    reloaded: TadoXRuntimeData = entry.runtime_data
+    assert reloaded.rooms.data == before
+    assert reloaded.rooms.stale_since == began
+    assert _status(reloaded) is ApiStatus.RATE_LIMITED
+
+    mock_tado.clear_calls()
+    await _run(hass, freezer, 11, step=300)  # until just before the reset
+
+    assert mock_tado.calls() == []
+    assert reloaded.rooms.last_update_success
+    assert reloaded.rooms.data == before
+
+    await _run(hass, freezer, 2, step=300)
+
+    assert mock_tado.calls("GET", ROOMS)
+    assert _stale_since(reloaded.rooms) is None
+    assert _status(reloaded) is ApiStatus.OK
+
+
 async def test_hold_does_not_revive_values_older_than_max_stale(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:

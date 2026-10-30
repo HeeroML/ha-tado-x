@@ -153,7 +153,8 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
 
     During a quota hold the last snapshot is served until the reset tado
     sent, or for up to MAX_STALE without one; network, server and parse
-    errors make the entities unavailable as usual.
+    errors make the entities unavailable as usual. stale_since is when the
+    hold that the served snapshot waits out began.
     """
 
     config_entry: TadoXConfigEntry
@@ -305,20 +306,25 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         self.async_update_listeners()
 
     def _serve_stale(self, err: TadoXRateLimitError, now: datetime) -> S:
-        """Serve the last snapshot during a quota hold, while it is recent enough."""
+        """Serve the last snapshot during a quota hold, while it is recent enough.
+
+        A hold with a known end began when tado announced it, also for a
+        coordinator created by a reload or restart during the hold.
+        """
         setup = self.data is None
         data: S | None = self._seed_data if setup else self.data
         at = self._seed_at if setup else self.last_live_update
         reset = err.reset_at or self._monitor.reset_time
-        if data is None or at is None or not self._servable(at, now):
+        began = self.stale_since or self._monitor.known_hold_began(now) or now
+        if data is None or at is None or not self._servable(at, began, now):
             raise _quota_failed(reset, now, setup=setup) from err
         if self.stale_since is None:
-            self.stale_since = now
+            self.stale_since = began
             LOGGER.debug("Serving cached %s data of %s", self.KIND, at)
         self.last_live_update = at
         return data
 
-    def _servable(self, at: datetime, now: datetime) -> bool:
+    def _servable(self, at: datetime, began: datetime, now: datetime) -> bool:
         """Return whether data read at a time may be served during the hold.
 
         A hold that ends at a reset tado sent keeps serving what was within
@@ -326,7 +332,6 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         """
         if now - at <= self.MAX_STALE:
             return True
-        began = self.stale_since or now
         return (
             self._monitor.known_hold_end(now) is not None
             and began - at <= self.MAX_STALE

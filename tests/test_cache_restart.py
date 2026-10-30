@@ -14,7 +14,12 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.tado_x.cache import SAVE_DELAY, SnapshotCache
-from custom_components.tado_x.client import HomeInfo, RoomState
+from custom_components.tado_x.client import (
+    HomeInfo,
+    QuotaTracker,
+    RateLimitInfo,
+    RoomState,
+)
 from custom_components.tado_x.const import DOMAIN
 from custom_components.tado_x.coordinator import home_today
 from custom_components.tado_x.runtime import FeatureStatus, RoomsSnapshot
@@ -53,6 +58,7 @@ def _store(
     payloads: dict[str, Any] | None = None,
     calls: list[int] | None = None,
     flow_status: str | None = "absent",
+    quota: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the hass_storage content of a cache written by an earlier run."""
     raw = payloads or {
@@ -70,12 +76,28 @@ def _store(
                     key: {"at": at.isoformat(), "raw": value}
                     for key, value in raw.items()
                 },
-                "quota": {},
+                "quota": quota or {},
                 "calls": calls or [],
                 "flow_status": flow_status,
             },
         }
     }
+
+
+def _hold_quota(began: datetime, reset: datetime) -> dict[str, Any]:
+    """Return the quota state a run persisted after tado's 429 with a reset time."""
+    quota = QuotaTracker(clock=lambda: began)
+    quota.observe(
+        RateLimitInfo(
+            limit=20000,
+            window=timedelta(days=1),
+            remaining=0,
+            reset_in=reset - began,
+            observed_at=began,
+        ),
+        status=429,
+    )
+    return quota.as_dict()
 
 
 @pytest.fixture(autouse=True)
@@ -269,6 +291,52 @@ async def test_cache_older_than_max_stale_is_not_served(
 
     assert entry.state is ConfigEntryState.SETUP_RETRY
     assert entry.error_reason_translation_key == "setup_quota_exhausted"
+
+
+async def test_restart_late_in_a_known_hold_serves_the_cache(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A restart 6 h into a hold with a known reset serves room values read 7 h ago.
+
+    The rooms were last read an hour before tado closed the gate, so they
+    are served until the reset tado sent, 2 h after the restart.
+    """
+    entry = make_entry()
+    now = datetime.fromisoformat(START)
+    reset = now + timedelta(hours=2)
+    hass_storage.update(
+        _store(
+            entry,
+            at=now - timedelta(hours=7),
+            quota=_hold_quota(now - timedelta(hours=6), reset),
+        )
+    )
+    mock_tado.set_quota(remaining=0, reset_in=reset - now)
+
+    await _start(hass, freezer, entry)
+
+    assert entry.state is ConfigEntryState.LOADED
+    data = entry.runtime_data
+    assert mock_tado.calls() == []
+    assert data.rooms.data == RoomsSnapshot(
+        rooms=RoomState.list_from_api(load_fixture("rooms.json"))
+    )
+    assert data.rooms.last_live_update == now - timedelta(hours=7)
+    assert data.rooms.stale_since == now - timedelta(hours=6)
+
+    entry.async_on_unload(data.rooms.async_add_listener(lambda: None))
+    await _tick(hass, freezer, 300, times=23)
+
+    assert mock_tado.calls() == []
+    assert data.rooms.last_update_success
+
+    await _tick(hass, freezer, 300, times=2)
+
+    assert mock_tado.calls("GET", "/homes/1000002/rooms")
+    assert data.rooms.stale_since is None
 
 
 async def test_unreadable_optional_slice_is_dropped(

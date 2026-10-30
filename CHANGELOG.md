@@ -38,7 +38,7 @@ Check automations, scripts and dashboards for these. After the upgrade, a dismis
 | #58 | no serial numbers | every physical device has its serial number |
 | #59 | no next schedule change | sensors for next schedule change, next schedule temperature, manual control end and next time block |
 | #60, #77 | no schedule access | `get_schedule` and `set_schedule` actions |
-| #62 | entities unavailable after a restart while the quota is used up | raw payloads and the quota state are cached; a restart during a quota hold creates every entity from the cache and sends no requests; last values are kept until the reset when tado sent its time, otherwise with limits |
+| #62 | entities unavailable after a restart while the quota is used up | raw payloads and the quota state are cached; a restart or reload during a quota hold creates every entity from the cache and sends no requests; last values are kept until the reset when tado sent its time, also across a restart or reload, otherwise with limits |
 | #64 | `set_climate_timer` rejects area, device and label targets | it is an entity action now; any target works, and the 1.8 data form still validates |
 | #69 | no holiday mode | holiday mode actions and an optional binary sensor (experimental) |
 | #72, #85 | a depleted battery raises an error | `depleted` is a valid state; `battery_low` is on for low and depleted; unknown values become `unknown` with one warning |
