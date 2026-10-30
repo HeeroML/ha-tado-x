@@ -382,7 +382,9 @@ async def _async_set_holiday_mode(call: ServiceCall) -> None:
         await data.api.async_set_holiday_mode(enabled=enabled, start=start, end=end)
     except TadoXError as err:
         _raise_holiday_error(err, entry)
-    data.devices.async_apply_optimistic(_holiday_patch(enabled, start, end))
+    data.devices.async_apply_optimistic(
+        {"holiday_mode": _holiday_patch(enabled, start, end)}
+    )
 
 
 @callback

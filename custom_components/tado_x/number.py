@@ -77,7 +77,11 @@ async def async_set_offset(entry: TadoXConfigEntry, serial: str, offset: float) 
     except TadoXError as err:
         raise_for_tado_error(err, entry)
     data.devices.async_apply_optimistic(
-        lambda snapshot: snapshot.with_device(serial, temperature_offset=offset)
+        {
+            ("temperature_offset", serial): lambda snapshot: snapshot.with_device(
+                serial, temperature_offset=offset
+            )
+        }
     )
 
 
@@ -235,7 +239,9 @@ class TadoXMaxFlowTemperatureNumber(TadoXEntity[DevicesCoordinator], NumberEntit
     async def _async_set(self, maximum: int) -> None:
         await self.coordinator.api.async_set_flow_temperature(maximum=maximum)
         self.coordinator.async_apply_optimistic(
-            lambda snapshot: snapshot.with_flow_temperature(
-                max_flow_temperature=maximum
-            )
+            {
+                "max_flow_temperature": lambda snapshot: snapshot.with_flow_temperature(
+                    max_flow_temperature=maximum
+                )
+            }
         )

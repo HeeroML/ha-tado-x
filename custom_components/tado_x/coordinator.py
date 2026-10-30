@@ -2,7 +2,7 @@
 
 from abc import abstractmethod
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Hashable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, tzinfo
 from functools import partial
@@ -118,25 +118,31 @@ class _Patch[S]:
 
 
 class _PendingPatches[S]:
-    """Optimistic patches that are re-applied until the server agrees."""
+    """Optimistic patches by target, re-applied until the server agrees.
+
+    A target names what a patch writes, such as the setting of one room. A
+    patch replaces the pending patch of its target, so a later command wins
+    even when it changes less, as a resume does after a manual target.
+    """
 
     def __init__(self) -> None:
-        self._patches: list[_Patch[S]] = []
+        self._patches: dict[Hashable, _Patch[S]] = {}
 
-    def add(self, patch: Callable[[S], S], expires: datetime) -> None:
-        self._patches.append(_Patch(patch, expires))
+    def add(self, target: Hashable, patch: Callable[[S], S], expires: datetime) -> None:
+        self._patches.pop(target, None)
+        self._patches[target] = _Patch(patch, expires)
 
     def apply(self, data: S, now: datetime) -> S:
         """Apply the live patches; drop expired ones and those the data shows."""
-        kept: list[_Patch[S]] = []
-        for patch in self._patches:
+        kept: dict[Hashable, _Patch[S]] = {}
+        for target, patch in self._patches.items():
             if now >= patch.expires:
                 continue
             patched = patch.apply(data)
             if patched == data:
                 continue
             data = patched
-            kept.append(patch)
+            kept[target] = patch
         self._patches = kept
         return data
 
@@ -251,17 +257,25 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
 
     @callback
     def async_apply_optimistic(
-        self, patch: Callable[[S], S], *, ttl: timedelta = timedelta(seconds=60)
+        self,
+        patches: Mapping[Hashable, Callable[[S], S]],
+        *,
+        ttl: timedelta = timedelta(seconds=60),
     ) -> None:
-        """Apply a patch now and re-apply it to fetched data until it agrees or ttl passes.
+        """Apply patches by target now; re-apply each until the data agrees or ttl passes.
 
-        The poll timer keeps running: async_set_updated_data would restart it,
-        so writes more often than the interval would stop the polling.
+        A patch replaces the pending patch of the same target. The poll timer
+        keeps running: async_set_updated_data would restart it, so writes more
+        often than the interval would stop the polling.
         """
         if self.data is None:
             return
-        self._pending.add(patch, dt_util.utcnow() + ttl)
-        self.data = patch(self.data)
+        expires = dt_util.utcnow() + ttl
+        data = self.data
+        for target, patch in patches.items():
+            self._pending.add(target, patch, expires)
+            data = patch(data)
+        self.data = data
         self.async_update_listeners()
 
     def _serve_stale(self, err: TadoXRateLimitError, now: datetime) -> S:

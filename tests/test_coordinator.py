@@ -1,6 +1,7 @@
 """Tests for the coordinators: cadence, quota holds, failures and optimistic patches."""
 
 from collections.abc import Callable
+import copy
 from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any
@@ -37,19 +38,30 @@ from custom_components.tado_x.runtime import (
     RoomsSnapshot,
     TadoXRuntimeData,
 )
-from homeassistant.components.number import (
+from homeassistant.components.button.const import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
+from homeassistant.components.climate.const import (
+    ATTR_HVAC_ACTION,
+    ATTR_HVAC_MODE,
+    DOMAIN as CLIMATE_DOMAIN,
+    SERVICE_SET_HVAC_MODE,
+    SERVICE_SET_TEMPERATURE,
+    HVACAction,
+    HVACMode,
+)
+from homeassistant.components.number.const import (
     ATTR_VALUE,
     DOMAIN as NUMBER_DOMAIN,
     SERVICE_SET_VALUE,
 )
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from tests.tado_mock import HOME_B, TadoCloudMock
+from tests.test_climate import climate_id, entity_id, state_of
 from tests.test_init import make_entry, setup_entry
 
 START = "2026-10-30T10:00:00+00:00"
@@ -536,7 +548,7 @@ async def test_optimistic_patch_survives_a_stale_read(
         await rooms.async_request_refresh()
         await _tick(hass, freezer, 5)
 
-    rooms.async_apply_optimistic(turn_off)
+    rooms.async_apply_optimistic({1: turn_off})
     assert _room_power(data, 1) is Power.OFF
     mock_tado.clear_calls()
 
@@ -552,7 +564,7 @@ async def test_optimistic_patch_survives_a_stale_read(
     assert len(mock_tado.calls("GET", ROOMS)) == 3
     assert _room_power(data, 1) is Power.ON
 
-    rooms.async_apply_optimistic(turn_off, ttl=timedelta(seconds=60))
+    rooms.async_apply_optimistic({1: turn_off}, ttl=timedelta(seconds=60))
     freezer.tick(timedelta(seconds=16))
     await _poll(freezer, rooms)
 
@@ -567,7 +579,7 @@ async def test_optimistic_patch_needs_data(
     entry = data.rooms.config_entry
     rooms = RoomsCoordinator(hass, entry, data.api, data.monitor, None)
 
-    rooms.async_apply_optimistic(lambda snapshot: snapshot)
+    rooms.async_apply_optimistic({1: lambda snapshot: snapshot})
 
     assert rooms.data is None
 
@@ -750,3 +762,94 @@ async def test_optimistic_writes_keep_the_poll_cadence(
 
     assert _count(mock_tado, TOPOLOGY) == 16
     assert _count(mock_tado, RUNNING_TIMES) == 4
+
+
+async def _climate(
+    hass: HomeAssistant, service: str, room_id: int, **data: Any
+) -> None:
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: climate_id(hass, room_id), **data},
+        blocking=True,
+    )
+
+
+async def _press(hass: HomeAssistant, key: str) -> None:
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: entity_id(hass, BUTTON_DOMAIN, f"{HOME_B}_{key}")},
+        blocking=True,
+    )
+
+
+def _modes(hass: HomeAssistant) -> dict[int, str]:
+    return {
+        room_id: state_of(hass, climate_id(hass, room_id)).state
+        for room_id in range(1, 7)
+    }
+
+
+@pytest.mark.parametrize(
+    ("first", "data"),
+    [
+        (SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: 24}),
+        (SERVICE_SET_HVAC_MODE, {ATTR_HVAC_MODE: HVACMode.OFF}),
+    ],
+    ids=["heat", "off"],
+)
+async def test_resume_replaces_an_earlier_write_of_the_room(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    first: str,
+    data: dict[str, Any],
+) -> None:
+    """Auto right after a manual write shows the schedule tado runs again."""
+    await _setup(hass, freezer)
+
+    await _climate(hass, first, 1, **data)
+    await _climate(hass, SERVICE_SET_HVAC_MODE, 1, hvac_mode=HVACMode.AUTO)
+    await _tick(hass, freezer, 5)
+
+    state = state_of(hass, climate_id(hass, 1))
+    assert state.state == HVACMode.AUTO
+    assert state.attributes[ATTR_TEMPERATURE] == 21.0
+    assert state.attributes[ATTR_HVAC_ACTION] != HVACAction.OFF
+
+
+async def test_resume_schedules_replaces_disable_all(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Resume schedules right after disable all shows every room on its schedule."""
+    await _setup(hass, freezer)
+
+    await _press(hass, "disable_all")
+    await _press(hass, "resume_schedules")
+
+    assert set(_modes(hass).values()) == {HVACMode.AUTO}
+
+    await _tick(hass, freezer, 5)
+
+    assert set(_modes(hass).values()) == {HVACMode.AUTO}
+    assert state_of(hass, climate_id(hass, 1)).attributes[ATTR_TEMPERATURE] == 21.0
+
+
+async def test_room_write_after_disable_all_keeps_the_other_rooms_off(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A write to one room supersedes disable all for that room only."""
+    await _setup(hass, freezer)
+    home = mock_tado.home(HOME_B)
+    before = copy.deepcopy(home.rooms)
+
+    await _press(hass, "disable_all")
+    await _climate(hass, SERVICE_SET_TEMPERATURE, 1, temperature=23)
+    home.rooms = before
+    await _tick(hass, freezer, 5)
+
+    modes = _modes(hass)
+    assert modes.pop(1) == HVACMode.HEAT
+    assert state_of(hass, climate_id(hass, 1)).attributes[ATTR_TEMPERATURE] == 23.0
+    assert set(modes.values()) == {HVACMode.OFF}
