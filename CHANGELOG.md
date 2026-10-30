@@ -38,7 +38,7 @@ Check automations, scripts and dashboards for these. After the upgrade, a dismis
 | #58 | no serial numbers | every physical device has its serial number |
 | #59 | no next schedule change | sensors for next schedule change, next schedule temperature, manual control end and next time block |
 | #60, #77 | no schedule access | `get_schedule` and `set_schedule` actions |
-| #62 | entities unavailable after a restart while the quota is used up | raw payloads and the quota state are cached; a restart during a quota hold creates every entity from the cache and sends no requests; last values are kept until the reset when tado sent its time, otherwise with limits |
+| #62 | entities unavailable after a restart while the quota is used up | raw payloads and the quota state are cached; a restart or reload during a quota hold creates every entity from the cache and sends no requests; last values are kept until the reset when tado sent its time, also across a restart or reload, otherwise with limits |
 | #64 | `set_climate_timer` rejects area, device and label targets | it is an entity action now; any target works, and the 1.8 data form still validates |
 | #69 | no holiday mode | holiday mode actions and an optional binary sensor (experimental) |
 | #72, #85 | a depleted battery raises an error | `depleted` is a valid state; `battery_low` is on for low and depleted; unknown values become `unknown` with one warning |
@@ -106,7 +106,7 @@ Not ported:
 - The tado client is a separate typed package (`custom_components/tado_x/client`) that does not import Home Assistant.
 - Three coordinators (rooms, home, devices) instead of one; each endpoint has its own period.
 - Commands update the UI at once; one debounced verification read follows room commands.
-- Rooms, devices and phones that appear later get entities without a reload; devices missing from a live read are removed.
+- Rooms, devices and phones that appear later get entities without a reload; devices and phones missing from a live read are removed, but a read with a room, device or phone the integration could not read removes nothing.
 - Config entry version 1.2. The tokens keep their keys, `token_expiry` is a UTC timestamp, and the 1.8 settings stay in place for a rollback.
 - Brand images moved to `custom_components/tado_x/brand`.
 - Devices no longer suggest an area. Home Assistant 2026.10 puts the area name in front of new entity ids, so a suggested area named like the room produced ids such as `climate.wohnzimmer_wohnzimmer`.

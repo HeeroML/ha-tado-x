@@ -27,7 +27,7 @@ from custom_components.tado_x.client import (
     HomeInfo,
     HomeState,
     HumidityLevel,
-    MobileDevice,
+    MobileDevices,
     OpenWindow,
     Power,
     Presence,
@@ -66,7 +66,7 @@ PARSERS: dict[str, Callable[[Any], object]] = {
     "home_1000001.json": HomeInfo.from_api,
     "home_1000002.json": HomeInfo.from_api,
     "me.json": Account.from_api,
-    "mobile_devices.json": MobileDevice.list_from_api,
+    "mobile_devices.json": MobileDevices.from_api,
     "rooms.json": RoomState.list_from_api,
     "rooms_and_devices.json": Topology.from_api,
     "running_times.json": lambda raw: RunningTimes.from_api(raw, day=TODAY),
@@ -623,7 +623,9 @@ def test_air_comfort_humidity_mapping() -> None:
 
 def test_mobile_devices() -> None:
     """Phones with and without geofencing and location."""
-    phones = MobileDevice.list_from_api(load_fixture("mobile_devices.json"))
+    parsed = MobileDevices.from_api(load_fixture("mobile_devices.json"))
+    assert parsed.complete
+    phones = parsed.phones
     assert list(phones) == [5000001, 5000002, 5000003]
     home = phones[5000001]
     assert home.geo_tracking
@@ -636,6 +638,26 @@ def test_mobile_devices() -> None:
     assert not tablet.geo_tracking
     assert tablet.at_home is None
     assert tablet.stale is None
+
+
+@pytest.mark.parametrize(
+    ("change", "readable"),
+    [
+        (lambda raw: raw[1].update(id="5000002"), [5000001, 5000003]),
+        (lambda raw: raw.append("not a phone"), [5000001, 5000002, 5000003]),
+    ],
+)
+def test_skipped_phone_makes_the_list_incomplete(
+    change: Callable[[list[Any]], object], readable: list[int]
+) -> None:
+    """A phone the parser skips is noted; the readable ones are kept."""
+    raw = load_fixture("mobile_devices.json")
+    change(raw)
+
+    parsed = MobileDevices.from_api(raw)
+
+    assert not parsed.complete
+    assert list(parsed.phones) == readable
 
 
 def test_running_times() -> None:

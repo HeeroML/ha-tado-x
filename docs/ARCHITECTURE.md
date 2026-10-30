@@ -154,7 +154,7 @@ For a home with 6 rooms, the defaults give rooms every 45 s and 2,521 planned ca
 
 | Situation | Result |
 |---|---|
-| gate closed or 429, and the data is younger than the stale cap, or the hold ends at a reset from `t=` and the data was younger than the cap when the hold began | keep the data; entities stay available; `api_status` = `rate_limited`; repair issue; zero HTTP until the reset |
+| gate closed or 429, and the data is younger than the stale cap, or the hold ends at a reset from `t=` and the data was younger than the cap when the hold began (when tado's answer announced it; the persisted quota state keeps that time across reloads and restarts) | keep the data; entities stay available; `api_status` = `rate_limited`; repair issue; zero HTTP until the reset |
 | gate closed or 429, otherwise | `UpdateFailed`; entities unavailable |
 | first refresh, gate closed, no cache | `ConfigEntryNotReady`; HA's retries hit the persisted gate and send nothing |
 | network, 5xx or parse error | standard HA behaviour, never served from the cache |
@@ -171,7 +171,7 @@ Write platforms use `PARALLEL_UPDATES = 1`. A write:
 3. applies an optimistic patch to the coordinator data, so the UI updates at once without restarting the poll timer;
 4. for room commands, requests a debounced refresh (5 s cooldown), so a burst costs one read.
 
-A pending patch is re-applied to later reads until the server agrees or 60 s pass, which hides eventually consistent reads. Patches are keyed by what they write (a room's setting, a room's open window, a device field, a room default, presence, flow and holiday settings); a new patch replaces the pending one of its target, so a resume right after a manual target shows the schedule.
+A pending patch is re-applied to later reads until the server agrees or 60 s pass, which hides eventually consistent reads. Patches are keyed by what they write (a room's setting, a room's open window, a device field, a room default, presence, flow and holiday settings); a new patch replaces the pending one of its target, so a resume right after a manual target shows the schedule. A quick action patches the setting of every room, so boost, all off and resume schedules each replace the pending room writes.
 
 ### Termination (#94)
 
@@ -186,7 +186,7 @@ Turning a room off uses `manual` unless the option `off_follows_policy` is on. A
 
 ### Devices and entities
 
-`devices.py` registers the home, the bridge, the rooms, the physical devices and the phones, in that order, before the platforms load, and again after every coordinator update. Physical devices are connected via the Bridge X (the home when there is no bridge); rooms and phones via the home. Device names use translation keys with `{room}{index}` placeholders. After a live and complete read, devices of the entry that tado no longer reports are removed; a cached read, or an incomplete topology (a room or device that failed to parse, or a missing device list), removes nothing.
+`devices.py` registers the home, the bridge, the rooms, the physical devices and the phones, in that order, before the platforms load, and again after every coordinator update. Physical devices are connected via the Bridge X (the home when there is no bridge); rooms and phones via the home. Device names use translation keys with `{room}{index}` placeholders. After a live and complete read, devices of the entry that tado no longer reports are removed; a cached read, or an incomplete topology (a room or device that failed to parse, or a missing device list), removes nothing, and a phone list with a phone that failed to parse removes no phone.
 
 Entities carry only the device identifier. `async_add_dynamic_entities` runs each platform's builder at setup and on every coordinator update and adds entities whose unique id it has not seen, so rooms, devices, phones and fields that appear later get entities without a reload. It forgets the unique ids of a device once the device is removed, so a device that returns gets all its entities again.
 

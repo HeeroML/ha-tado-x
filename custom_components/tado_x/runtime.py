@@ -59,12 +59,17 @@ class RoomsSnapshot:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class HomeSnapshot:
-    """Data of the home coordinator."""
+    """Data of the home coordinator.
+
+    mobile_devices_complete is False when the last read of the phones
+    skipped a malformed one.
+    """
 
     state: HomeState
     weather: Weather | None = None
     air_comfort: AirComfort | None = None
     mobile_devices: Mapping[int, MobileDevice] | None = None
+    mobile_devices_complete: bool = True
 
     def with_presence(self, setting: PresenceSetting) -> HomeSnapshot:
         """Return a copy with the presence setting applied."""

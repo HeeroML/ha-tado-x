@@ -27,7 +27,7 @@ from .models import (
     HolidayMode,
     HomeInfo,
     HomeState,
-    MobileDevice,
+    MobileDevices,
     RoomSchedule,
     RoomState,
     RunningTimes,
@@ -126,12 +126,12 @@ class TadoXHome:
             self._hops / "airComfort", "air_comfort", AirComfort.from_api
         )
 
-    async def async_get_mobile_devices(self) -> dict[int, MobileDevice]:
+    async def async_get_mobile_devices(self) -> MobileDevices:
         """Poll the phones of the home (my mobileDevices); never cached."""
         return await self._poll(
             self._my / "mobileDevices",
             "mobile_devices",
-            MobileDevice.list_from_api,
+            MobileDevices.from_api,
             cached=False,
         )
 

@@ -118,7 +118,7 @@ async def test_polled_reads(
     assert state.setting is PresenceSetting.AUTO
     assert weather.outdoor_temperature is not None
     assert set(comfort.rooms) == set(rooms)
-    assert phones
+    assert list(phones.phones) == [5000001, 5000002, 5000003]
     assert running.by_room[1] == timedelta(hours=1)
     assert flow.max_flow_temperature == 50
     assert holiday.enabled is False

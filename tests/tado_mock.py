@@ -733,6 +733,10 @@ class TadoCloudMock:
                 home.resume_schedule(room, self._clock())
                 room["boostMode"] = None
             elif action == "boost":
+                # A boosted room as in the rooms example of the API catalogue
+                # (§8): heating at 25 °C, no manual control, ends after 30 min.
+                room["setting"] = {"power": "ON", "temperature": {"value": 25.0}}
+                room["manualControlTermination"] = None
                 room["boostMode"] = {
                     "type": "TIMER",
                     "remainingTimeInSeconds": 1800,

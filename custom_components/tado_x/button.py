@@ -78,7 +78,24 @@ def _off_patch(room_id: int) -> RoomPatch:
     return patch
 
 
+def _boost_patch(room_id: int) -> RoomPatch:
+    """Return a patch that shows a boost until the server reports one.
+
+    tado alone knows how a boost sets the room, so only the boost is shown.
+    """
+
+    def patch(snapshot: RoomsSnapshot) -> RoomsSnapshot:
+        if (room := snapshot.rooms.get(room_id)) is None or room.boost is not None:
+            return snapshot
+        return snapshot.with_room(room_id, boost=ActiveOverride())
+
+    return patch
+
+
+# Every quick action changes the control of each room, so each one needs a
+# patch that replaces the pending write of every room.
 ROOM_PATCHES: Final[Mapping[QuickAction, Callable[[int], RoomPatch]]] = {
+    QuickAction.BOOST: _boost_patch,
     QuickAction.ALL_OFF: _off_patch,
     QuickAction.RESUME_SCHEDULE: resume_patch,
 }
@@ -131,13 +148,13 @@ class TadoXQuickActionButton(TadoXEntity[RoomsCoordinator], ButtonEntity):
     @handle_tado_errors
     async def _async_run(self, action: QuickAction) -> None:
         await self.coordinator.api.async_quick_action(action)
-        if (room_patch := ROOM_PATCHES.get(action)) is not None:
-            self.coordinator.async_apply_optimistic(
-                {
-                    control_target(room_id): room_patch(room_id)
-                    for room_id in self.coordinator.data.rooms
-                }
-            )
+        room_patch = ROOM_PATCHES[action]
+        self.coordinator.async_apply_optimistic(
+            {
+                control_target(room_id): room_patch(room_id)
+                for room_id in self.coordinator.data.rooms
+            }
+        )
         await self.coordinator.async_request_refresh()
 
 

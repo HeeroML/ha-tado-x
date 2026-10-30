@@ -145,6 +145,16 @@ class QuotaMonitor:
         """Return when a quota hold ends, if tado sent that time."""
         return self._quota.known_hold_end(now)
 
+    def known_hold_began(self, now: datetime) -> datetime | None:
+        """Return when a quota hold with a known end began.
+
+        That is when tado's answer that announced it arrived. The quota state
+        is persisted, so the start outlasts a reload or a restart.
+        """
+        if (info := self.info) is None or self.known_hold_end(now) is None:
+            return None
+        return info.observed_at
+
     def calls_24h(self, now: datetime | None = None) -> int:
         """Return the requests this entry sent in the last 24 hours."""
         return self._quota.calls.total(now or dt_util.utcnow())

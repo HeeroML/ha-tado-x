@@ -231,7 +231,7 @@ When tado answers 429, or reports 0 remaining calls with a reset time, the integ
 - raises the repair issue "tado API quota used up";
 - fails commands with a message that names the reset time.
 
-The hold and the last data are saved. A restart during a hold therefore sends no requests and still creates every entity from the cache. Polling resumes on its own after the reset. Network, server and parse errors are not holds: entities go unavailable as usual.
+The hold, the time tado announced it, and the last data are saved. A restart or a reload during a hold therefore sends no requests, still creates every entity from the cache, and keeps the last values until the reset tado sent, as if the integration had kept running. Polling resumes on its own after the reset. Network, server and parse errors are not holds: entities go unavailable as usual.
 
 ### API sensors
 
@@ -500,7 +500,7 @@ The entity ids are examples; look up yours under **Settings → Entities**.
 - Commands are sent at once and have priority over polling. The UI shows the new value right away.
 - After room commands, one verification read follows 5 s later, however many commands you sent in that time. If tado still reports the old value for a moment, the new value is kept for up to 60 s; a later command to the same room or setting replaces it.
 - Rooms, devices and phones that appear later, or come back after they were removed, get their entities on the next poll.
-- Devices missing from a live read are removed from Home Assistant. A read from the cache never removes anything, and neither does a live read in which tado sent a room or device the integration could not read (it logs a warning instead).
+- Devices and phones missing from a live read are removed from Home Assistant. A read from the cache never removes anything, and neither does a live read in which tado sent a room, device or phone the integration could not read (it logs a warning instead).
 
 ## Live API probe
 
