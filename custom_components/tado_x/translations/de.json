@@ -594,11 +594,11 @@
           "name": "Enddatum"
         },
         "start_date": {
-          "description": "Erster Tag des Tarifs.",
+          "description": "Erster Tag des Tarifs. Standardmäßig heute in der Zeitzone des Zuhauses.",
           "name": "Startdatum"
         },
         "tariff": {
-          "description": "Preis pro Einheit, zum Beispiel 0,85 für 0,85 pro Kubikmeter.",
+          "description": "Preis pro Einheit, zum Beispiel 0,85 für 0,85 pro Kubikmeter. tado speichert ganze Cent, daher wird der Preis kaufmännisch auf zwei Nachkommastellen gerundet.",
           "name": "Tarif"
         },
         "unit": {

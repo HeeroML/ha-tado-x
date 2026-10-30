@@ -1,19 +1,33 @@
 """Tests for the tado X services (#51, #60, #64, #69, #92)."""
 
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
 import probatio
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+import yaml
 
+from custom_components.tado_x import services as services_module
+from custom_components.tado_x.client import tariff_cents
 from custom_components.tado_x.const import DOMAIN, OPT_HOLIDAY_MODE
 from custom_components.tado_x.devices import (
     device_identifier,
     home_identifier,
     mobile_identifier,
     room_identifier,
+)
+from custom_components.tado_x.services import (
+    ADD_METER_READING_SCHEMA,
+    GET_DAY_REPORT_SCHEMA,
+    HOME_SCHEMA,
+    SET_CLIMATE_TIMER_SCHEMA,
+    SET_EIQ_TARIFF_SCHEMA,
+    SET_HOLIDAY_MODE_SCHEMA,
+    SET_SCHEDULE_SCHEMA,
+    SET_TEMPERATURE_OFFSET_SCHEMA,
 )
 from homeassistant.config_entries import SOURCE_REAUTH
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
@@ -79,6 +93,13 @@ async def call(
         return {}
     assert isinstance(result, dict)
     return result
+
+
+def _services() -> dict[str, Any]:
+    services: dict[str, Any] = yaml.safe_load(
+        (Path(services_module.__file__).parent / "services.yaml").read_text("utf-8")
+    )
+    return services
 
 
 def device_id(
@@ -732,6 +753,51 @@ async def test_set_eiq_tariff(
     await call(hass, "set_eiq_tariff", data)
 
     assert bodies(mock_tado, "POST", TARIFFS) == [body]
+
+
+async def test_set_eiq_tariff_starts_today_at_the_home(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Without a start date the tariff starts today at the home, as in 1.8."""
+    await setup(hass, freezer)
+    freezer.move_to(NIGHT)
+
+    await call(hass, "set_eiq_tariff", {"tariff": 0.12, "unit": "kWh"})
+
+    assert bodies(mock_tado, "POST", TARIFFS) == [
+        {"tariffInCents": 12, "unit": "kWh", "startDate": "2026-10-31"}
+    ]
+
+
+def test_tariff_selector_steps_in_cents() -> None:
+    """The tariff field offers no finer step than the cent tado stores."""
+    tariff = _services()["set_eiq_tariff"]["fields"]["tariff"]
+    assert tariff_cents(tariff["selector"]["number"]["step"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("service", "schema"),
+    [
+        ("set_climate_timer", SET_CLIMATE_TIMER_SCHEMA),
+        ("set_schedule", SET_SCHEDULE_SCHEMA),
+        ("get_day_report", GET_DAY_REPORT_SCHEMA),
+        ("set_temperature_offset", SET_TEMPERATURE_OFFSET_SCHEMA),
+        ("add_meter_reading", ADD_METER_READING_SCHEMA),
+        ("set_eiq_tariff", SET_EIQ_TARIFF_SCHEMA),
+        ("get_holiday_mode", HOME_SCHEMA),
+        ("set_holiday_mode", SET_HOLIDAY_MODE_SCHEMA),
+    ],
+)
+def test_services_yaml_marks_the_required_fields(
+    service: str, schema: probatio.Schema | dict[Any, Any]
+) -> None:
+    """A field is required in the UI exactly when the schema requires it."""
+    keys = schema.schema if isinstance(schema, probatio.Schema) else schema
+    fields = _services()[service].get("fields", {})
+
+    assert {name for name, field in fields.items() if field.get("required")} == {
+        str(key) for key in keys if isinstance(key, probatio.Required)
+    }
 
 
 async def test_set_eiq_tariff_error(

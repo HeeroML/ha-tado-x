@@ -151,7 +151,7 @@ SET_EIQ_TARIFF_SCHEMA: Final = HOME_SCHEMA.extend(
         probatio.Required(ATTR_UNIT): probatio.All(
             str, probatio.Lower, probatio.In(TARIFF_UNITS)
         ),
-        probatio.Required(ATTR_START_DATE): cv.date,
+        probatio.Optional(ATTR_START_DATE): cv.date,
         probatio.Optional(ATTR_END_DATE): cv.date,
     }
 )
@@ -307,13 +307,18 @@ async def _async_add_meter_reading(call: ServiceCall) -> None:
 
 
 async def _async_set_eiq_tariff(call: ServiceCall) -> None:
-    """Add an Energy IQ tariff in whole cents, rounded half up."""
+    """Add an Energy IQ tariff in whole cents, rounded half up.
+
+    The start date defaults to today at the home, as in 1.8.
+    """
     entry = _energy_iq_entry(call)
+    data = entry.runtime_data
+    start = call.data.get(ATTR_START_DATE) or home_today(data.devices.data.home_info)
     try:
-        await entry.runtime_data.api.async_add_tariff(
+        await data.api.async_add_tariff(
             cents=tariff_cents(call.data[ATTR_TARIFF]),
             unit=TARIFF_UNITS[call.data[ATTR_UNIT]],
-            start=call.data[ATTR_START_DATE],
+            start=start,
             end=call.data.get(ATTR_END_DATE),
         )
     except TadoXError as err:
