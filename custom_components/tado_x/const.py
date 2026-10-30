@@ -99,7 +99,8 @@ OFFSET_STEP: Final = 0.1
 MIN_TERMINATION_TIMER_MINUTES: Final = 1
 MAX_TERMINATION_TIMER_MINUTES: Final = 1440
 
-# How long a snapshot is served during a quota hold before entities go unavailable.
+# How long a snapshot is served during a quota hold without a reset time from
+# tado before entities go unavailable; with one, it is served until the reset.
 MAX_STALE_ROOMS: Final = timedelta(hours=6)
 MAX_STALE_HOME: Final = timedelta(hours=12)
 MAX_STALE_DEVICES: Final = timedelta(hours=48)
