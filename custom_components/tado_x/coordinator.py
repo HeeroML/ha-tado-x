@@ -449,7 +449,6 @@ _HOME_FIELDS: Final = {
     "home_state": "state",
     "weather": "weather",
     "air_comfort": "air_comfort",
-    "mobile_devices": "mobile_devices",
 }
 
 
@@ -494,9 +493,14 @@ class HomeCoordinator(TadoXCoordinator[HomeSnapshot]):
         )
         if previous is None:
             previous = HomeSnapshot(state=values["home_state"])
-        return replace(
-            previous, **{_HOME_FIELDS[key]: value for key, value in values.items()}
-        )
+        changes: dict[str, Any] = {
+            field: values[key] for key, field in _HOME_FIELDS.items() if key in values
+        }
+        if (phones := values.get("mobile_devices")) is not None:
+            changes.update(
+                mobile_devices=phones.phones, mobile_devices_complete=phones.complete
+            )
+        return replace(previous, **changes)
 
 
 class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):

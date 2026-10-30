@@ -106,7 +106,7 @@ Not ported:
 - The tado client is a separate typed package (`custom_components/tado_x/client`) that does not import Home Assistant.
 - Three coordinators (rooms, home, devices) instead of one; each endpoint has its own period.
 - Commands update the UI at once; one debounced verification read follows room commands.
-- Rooms, devices and phones that appear later get entities without a reload; devices missing from a live read are removed.
+- Rooms, devices and phones that appear later get entities without a reload; devices and phones missing from a live read are removed, but a read with a room, device or phone the integration could not read removes nothing.
 - Config entry version 1.2. The tokens keep their keys, `token_expiry` is a UTC timestamp, and the 1.8 settings stay in place for a rollback.
 - Brand images moved to `custom_components/tado_x/brand`.
 - Devices no longer suggest an area. Home Assistant 2026.10 puts the area name in front of new entity ids, so a suggested area named like the room produced ids such as `climate.wohnzimmer_wohnzimmer`.

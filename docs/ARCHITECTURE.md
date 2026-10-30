@@ -186,7 +186,7 @@ Turning a room off uses `manual` unless the option `off_follows_policy` is on. A
 
 ### Devices and entities
 
-`devices.py` registers the home, the bridge, the rooms, the physical devices and the phones, in that order, before the platforms load, and again after every coordinator update. Physical devices are connected via the Bridge X (the home when there is no bridge); rooms and phones via the home. Device names use translation keys with `{room}{index}` placeholders. After a live and complete read, devices of the entry that tado no longer reports are removed; a cached read, or an incomplete topology (a room or device that failed to parse, or a missing device list), removes nothing.
+`devices.py` registers the home, the bridge, the rooms, the physical devices and the phones, in that order, before the platforms load, and again after every coordinator update. Physical devices are connected via the Bridge X (the home when there is no bridge); rooms and phones via the home. Device names use translation keys with `{room}{index}` placeholders. After a live and complete read, devices of the entry that tado no longer reports are removed; a cached read, or an incomplete topology (a room or device that failed to parse, or a missing device list), removes nothing, and a phone list with a phone that failed to parse removes no phone.
 
 Entities carry only the device identifier. `async_add_dynamic_entities` runs each platform's builder at setup and on every coordinator update and adds entities whose unique id it has not seen, so rooms, devices, phones and fields that appear later get entities without a reload. It forgets the unique ids of a device once the device is removed, so a device that returns gets all its entities again.
 

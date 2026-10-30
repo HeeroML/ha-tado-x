@@ -40,6 +40,7 @@ from tests.tado_mock import HOME_B, TadoCloudMock
 from tests.test_init import make_entry, setup_entry
 
 START = "2026-10-30T10:00:00+00:00"
+TABLET_ENTITIES = ("device_tracker.tablet", "binary_sensor.tablet_at_home")
 
 
 @pytest.fixture(autouse=True)
@@ -61,6 +62,12 @@ def _names(registry: dr.DeviceRegistry, entry: MockConfigEntry) -> set[str | Non
         device.name
         for device in dr.async_entries_for_config_entry(registry, entry.entry_id)
     }
+
+
+def _states(hass: HomeAssistant, entity_ids: Iterable[str]) -> set[str]:
+    states = {hass.states.get(entity_id) for entity_id in entity_ids}
+    assert None not in states
+    return {current.state for current in states if current is not None}
 
 
 async def _tick(
@@ -293,6 +300,61 @@ async def test_unreadable_topology_items_remove_nothing(
         and "malformed topology" in record.getMessage()
     ]
     assert len(warnings) == 2
+
+
+async def test_unreadable_phone_items_remove_nothing(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    device_registry: dr.DeviceRegistry,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A phone the parser skips keeps its device, tracker and at-home sensor."""
+    entry = make_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "mobile_devices": True}
+    )
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    tablet = _device(device_registry, entry, mobile_identifier(5000003))
+    device_registry.async_update_device(tablet.id, name_by_user="Kuechentablet")
+    entities = len(er.async_entries_for_config_entry(entity_registry, entry.entry_id))
+    phones = mock_tado.home(HOME_B).mobile_devices
+    readable = copy.deepcopy(phones)
+    for phone in phones[1:]:
+        del phone["name"]
+
+    await _tick(hass, freezer, 300)
+    await _tick(hass, freezer, 300)
+
+    tablet = _device(device_registry, entry, mobile_identifier(5000003))
+    assert tablet.name_by_user == "Kuechentablet"
+    assert _device(device_registry, entry, mobile_identifier(5000002))
+    home = entry.runtime_data.home
+    assert home.last_update_success
+    assert home.data.mobile_devices is not None
+    assert set(home.data.mobile_devices) == {5000001}
+    assert not home.data.mobile_devices_complete
+    assert (
+        len(er.async_entries_for_config_entry(entity_registry, entry.entry_id))
+        == entities
+    )
+    assert _states(hass, TABLET_ENTITIES) == {STATE_UNAVAILABLE}
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+        and "malformed mobile_devices" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+
+    phones[:] = readable
+    await _tick(hass, freezer, 300)
+
+    assert home.data.mobile_devices_complete
+    assert STATE_UNAVAILABLE not in _states(hass, TABLET_ENTITIES)
 
 
 async def test_entities_return_with_their_device(

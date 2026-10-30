@@ -500,7 +500,7 @@ The entity ids are examples; look up yours under **Settings → Entities**.
 - Commands are sent at once and have priority over polling. The UI shows the new value right away.
 - After room commands, one verification read follows 5 s later, however many commands you sent in that time. If tado still reports the old value for a moment, the new value is kept for up to 60 s; a later command to the same room or setting replaces it.
 - Rooms, devices and phones that appear later, or come back after they were removed, get their entities on the next poll.
-- Devices missing from a live read are removed from Home Assistant. A read from the cache never removes anything, and neither does a live read in which tado sent a room or device the integration could not read (it logs a warning instead).
+- Devices and phones missing from a live read are removed from Home Assistant. A read from the cache never removes anything, and neither does a live read in which tado sent a room, device or phone the integration could not read (it logs a warning instead).
 
 ## Live API probe
 

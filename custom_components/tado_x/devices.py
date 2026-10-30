@@ -182,6 +182,7 @@ def _async_remove_stale(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
         and data.home.last_update_success
         and data.home.stale_since is None
         and data.home.data.mobile_devices is not None
+        and data.home.data.mobile_devices_complete
     )
     if not devices_live and not phones_live:
         return

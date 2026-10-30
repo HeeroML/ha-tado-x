@@ -727,30 +727,47 @@ class MobileDevice:
     os_version: str | None = None
     model: str | None = None
 
-    @classmethod
-    def list_from_api(cls, raw: object) -> dict[int, Self]:
-        """Parse GET mobileDevices into phones by id."""
-        phones = _parse_items(
-            _require_list(raw, "mobile_devices"), cls._parse, "mobile_devices", "$"
-        )
-        return {phone.id: phone for phone in phones}
+
+def _mobile_device(reader: _Reader) -> MobileDevice:
+    settings = reader.opt_child("settings")
+    location = reader.opt_child("location")
+    metadata = reader.opt_child("deviceMetadata")
+    return MobileDevice(
+        id=reader.req_int("id"),
+        name=reader.req_str("name"),
+        geo_tracking=settings is not None
+        and settings.opt_bool("geoTrackingEnabled") is True,
+        at_home=location.opt_bool("atHome") if location else None,
+        stale=location.opt_bool("stale") if location else None,
+        platform=metadata.opt_str("platform") if metadata else None,
+        os_version=metadata.opt_str("osVersion") if metadata else None,
+        model=metadata.opt_str("model") if metadata else None,
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MobileDevices:
+    """The phones of a home by id (my GET homes/{id}/mobileDevices).
+
+    complete is False when a phone was skipped as malformed: such a list
+    cannot tell a removed phone from one that could not be read.
+    """
+
+    phones: Mapping[int, MobileDevice]
+    complete: bool = True
 
     @classmethod
-    def _parse(cls, reader: _Reader) -> Self:
-        settings = reader.opt_child("settings")
-        location = reader.opt_child("location")
-        metadata = reader.opt_child("deviceMetadata")
-        return cls(
-            id=reader.req_int("id"),
-            name=reader.req_str("name"),
-            geo_tracking=settings is not None
-            and settings.opt_bool("geoTrackingEnabled") is True,
-            at_home=location.opt_bool("atHome") if location else None,
-            stale=location.opt_bool("stale") if location else None,
-            platform=metadata.opt_str("platform") if metadata else None,
-            os_version=metadata.opt_str("osVersion") if metadata else None,
-            model=metadata.opt_str("model") if metadata else None,
+    def from_api(cls, raw: object) -> Self:
+        """Parse GET mobileDevices."""
+        skipped: list[str] = []
+        phones = _parse_items(
+            _require_list(raw, "mobile_devices"),
+            _mobile_device,
+            "mobile_devices",
+            "$",
+            skipped,
         )
+        return cls(phones={phone.id: phone for phone in phones}, complete=not skipped)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
