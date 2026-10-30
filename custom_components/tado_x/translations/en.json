@@ -1,32 +1,5 @@
 {
   "config": {
-    "step": {
-      "select_home": {
-        "title": "Choose a tado X home",
-        "description": "This tado account has more than one tado X home. Choose the one to add.\n\nHomes of the previous tado generation are not listed here; add them with the core tado integration. Skipped homes: {hidden}",
-        "data": {
-          "home_id": "Home"
-        },
-        "data_description": {
-          "home_id": "The tado X home this entry controls."
-        }
-      },
-      "reauth_confirm": {
-        "title": "Sign in to tado again",
-        "description": "tado no longer accepts the saved sign-in. Select Submit to get a new code, then confirm it with the tado account that has this home."
-      },
-      "reconfigure_confirm": {
-        "title": "Switch the tado account",
-        "description": "Sign in with another tado account that has access to this home, for example an account only for Home Assistant. Entities and their history stay as they are. Select Submit to get a code."
-      },
-      "timeout": {
-        "title": "Sign-in code expired",
-        "description": "The code expired before the sign-in was confirmed. Select Submit to get a new code."
-      }
-    },
-    "progress": {
-      "wait_for_device": "Open {url} and sign in with your tado account. If the code is not filled in for you, enter this code:\n\n```{code}```\n\nThis dialog continues on its own once you have confirmed the sign-in. The code expires after a few minutes."
-    },
     "abort": {
       "access_denied": "The sign-in was declined in tado.",
       "already_configured": "This tado X home is already configured.",
@@ -39,120 +12,32 @@
       "reconfigure_successful": "This home now uses the new tado account.",
       "unique_id_mismatch": "The selected home is not the home of this entry.",
       "unknown": "Unexpected error. The Home Assistant log has the details."
-    }
-  },
-  "options": {
+    },
+    "progress": {
+      "wait_for_device": "Open {url} and sign in with your tado account. If the code is not filled in for you, enter this code:\n\n```{code}```\n\nThis dialog continues on its own once you have confirmed the sign-in. The code expires after a few minutes."
+    },
     "step": {
-      "init": {
-        "title": "tado X options",
-        "description": "With these settings rooms update every {rooms_interval} and the integration plans {calls_per_day} API calls a day. The tado account allows {limit} calls a day; {remaining} are left right now.",
-        "sections": {
-          "polling": {
-            "name": "API call budget",
-            "description": "tado limits the API calls of each account per day. The tado app and other integrations on the same account, such as the core tado integration, use the same limit.",
-            "data": {
-              "daily_call_budget": "Daily call budget",
-              "quota_reserve": "Quota reserve"
-            },
-            "data_description": {
-              "daily_call_budget": "API calls a day this integration plans for polling. A smaller budget means slower room updates. At most 80 % of the account limit is planned.",
-              "quota_reserve": "API calls left for the rest of the account. Below this, rooms update at the slowest rate, optional data pauses and commands still work."
-            }
-          },
-          "features": {
-            "name": "Optional data",
-            "description": "Each option costs API calls every day.",
-            "data": {
-              "air_comfort": "Air comfort",
-              "holiday_mode": "Holiday mode",
-              "mobile_devices": "Phones",
-              "running_times": "Heating time today",
-              "weather": "Weather"
-            },
-            "data_description": {
-              "air_comfort": "Humidity level and comfort level of each room. About 96 calls a day.",
-              "holiday_mode": "Shows whether holiday mode is active. Experimental. About 96 calls a day.",
-              "mobile_devices": "A tracker and an at-home sensor for each phone with geofencing. About 288 calls a day.",
-              "running_times": "Heating time of each room today. About 24 calls a day.",
-              "weather": "Outdoor temperature, solar intensity and weather. About 96 calls a day."
-            }
-          },
-          "control": {
-            "name": "Control",
-            "data": {
-              "manual_termination": "Manual changes end",
-              "off_follows_policy": "Turning a room off ends the same way",
-              "presence_zone": "Zone of this home",
-              "timer_minutes": "Timer"
-            },
-            "data_description": {
-              "manual_termination": "When a temperature set from Home Assistant returns to the schedule. Following the tado app uses the setting of each room in the tado app.",
-              "off_follows_policy": "When turned off, a room that was turned off from Home Assistant stays off until you change it.",
-              "presence_zone": "The zone a phone tracker reports while the phone is at this home. Choose a zone of this home if the Home Assistant home zone is another place.",
-              "timer_minutes": "Minutes until the schedule resumes when the timer is chosen above."
-            }
-          }
-        }
-      }
-    }
-  },
-  "selector": {
-    "manual_termination": {
-      "options": {
-        "follow_app": "As set for the room in the tado app",
-        "manual": "Until you end it",
-        "next_time_block": "Until the next time block",
-        "timer": "When the timer ends"
-      }
-    },
-    "termination": {
-      "options": {
-        "manual": "Until you end it",
-        "next_time_block": "Until the next time block",
-        "timer": "When the duration ends"
-      }
-    },
-    "weekday": {
-      "options": {
-        "monday": "Monday",
-        "tuesday": "Tuesday",
-        "wednesday": "Wednesday",
-        "thursday": "Thursday",
-        "friday": "Friday",
-        "saturday": "Saturday",
-        "sunday": "Sunday"
-      }
-    },
-    "power": {
-      "options": {
-        "on": "On",
-        "off": "Off"
-      }
-    },
-    "tariff_unit": {
-      "options": {
-        "kwh": "Kilowatt hours (kWh)",
-        "m3": "Cubic meters (m³)"
-      }
-    },
-    "schedule_block": {
-      "fields": {
-        "start": {
-          "name": "Start",
-          "description": "Start time as HH:MM."
+      "reauth_confirm": {
+        "description": "tado no longer accepts the saved sign-in. Select Submit to get a new code, then confirm it with the tado account that has this home.",
+        "title": "Sign in to tado again"
+      },
+      "reconfigure_confirm": {
+        "description": "Sign in with another tado account that has access to this home, for example an account only for Home Assistant. Entities and their history stay as they are. Select Submit to get a code.",
+        "title": "Switch the tado account"
+      },
+      "select_home": {
+        "data": {
+          "home_id": "Home"
         },
-        "end": {
-          "name": "End",
-          "description": "End time as HH:MM; 24:00 is the end of the day."
+        "data_description": {
+          "home_id": "The tado X home this entry controls."
         },
-        "power": {
-          "name": "Heating",
-          "description": "Whether the room heats in this block."
-        },
-        "temperature": {
-          "name": "Temperature",
-          "description": "Target temperature from 5 to 30 °C while heating is on."
-        }
+        "description": "This tado account has more than one tado X home. Choose the one to add.\n\nHomes of the previous tado generation are not listed here; add them with the core tado integration. Skipped homes: {hidden}",
+        "title": "Choose a tado X home"
+      },
+      "timeout": {
+        "description": "The code expired before the sign-in was confirmed. Select Submit to get a new code.",
+        "title": "Sign-in code expired"
       }
     }
   },
@@ -497,166 +382,281 @@
   },
   "issues": {
     "breaking_changes_1_9": {
-      "title": "tado X 1.9 changed entities and options",
-      "description": "Version 1.9 changed entities, states and options. Check your automations and scripts:\n\n- The states of API status, presence, presence mode and weather are lowercase.\n- Phone trackers report not_home instead of away, and unknown instead of not_tracking.\n- Climate: the schedule preset and the next schedule, heating power and open window attributes are gone; separate entities replace them.\n- Manual changes follow the setting of each room in the tado app instead of ending after 30 minutes.\n- Device names are translated, and valves and sensors are connected via the Bridge X.\n- Polling follows a daily API call budget instead of an update interval.\n\nThe release notes list every change. You can ignore this notice."
+      "description": "Version 1.9 changed entities, states and options. Check your automations and scripts:\n\n- The states of API status, presence, presence mode and weather are lowercase.\n- Phone trackers report not_home instead of away, and unknown instead of not_tracking.\n- Climate: the schedule preset and the next schedule, heating power and open window attributes are gone; separate entities replace them.\n- Manual changes follow the setting of each room in the tado app instead of ending after 30 minutes.\n- Device names are translated, and valves and sensors are connected via the Bridge X.\n- Polling follows a daily API call budget instead of an update interval.\n\nThe release notes list every change. You can ignore this notice.",
+      "title": "tado X 1.9 changed entities and options"
     },
     "duplicate_home": {
-      "title": "{home} is set up twice",
-      "description": "Two entries of the tado X integration control {home}. Remove one of them to avoid duplicate entities and twice the API calls."
+      "description": "Two entries of the tado X integration control {home}. Remove one of them to avoid duplicate entities and twice the API calls.",
+      "title": "{home} is set up twice"
     },
     "low_quota_tier": {
-      "title": "Small tado API quota for {home}",
-      "description": "The tado account of {home} allows only {limit} API calls a day, so rooms update only about every {rooms_minutes} minutes. tado allows 20,000 calls a day with an Auto-Assist subscription."
+      "description": "The tado account of {home} allows only {limit} API calls a day, so rooms update only about every {rooms_minutes} minutes. tado allows 20,000 calls a day with an Auto-Assist subscription.",
+      "title": "Small tado API quota for {home}"
     },
     "not_tado_x_home": {
-      "title": "{home} is not a tado X home",
-      "description": "tado reports that {home} is not a tado X home, so this integration cannot control it. Remove this entry and add the home with the core tado integration."
+      "description": "tado reports that {home} is not a tado X home, so this integration cannot control it. Remove this entry and add the home with the core tado integration.",
+      "title": "{home} is not a tado X home"
     },
     "quota_exhausted": {
-      "title": "tado API quota used up for {home}",
-      "description": "The tado API quota of the account used by {home} is used up. Until tado resets it at {reset}, the integration sends no requests, shows the last known values, and commands fail.\n\nThe tado app and other integrations on the same account use the same quota. If this happens often, lower the daily call budget in the options."
+      "description": "The tado API quota of the account used by {home} is used up. Until tado resets it at {reset}, the integration sends no requests, shows the last known values, and commands fail.\n\nThe tado app and other integrations on the same account use the same quota. If this happens often, lower the daily call budget in the options.",
+      "title": "tado API quota used up for {home}"
     },
     "quota_low": {
-      "title": "tado API quota low for {home}",
-      "description": "Only {remaining} API calls of the account used by {home} are left, at or below the reserve of {reserve}. Rooms update at the slowest rate and optional data pauses until tado resets the quota. Commands still work."
+      "description": "Only {remaining} API calls of the account used by {home} are left, at or below the reserve of {reserve}. Rooms update at the slowest rate and optional data pauses until tado resets the quota. Commands still work.",
+      "title": "tado API quota low for {home}"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "With these settings rooms update every {rooms_interval} and the integration plans {calls_per_day} API calls a day. The tado account allows {limit} calls a day; {remaining} are left right now.",
+        "sections": {
+          "control": {
+            "data": {
+              "manual_termination": "Manual changes end",
+              "off_follows_policy": "Turning a room off ends the same way",
+              "presence_zone": "Zone of this home",
+              "timer_minutes": "Timer"
+            },
+            "data_description": {
+              "manual_termination": "When a temperature set from Home Assistant returns to the schedule. Following the tado app uses the setting of each room in the tado app.",
+              "off_follows_policy": "When turned off, a room that was turned off from Home Assistant stays off until you change it.",
+              "presence_zone": "The zone a phone tracker reports while the phone is at this home. Choose a zone of this home if the Home Assistant home zone is another place.",
+              "timer_minutes": "Minutes until the schedule resumes when the timer is chosen above."
+            },
+            "name": "Control"
+          },
+          "features": {
+            "data": {
+              "air_comfort": "Air comfort",
+              "holiday_mode": "Holiday mode",
+              "mobile_devices": "Phones",
+              "running_times": "Heating time today",
+              "weather": "Weather"
+            },
+            "data_description": {
+              "air_comfort": "Humidity level and comfort level of each room. About 96 calls a day.",
+              "holiday_mode": "Shows whether holiday mode is active. Experimental. About 96 calls a day.",
+              "mobile_devices": "A tracker and an at-home sensor for each phone with geofencing. About 288 calls a day.",
+              "running_times": "Heating time of each room today. About 24 calls a day.",
+              "weather": "Outdoor temperature, solar intensity and weather. About 96 calls a day."
+            },
+            "description": "Each option costs API calls every day.",
+            "name": "Optional data"
+          },
+          "polling": {
+            "data": {
+              "daily_call_budget": "Daily call budget",
+              "quota_reserve": "Quota reserve"
+            },
+            "data_description": {
+              "daily_call_budget": "API calls a day this integration plans for polling. A smaller budget means slower room updates. At most 80 % of the account limit is planned.",
+              "quota_reserve": "API calls left for the rest of the account. Below this, rooms update at the slowest rate, optional data pauses and commands still work."
+            },
+            "description": "tado limits the API calls of each account per day. The tado app and other integrations on the same account, such as the core tado integration, use the same limit.",
+            "name": "API call budget"
+          }
+        },
+        "title": "tado X options"
+      }
+    }
+  },
+  "selector": {
+    "manual_termination": {
+      "options": {
+        "follow_app": "As set for the room in the tado app",
+        "manual": "Until you end it",
+        "next_time_block": "Until the next time block",
+        "timer": "When the timer ends"
+      }
+    },
+    "power": {
+      "options": {
+        "off": "Off",
+        "on": "On"
+      }
+    },
+    "schedule_block": {
+      "fields": {
+        "end": {
+          "description": "End time as HH:MM; 24:00 is the end of the day.",
+          "name": "End"
+        },
+        "power": {
+          "description": "Whether the room heats in this block.",
+          "name": "Heating"
+        },
+        "start": {
+          "description": "Start time as HH:MM.",
+          "name": "Start"
+        },
+        "temperature": {
+          "description": "Target temperature from 5 to 30 °C while heating is on.",
+          "name": "Temperature"
+        }
+      }
+    },
+    "tariff_unit": {
+      "options": {
+        "kwh": "Kilowatt hours (kWh)",
+        "m3": "Cubic meters (m³)"
+      }
+    },
+    "termination": {
+      "options": {
+        "manual": "Until you end it",
+        "next_time_block": "Until the next time block",
+        "timer": "When the duration ends"
+      }
+    },
+    "weekday": {
+      "options": {
+        "friday": "Friday",
+        "monday": "Monday",
+        "saturday": "Saturday",
+        "sunday": "Sunday",
+        "thursday": "Thursday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday"
+      }
     }
   },
   "services": {
     "add_meter_reading": {
-      "name": "Add meter reading",
       "description": "Adds a meter reading to tado Energy IQ.",
       "fields": {
         "config_entry_id": {
-          "name": "Home",
-          "description": "The tado X home. Needed when more than one home is set up."
+          "description": "The tado X home. Needed when more than one home is set up.",
+          "name": "Home"
         },
         "date": {
-          "name": "Date",
-          "description": "Day of the reading. Defaults to today in the time zone of the home."
+          "description": "Day of the reading. Defaults to today in the time zone of the home.",
+          "name": "Date"
         },
         "reading": {
-          "name": "Reading",
-          "description": "The meter reading."
+          "description": "The meter reading.",
+          "name": "Reading"
         }
-      }
+      },
+      "name": "Add meter reading"
     },
     "get_day_report": {
-      "name": "Get day report",
       "description": "Returns the day report of rooms with a summary of temperature, humidity and heating time.",
       "fields": {
         "date": {
-          "name": "Date",
-          "description": "Day of the report. Defaults to today in the time zone of the home. Past days need an Auto-Assist subscription."
+          "description": "Day of the report. Defaults to today in the time zone of the home. Past days need an Auto-Assist subscription.",
+          "name": "Date"
         }
-      }
+      },
+      "name": "Get day report"
     },
     "get_holiday_mode": {
-      "name": "Get holiday mode",
       "description": "Returns the holiday mode of a home. Experimental.",
       "fields": {
         "config_entry_id": {
-          "name": "Home",
-          "description": "The tado X home. Needed when more than one home is set up."
+          "description": "The tado X home. Needed when more than one home is set up.",
+          "name": "Home"
         }
-      }
+      },
+      "name": "Get holiday mode"
     },
     "get_schedule": {
-      "name": "Get schedule",
-      "description": "Returns the weekly schedule of rooms."
+      "description": "Returns the weekly schedule of rooms.",
+      "name": "Get schedule"
     },
     "set_climate_timer": {
-      "name": "Set climate timer",
       "description": "Sets a room temperature until a duration ends, until the next time block or until you end it.",
       "fields": {
         "duration": {
-          "name": "Duration",
-          "description": "Minutes until the schedule resumes. A duration without a termination means a timer."
+          "description": "Minutes until the schedule resumes. A duration without a termination means a timer.",
+          "name": "Duration"
         },
         "temperature": {
-          "name": "Temperature",
-          "description": "Target temperature."
+          "description": "Target temperature.",
+          "name": "Temperature"
         },
         "termination": {
-          "name": "Termination",
-          "description": "When the schedule resumes. Without a duration and a termination, the termination option of the integration applies."
+          "description": "When the schedule resumes. Without a duration and a termination, the termination option of the integration applies.",
+          "name": "Termination"
         }
-      }
+      },
+      "name": "Set climate timer"
     },
     "set_eiq_tariff": {
-      "name": "Set energy tariff",
       "description": "Adds an energy tariff to tado Energy IQ for cost calculations.",
       "fields": {
         "config_entry_id": {
-          "name": "Home",
-          "description": "The tado X home. Needed when more than one home is set up."
+          "description": "The tado X home. Needed when more than one home is set up.",
+          "name": "Home"
         },
         "end_date": {
-          "name": "End date",
-          "description": "Last day of the tariff. Leave empty for an ongoing tariff."
+          "description": "Last day of the tariff. Leave empty for an ongoing tariff.",
+          "name": "End date"
         },
         "start_date": {
-          "name": "Start date",
-          "description": "First day of the tariff."
+          "description": "First day of the tariff.",
+          "name": "Start date"
         },
         "tariff": {
-          "name": "Tariff",
-          "description": "Price per unit, for example 0.85 for 0.85 per cubic meter."
+          "description": "Price per unit, for example 0.85 for 0.85 per cubic meter.",
+          "name": "Tariff"
         },
         "unit": {
-          "name": "Unit",
-          "description": "Unit the price refers to."
+          "description": "Unit the price refers to.",
+          "name": "Unit"
         }
-      }
+      },
+      "name": "Set energy tariff"
     },
     "set_holiday_mode": {
-      "name": "Set holiday mode",
       "description": "Turns holiday mode of a home on or off and sets its period. Experimental; needs an Auto-Assist subscription.",
       "fields": {
         "config_entry_id": {
-          "name": "Home",
-          "description": "The tado X home. Needed when more than one home is set up."
+          "description": "The tado X home. Needed when more than one home is set up.",
+          "name": "Home"
         },
         "enabled": {
-          "name": "Enabled",
-          "description": "Whether holiday mode is on."
+          "description": "Whether holiday mode is on.",
+          "name": "Enabled"
         },
         "end": {
-          "name": "End",
-          "description": "When the holiday ends."
+          "description": "When the holiday ends.",
+          "name": "End"
         },
         "start": {
-          "name": "Start",
-          "description": "When the holiday starts."
+          "description": "When the holiday starts.",
+          "name": "Start"
         }
-      }
+      },
+      "name": "Set holiday mode"
     },
     "set_schedule": {
-      "name": "Set schedule",
       "description": "Replaces the schedule of rooms on the given weekdays. The blocks must cover the day from 00:00 to 24:00 without gaps.",
       "fields": {
         "blocks": {
-          "name": "Blocks",
-          "description": "The time blocks of each chosen day, in time order."
+          "description": "The time blocks of each chosen day, in time order.",
+          "name": "Blocks"
         },
         "days": {
-          "name": "Days",
-          "description": "Weekdays that get these blocks."
+          "description": "Weekdays that get these blocks.",
+          "name": "Days"
         }
-      }
+      },
+      "name": "Set schedule"
     },
     "set_temperature_offset": {
-      "name": "Set temperature offset",
       "description": "Calibrates the temperature reading of a radiator valve, temperature sensor or smart thermostat.",
       "fields": {
         "device_id": {
-          "name": "Device",
-          "description": "The device to calibrate."
+          "description": "The device to calibrate.",
+          "name": "Device"
         },
         "offset": {
-          "name": "Offset",
-          "description": "Added to the measured temperature, in °C."
+          "description": "Added to the measured temperature, in °C.",
+          "name": "Offset"
         }
-      }
+      },
+      "name": "Set temperature offset"
     }
   }
 }

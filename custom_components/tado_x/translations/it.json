@@ -1,199 +1,137 @@
 {
   "config": {
-    "step": {
-      "user": {
-        "title": "Autenticazione Tado X",
-        "description": "Clicca su Invia per avviare il processo di autenticazione con Tado. Verrai reindirizzato per autorizzare questa integrazione."
-      },
-      "auth": {
-        "title": "Autorizza Tado X",
-        "description": "Visita il seguente URL e inserisci il codice per autorizzare Home Assistant:\n\n**URL:** {verification_uri}\n\n**Codice:** `{user_code}`\n\nDopo aver autorizzato, clicca su Invia."
-      },
-      "select_home": {
-        "title": "Seleziona abitazione",
-        "description": "Sono state trovate più abitazioni Tado. Seleziona quella che vuoi configurare.",
-        "data": {
-          "home_id": "Abitazione"
-        }
-      },
-      "reauth_confirm": {
-        "title": "Riautentica Tado X",
-        "description": "L'autenticazione Tado X è scaduta. Clicca su Invia per riautenticare."
-      },
-      "reauth_auth": {
-        "title": "Autorizza Tado X",
-        "description": "Visita il seguente URL e inserisci il codice per autorizzare Home Assistant:\n\n**URL:** {verification_uri}\n\n**Codice:** `{user_code}`\n\nDopo aver autorizzato, clicca su Invia."
-      }
-    },
-    "error": {
-      "auth_error": "Autenticazione fallita. Riprova.",
-      "auth_timeout": "Autenticazione scaduta. Assicurati di aver completato l'autorizzazione e riprova.",
-      "cannot_connect": "Impossibile connettersi a Tado. Controlla la connessione internet.",
-      "no_homes": "Nessuna abitazione Tado trovata per questo account.",
-      "unknown": "Si è verificato un errore sconosciuto."
-    },
     "abort": {
       "already_configured": "Questa abitazione Tado è già configurata.",
+      "cannot_connect": "Impossibile connettersi a Tado. Controlla la connessione internet.",
       "reauth_successful": "Riautenticazione completata con successo.",
       "unknown": "Si è verificato un errore sconosciuto."
-    }
-  },
-  "options": {
+    },
     "step": {
-      "init": {
-        "title": "Opzioni Tado X",
-        "description": "Configura le impostazioni dell'integrazione Tado X.\n\n**Quota API:**\n- Senza Auto-Assist: 5000 richieste/giorno → aggiornamento ogni 45 min\n- Con Auto-Assist: 20.000 richieste/giorno → aggiornamento ogni 30 sec",
+      "reauth_confirm": {
+        "title": "Riautentica Tado X"
+      },
+      "select_home": {
         "data": {
-          "has_auto_assist": "Abbonamento Auto-Assist",
-          "scan_interval": "Intervallo di aggiornamento (secondi)",
-          "enable_weather": "Abilita sensori meteo",
-          "enable_mobile_devices": "Abilita tracciamento dispositivi mobili",
-          "enable_air_comfort": "Abilita sensori comfort dell'aria",
-          "enable_running_times": "Abilita sensori tempo di riscaldamento"
+          "home_id": "Abitazione"
         },
-        "data_description": {
-          "has_auto_assist": "Abilita questa opzione se hai un abbonamento Auto-Assist. L'intervallo di aggiornamento verrà regolato automaticamente.",
-          "scan_interval": "Frequenza di interrogazione dell'API Tado (in secondi). Minimo: 30s, Massimo: 3600s (1 ora). Senza Auto-Assist, mantieni 2700s (45 min) per restare sotto le 5000 richieste/giorno.",
-          "enable_weather": "Abilita i sensori di temperatura esterna, intensità solare e stato meteo. Usa 1 chiamata API per aggiornamento.",
-          "enable_mobile_devices": "Abilita i device tracker per i telefoni con geofencing. Usa 1 chiamata API per aggiornamento.",
-          "enable_air_comfort": "Abilita i sensori di qualità e comfort dell'aria per stanza. Usa 1 chiamata API per aggiornamento.",
-          "enable_running_times": "Abilita i sensori del tempo di riscaldamento giornaliero per stanza. Usa 1 chiamata API per aggiornamento."
-        }
-      }
-    }
-  },
-  "services": {
-    "set_temperature_offset": {
-      "name": "Imposta offset temperatura",
-      "description": "Regola l'offset di temperatura per un dispositivo Tado X (valvola o sensore) per calibrare le letture.",
-      "fields": {
-        "device_id": {
-          "name": "Dispositivo",
-          "description": "Il dispositivo Tado X da calibrare"
-        },
-        "offset": {
-          "name": "Offset temperatura",
-          "description": "Offset di temperatura in °C. Valori positivi aumentano la lettura, valori negativi la diminuiscono."
-        }
-      }
-    },
-    "add_meter_reading": {
-      "name": "Aggiungi lettura contatore",
-      "description": "Carica una lettura del contatore su Tado Energy IQ",
-      "fields": {
-        "reading": {
-          "name": "Lettura",
-          "description": "Valore della lettura del contatore (intero)"
-        },
-        "date": {
-          "name": "Data",
-          "description": "Data della lettura (formato YYYY-MM-DD, predefinito oggi)"
-        }
-      }
-    },
-    "set_eiq_tariff": {
-      "name": "Imposta tariffa energetica",
-      "description": "Imposta una tariffa energetica in Tado Energy IQ per il calcolo dei costi",
-      "fields": {
-        "tariff": {
-          "name": "Tariffa",
-          "description": "Prezzo per unità (es. 0.85 per €0,85/m³)"
-        },
-        "unit": {
-          "name": "Unità",
-          "description": "Tipo di unità energetica (m3 o kWh)"
-        },
-        "start_date": {
-          "name": "Data di inizio",
-          "description": "Data di inizio validità della tariffa (formato YYYY-MM-DD)"
-        },
-        "end_date": {
-          "name": "Data di fine",
-          "description": "Data di fine validità della tariffa (formato YYYY-MM-DD)"
-        }
+        "title": "Seleziona abitazione"
       }
     }
   },
   "entity": {
+    "binary_sensor": {
+      "battery_low": {
+        "name": "Batteria scarica"
+      },
+      "connectivity": {
+        "name": "Connettività"
+      },
+      "heating": {
+        "name": "Riscaldamento"
+      },
+      "overlay_active": {
+        "name": "Controllo manuale"
+      },
+      "window_open": {
+        "name": "Finestra aperta"
+      }
+    },
+    "button": {
+      "boost_all": {
+        "name": "Boost globale"
+      },
+      "disable_all": {
+        "name": "Spegni tutto"
+      },
+      "resume_schedules": {
+        "name": "Riprendi programmazioni"
+      }
+    },
     "climate": {
       "tado_x": {
         "state_attributes": {
           "preset_mode": {
             "state": {
-              "home": "Casa",
-              "away": "Fuori casa",
               "auto": "Automatico (Geofencing)",
-              "schedule": "Programmazione"
+              "away": "Fuori casa",
+              "home": "Casa"
             }
           }
         }
       }
     },
-    "sensor": {
-      "temperature": { "name": "Temperatura" },
-      "humidity": { "name": "Umidità" },
-      "heating_power": { "name": "Potenza di riscaldamento" },
-      "heating_time_today": { "name": "Tempo di riscaldamento oggi" },
-      "battery": {
-        "name": "Batteria",
-        "state": {
-          "normal": "Normale",
-          "low": "Bassa"
+    "device_tracker": {
+      "phone": {
+        "state_attributes": {
+          "geofencing_enabled": {
+            "name": "Geofencing attivo"
+          }
         }
+      }
+    },
+    "number": {
+      "manual_termination_timer": {
+        "name": "Durata timer"
       },
-      "device_temperature": { "name": "Temperatura dispositivo" },
-      "temperature_offset": { "name": "Offset temperatura" },
-      "api_calls_today": { "name": "Chiamate API oggi" },
-      "api_quota_remaining": { "name": "Quota API rimanente" },
-      "api_quota_limit": { "name": "Limite quota API" },
-      "api_usage_percentage": { "name": "Utilizzo API" },
-      "api_reset_time": { "name": "Reset quota API" },
-      "api_status": {
-        "name": "Stato API",
+      "max_flow_temperature": {
+        "name": "Temperatura massima flusso"
+      }
+    },
+    "select": {
+      "manual_termination": {
+        "name": "Tipo terminazione",
         "state": {
-          "OK": "OK",
-          "RATE_LIMITED": "Limite raggiunto"
-        }
-      },
-      "presence_state": {
-        "name": "Presenza",
-        "state": {
-          "HOME": "Casa",
-          "AWAY": "Fuori casa"
+          "manual": "Manuale",
+          "next_time_block": "Prossimo blocco orario",
+          "timer": "Timer"
         }
       },
       "presence_mode": {
         "name": "Modalità presenza",
         "state": {
-          "MANUAL": "Manuale",
-          "AUTO": "Automatico (Geofencing)"
+          "auto": "Automatico (Geofencing)",
+          "away": "Fuori casa",
+          "home": "Casa"
         }
-      },
-      "outdoor_temperature": { "name": "Temperatura esterna" },
-      "solar_intensity": { "name": "Intensità solare" },
-      "weather_state": {
-        "name": "Stato meteo",
-        "state": {
-          "SUNNY": "Soleggiato",
-          "CLOUDY": "Nuvoloso",
-          "CLOUDY_PARTLY": "Parzialmente nuvoloso",
-          "CLOUDY_MOSTLY": "Molto nuvoloso",
-          "NIGHT_CLEAR": "Notte serena",
-          "NIGHT_CLOUDY": "Notte nuvolosa",
-          "RAIN": "Pioggia",
-          "DRIZZLE": "Pioviggine",
-          "SNOW": "Neve",
-          "FOGGY": "Nebbia",
-          "THUNDERSTORMS": "Temporali",
-          "WINDY": "Ventoso"
-        }
-      },
+      }
+    },
+    "sensor": {
       "air_freshness": {
         "name": "Livello di umidità",
         "state": {
-          "humid": "Umido",
           "comfy": "Confortevole",
-          "dry": "Secco"
+          "dry": "Secco",
+          "humid": "Umido"
+        }
+      },
+      "api_calls_today": {
+        "name": "Chiamate API oggi"
+      },
+      "api_quota_limit": {
+        "name": "Limite quota API"
+      },
+      "api_quota_remaining": {
+        "name": "Quota API rimanente"
+      },
+      "api_reset_time": {
+        "name": "Reset quota API"
+      },
+      "api_status": {
+        "name": "Stato API",
+        "state": {
+          "ok": "OK",
+          "rate_limited": "Limite raggiunto"
+        }
+      },
+      "api_usage_percentage": {
+        "name": "Utilizzo API"
+      },
+      "battery": {
+        "name": "Batteria",
+        "state": {
+          "depleted": "Esaurita",
+          "low": "Bassa",
+          "normal": "Normale"
         }
       },
       "comfort_level": {
@@ -203,46 +141,165 @@
           "comfy": "Confortevole",
           "warm": "Caldo"
         }
-      }
-    },
-    "binary_sensor": {
-      "window_open": { "name": "Finestra aperta" },
-      "heating": { "name": "Riscaldamento" },
-      "overlay_active": { "name": "Controllo manuale" },
-      "connectivity": { "name": "Connettività" },
-      "battery_low": { "name": "Batteria scarica" }
-    },
-    "switch": {
-      "child_lock": { "name": "Blocco bambini" },
-      "open_window": { "name": "Finestra aperta" },
-      "flow_temp_auto_adaptation": { "name": "Adattamento auto temperatura flusso" }
-    },
-    "number": {
-      "max_flow_temperature": { "name": "Temperatura massima flusso" }
-    },
-    "button": {
-      "boost_all": { "name": "Boost globale" },
-      "disable_all": { "name": "Spegni tutto" },
-      "resume_schedules": { "name": "Riprendi programmazioni" }
-    },
-    "device_tracker": {
-      "mobile_device": {
-        "name": "Dispositivo mobile",
+      },
+      "control_mode": {
+        "name": "Modalità controllo",
         "state": {
-          "home": "Casa",
+          "gas_boiler": "Predefinito (Caldaia a gas)",
+          "heat_pump": "Pompa di calore",
+          "no_temperature_control": "Su richiesta riscaldamento, sempre acceso",
+          "underfloor_heating": "Riscaldamento a pavimento"
+        }
+      },
+      "device_temperature": {
+        "name": "Temperatura dispositivo"
+      },
+      "heating_power": {
+        "name": "Potenza di riscaldamento"
+      },
+      "heating_time_today": {
+        "name": "Tempo di riscaldamento oggi"
+      },
+      "humidity": {
+        "name": "Umidità"
+      },
+      "next_schedule_change": {
+        "name": "Inizio programmazione successiva"
+      },
+      "next_schedule_temperature": {
+        "name": "Temperatura programmazione successiva"
+      },
+      "next_time_block": {
+        "name": "Blocco temporale successivo"
+      },
+      "outdoor_temperature": {
+        "name": "Temperatura esterna"
+      },
+      "presence_mode": {
+        "name": "Modalità presenza",
+        "state": {
+          "auto": "Automatico (Geofencing)",
+          "manual": "Manuale"
+        }
+      },
+      "presence_state": {
+        "name": "Presenza",
+        "state": {
           "away": "Fuori casa",
-          "not_tracking": "Non tracciato",
-          "unknown": "Sconosciuto"
-        },
-        "state_attributes": {
-          "geofencing_enabled": { "name": "Geofencing attivo" },
-          "at_home": { "name": "A casa" },
-          "platform": { "name": "Piattaforma" },
-          "os_version": { "name": "Versione OS" },
-          "model": { "name": "Modello" },
-          "locale": { "name": "Lingua" }
+          "home": "Casa"
+        }
+      },
+      "solar_intensity": {
+        "name": "Intensità solare"
+      },
+      "temperature": {
+        "name": "Temperatura"
+      },
+      "temperature_offset": {
+        "name": "Offset temperatura"
+      },
+      "weather_state": {
+        "name": "Stato meteo",
+        "state": {
+          "cloudy": "Nuvoloso",
+          "cloudy_mostly": "Molto nuvoloso",
+          "cloudy_partly": "Parzialmente nuvoloso",
+          "drizzle": "Pioviggine",
+          "foggy": "Nebbia",
+          "night_clear": "Notte serena",
+          "night_cloudy": "Notte nuvolosa",
+          "rain": "Pioggia",
+          "snow": "Neve",
+          "sunny": "Soleggiato",
+          "thunderstorms": "Temporali",
+          "windy": "Ventoso"
         }
       }
+    },
+    "switch": {
+      "child_lock": {
+        "name": "Blocco bambini"
+      },
+      "flow_temp_auto_adaptation": {
+        "name": "Adattamento auto temperatura flusso"
+      },
+      "open_window": {
+        "name": "Finestra aperta"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Impossibile connettersi a Tado. Controlla la connessione internet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "sections": {
+          "features": {
+            "data": {
+              "air_comfort": "Abilita sensori comfort dell'aria",
+              "mobile_devices": "Abilita tracciamento dispositivi mobili",
+              "running_times": "Abilita sensori tempo di riscaldamento",
+              "weather": "Abilita sensori meteo"
+            }
+          }
+        },
+        "title": "Opzioni Tado X"
+      }
+    }
+  },
+  "services": {
+    "add_meter_reading": {
+      "description": "Carica una lettura del contatore su Tado Energy IQ",
+      "fields": {
+        "date": {
+          "description": "Data della lettura (formato YYYY-MM-DD, predefinito oggi)",
+          "name": "Data"
+        },
+        "reading": {
+          "description": "Valore della lettura del contatore (intero)",
+          "name": "Lettura"
+        }
+      },
+      "name": "Aggiungi lettura contatore"
+    },
+    "set_eiq_tariff": {
+      "description": "Imposta una tariffa energetica in Tado Energy IQ per il calcolo dei costi",
+      "fields": {
+        "end_date": {
+          "description": "Data di fine validità della tariffa (formato YYYY-MM-DD)",
+          "name": "Data di fine"
+        },
+        "start_date": {
+          "description": "Data di inizio validità della tariffa (formato YYYY-MM-DD)",
+          "name": "Data di inizio"
+        },
+        "tariff": {
+          "description": "Prezzo per unità (es. 0.85 per €0,85/m³)",
+          "name": "Tariffa"
+        },
+        "unit": {
+          "description": "Tipo di unità energetica (m3 o kWh)",
+          "name": "Unità"
+        }
+      },
+      "name": "Imposta tariffa energetica"
+    },
+    "set_temperature_offset": {
+      "description": "Regola l'offset di temperatura per un dispositivo Tado X (valvola o sensore) per calibrare le letture.",
+      "fields": {
+        "device_id": {
+          "description": "Il dispositivo Tado X da calibrare",
+          "name": "Dispositivo"
+        },
+        "offset": {
+          "description": "Offset di temperatura in °C. Valori positivi aumentano la lettura, valori negativi la diminuiscono.",
+          "name": "Offset temperatura"
+        }
+      },
+      "name": "Imposta offset temperatura"
     }
   }
 }
