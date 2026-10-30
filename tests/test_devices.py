@@ -354,7 +354,10 @@ async def test_phones_are_registered_and_removed(
     device_registry: dr.DeviceRegistry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Phones are devices of the home while the phone feature is on."""
+    """Phones are devices of the home while the phone feature is on.
+
+    A phone that returns gets its tracker and at-home sensor back.
+    """
     entry = make_entry()
     entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
@@ -370,13 +373,22 @@ async def test_phones_are_registered_and_removed(
     assert phone.sw_version == "15"
     assert phone.via_device_id == home.id
 
-    mock_tado.home(HOME_B).mobile_devices.pop()
+    phones = mock_tado.home(HOME_B).mobile_devices
+    tablet = phones.pop()
     await _tick(hass, freezer, 300)
 
     assert not device_registry.async_get_device_by_identifier(
         mobile_identifier(5000003), entry.entry_id
     )
     assert _device(device_registry, entry, mobile_identifier(5000002))
+    assert hass.states.get("device_tracker.tablet") is None
+
+    phones.append(tablet)
+    await _tick(hass, freezer, 300)
+
+    assert _device(device_registry, entry, mobile_identifier(5000003))
+    assert hass.states.get("device_tracker.tablet") is not None
+    assert hass.states.get("binary_sensor.tablet_at_home") is not None
 
 
 async def test_phones_stay_when_the_feature_is_off(
