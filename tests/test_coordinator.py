@@ -976,7 +976,12 @@ async def test_required_read_that_closes_the_gate_keeps_its_data(
     freezer.tick(timedelta(hours=1))
     await data.devices.async_refresh()
 
-    assert [call.path for call in mock_tado.calls("GET")] == [TOPOLOGY]
+    # Rooms and home are due too; they may send their required reads while
+    # the stale access token is refreshed, before the topology answer arrives.
+    paths = [call.path for call in mock_tado.calls("GET")]
+    assert paths[-1] == TOPOLOGY
+    assert paths.count(TOPOLOGY) == 1
+    assert not {HOME_INFO, RUNNING_TIMES, FLOW, HOLIDAY} & set(paths)
     assert data.devices.last_update_success
     assert data.devices.data.topology.devices["VA0000000101"].battery == "LOW"
     assert data.devices.data.running_times is not None
