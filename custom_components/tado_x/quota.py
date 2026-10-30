@@ -6,6 +6,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
 from .budget import (
@@ -88,7 +89,9 @@ class QuotaMonitor:
         self._mode = PlanMode.OK
         self._checked_at: datetime | None = None
         self._conserving_since: datetime | None = None
+        self._unsub_reset: CALLBACK_TYPE | None = None
         entry.async_on_unload(quota.add_listener(self._async_on_quota))
+        entry.async_on_unload(self._async_unwatch_reset)
 
     @property
     def status(self) -> ApiStatus:
@@ -258,9 +261,34 @@ class QuotaMonitor:
         else:
             self._conserving_since = None
         for coordinator in self._coordinators:
-            interval = self.interval(coordinator)
-            if coordinator.update_interval != interval:
-                coordinator.update_interval = interval
+            coordinator.async_set_interval(self.interval(coordinator))
+        self._async_watch_reset(now)
+
+    @callback
+    def _async_watch_reset(self, now: datetime) -> None:
+        """Re-plan at the reset tado sent while it slows the polling down."""
+        self._async_unwatch_reset()
+        info = self.info
+        if (
+            self._mode in (PlanMode.THROTTLED, PlanMode.CONSERVING)
+            and info is not None
+            and (reset := info.reset_at) is not None
+            and reset > now
+        ):
+            self._unsub_reset = async_track_point_in_utc_time(
+                self._hass, self._async_on_reset, reset
+            )
+
+    @callback
+    def _async_unwatch_reset(self) -> None:
+        if self._unsub_reset is not None:
+            self._unsub_reset()
+            self._unsub_reset = None
+
+    @callback
+    def _async_on_reset(self, now: datetime) -> None:
+        self._unsub_reset = None
+        self._async_update(now, force=True)
 
     def _log_transition(self, mode: PlanMode) -> None:
         if mode is self._mode:

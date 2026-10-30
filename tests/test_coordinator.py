@@ -853,3 +853,59 @@ async def test_room_write_after_disable_all_keeps_the_other_rooms_off(
     assert modes.pop(1) == HVACMode.HEAT
     assert state_of(hass, climate_id(hass, 1)).attributes[ATTR_TEMPERATURE] == 23.0
     assert set(modes.values()) == {HVACMode.OFF}
+
+
+async def _until_polled(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_tado: TadoCloudMock,
+    path: str,
+    limit: int,
+) -> int:
+    """Tick in 15 s steps until path was read; return the seconds it took."""
+    for elapsed in range(15, limit + 1, 15):
+        await _tick(hass, freezer, 15)
+        if _count(mock_tado, path):
+            return elapsed
+    raise AssertionError(f"{path} was not read within {limit} s")
+
+
+async def test_recovery_from_conserving_rearms_every_coordinator(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Once a poll sees the quota refilled, home and devices poll at their plan again."""
+    data = await _setup(hass, freezer)
+    mock_tado.set_quota(remaining=900)
+    await _run(hass, freezer, 40)
+    assert data.monitor.mode is PlanMode.CONSERVING
+    assert data.devices.update_interval == timedelta(hours=24)
+    mock_tado.set_quota(remaining=19000)
+    mock_tado.clear_calls()
+
+    await _until_polled(hass, freezer, mock_tado, ROOMS, 3600)
+    assert _mode(data) is PlanMode.OK
+    mock_tado.clear_calls()
+
+    assert await _until_polled(hass, freezer, mock_tado, STATE, 300) <= 300
+    assert _count(mock_tado, TOPOLOGY) == 1
+    await _run(hass, freezer, 20)
+    assert _count(mock_tado, ROOMS) >= 20
+    assert _count(mock_tado, TOPOLOGY) == 2
+
+
+async def test_known_reset_ends_conserving_on_time(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """At a reset time tado sent, polling returns to the plan without waiting an hour."""
+    data = await _setup(hass, freezer)
+    mock_tado.set_quota(remaining=900, reset_in=timedelta(minutes=30))
+    await _tick(hass, freezer, 45)
+    await _tick(hass, freezer, 30 * 60 - 45 - 60)
+    assert data.monitor.mode is PlanMode.CONSERVING
+    mock_tado.clear_calls()
+
+    took = await _until_polled(hass, freezer, mock_tado, ROOMS, 3600)
+
+    assert took <= 60 + 60
+    assert _mode(data) is PlanMode.OK
+    assert data.rooms.update_interval == timedelta(seconds=45)

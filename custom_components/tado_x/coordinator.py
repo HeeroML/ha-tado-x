@@ -48,6 +48,7 @@ from .runtime import (
 )
 
 REFRESH_COOLDOWN: Final = 5.0
+_MIN_DELAY: Final = timedelta(seconds=1)
 
 type Fetcher = Callable[[], Awaitable[Any]]
 
@@ -193,6 +194,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         self._pending: _PendingPatches[S] = _PendingPatches()
         self._failing: set[str] = set()
         self._refresh_requested = False
+        self._refreshed_at: datetime | None = None
         self._seed_data: S | None = None
         self._seed_at: datetime | None = None
         if seed is not None and (seeded := self._parse_seed(seed)) is not None:
@@ -253,7 +255,30 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     @callback
     def _async_refresh_finished(self) -> None:
         """Let the quota monitor re-plan and update the status after every poll."""
+        self._refreshed_at = dt_util.utcnow()
         self._monitor.async_on_poll(self)
+
+    @callback
+    def async_set_interval(self, interval: timedelta) -> None:
+        """Use a new update interval; a shorter one brings the pending refresh forward.
+
+        Home Assistant arms the next refresh only when a refresh ends, so a
+        coordinator would otherwise wait out the long interval of an old plan.
+        """
+        previous = self.update_interval
+        self.update_interval = interval
+        if (
+            previous is None
+            or interval >= previous
+            or self._refreshed_at is None
+            or self._unsub_refresh is None
+        ):
+            return
+        delay = max(self._refreshed_at + interval - dt_util.utcnow(), _MIN_DELAY)
+        # _schedule_refresh arms the timer one update_interval from now.
+        self.update_interval = delay
+        self._schedule_refresh()
+        self.update_interval = interval
 
     @callback
     def async_apply_optimistic(
