@@ -1012,3 +1012,20 @@ async def test_unknown_home_generation_warns_once(
         and "no known generation" in record.getMessage()
     ]
     assert len(warnings) == 1
+
+
+async def test_home_details_of_the_previous_generation_fail_setup(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    issue_registry: ir.IssueRegistry,
+) -> None:
+    """Home details of the previous generation refuse the home even when hops answers."""
+    mock_tado.home(HOME_B).info["generation"] = "PRE_LINE_X"
+    freezer.move_to(START)
+    entry = make_entry()
+
+    await setup_entry(hass, entry)
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert issue_registry.async_get_issue(DOMAIN, f"not_tado_x_home_{entry.entry_id}")
