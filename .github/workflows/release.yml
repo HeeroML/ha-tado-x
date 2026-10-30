@@ -1,20 +1,26 @@
 name: Release
 
+# Pushing a tag v<version> creates the GitHub release, and only after the
+# tag matches the manifest and lint and tests pass. HACS offers releases,
+# so a tag that fails a check is never offered.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to check against the manifest (dry run; nothing is uploaded)
+        description: Tag to check (dry run; no release is created)
         required: true
 
 permissions:
   contents: read
 
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
   version:
-    name: tag matches the manifest
+    name: tag, manifest and changelog
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -22,56 +28,42 @@ jobs:
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check tag, manifest version and minimum Home Assistant
-        env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          tag = os.environ["TAG"]
-          with open("custom_components/tado_x/manifest.json", encoding="utf-8") as handle:
-              version = json.load(handle)["version"]
-          with open("hacs.json", encoding="utf-8") as handle:
-              minimum = json.load(handle).get("homeassistant")
-          errors = []
-          if tag.removeprefix("v") != version:
-              errors.append(f"tag {tag} does not match manifest version {version}")
-          if minimum != "2026.10.0":
-              errors.append(f"hacs.json homeassistant is {minimum}, expected 2026.10.0")
-          for error in errors:
-              print(f"::error::{error}")
-          print(f"tag {tag}, version {version}, Home Assistant {minimum}")
-          sys.exit(1 if errors else 0)
-          PY
+      - name: Tag, manifest version, minimum Home Assistant and release notes
+        run: python3 scripts/release_check.py "$TAG"
 
   tests:
     name: lint and tests
     needs: version
     uses: ./.github/workflows/tests.yml
 
-  zip:
-    name: tado_x.zip
+  release:
+    name: GitHub release with tado_x.zip
     needs: [version, tests]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     concurrency:
-      group: ${{ github.workflow }}-zip-${{ github.ref }}
-      cancel-in-progress: true
+      group: ${{ github.workflow }}-release-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Build tado_x.zip from custom_components/tado_x
+      - name: Build tado_x.zip with the integration files at its top level
         working-directory: custom_components/tado_x
         run: |
           zip -r -X "$GITHUB_WORKSPACE/tado_x.zip" . -x '*__pycache__*' '*.pyc'
           unzip -l "$GITHUB_WORKSPACE/tado_x.zip"
-      - name: Attach to the release
-        if: github.event_name == 'release'
+      - name: Release notes from CHANGELOG.md
+        run: |
+          python3 scripts/release_check.py "$TAG" --notes release_notes.md
+          cat release_notes.md
+      - name: Create the release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" tado_x.zip --clobber
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          gh release create "$TAG" tado_x.zip
+          --verify-tag
+          --title "$TAG"
+          --notes-file release_notes.md

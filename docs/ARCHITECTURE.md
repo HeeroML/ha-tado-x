@@ -76,7 +76,7 @@ TadoXError
 - A fresh access token (more than 60 s left) is returned without a lock, so a start with a valid token sends no refresh.
 - Otherwise one lock serializes refreshes per entry. Inside it the manager re-reads the store (another instance may have rotated the token) and checks again, so ten waiting callers cause one refresh.
 - The 401 path uses the same lock. If the rejected token was already replaced, no second refresh is sent.
-- **Persist first, publish second:** a new token set is saved to the store before any caller can use it.
+- **Store first, publish second:** a new token set is written to the token store, the config entry data, before any caller can use it. Home Assistant saves config entries with a delay and flushes it to disk about 1 s later; a normal stop writes it out, but a crash within that second loses the rotation, and the next start needs a reauthentication.
 - Transient refresh failures back off (5 s, 15 s, 60 s, 5 min). While the old access token is still valid and the call is not forced by a 401, the old token is used.
 - `invalid_grant` while the store holds a different refresh token means another instance rotated it; the manager adopts it and retries once. Otherwise the failure is sticky until the entry reloads, which reauthentication does.
 - Unloading the entry waits for a running refresh, so the next instance reads the rotated token.

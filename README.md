@@ -38,7 +38,7 @@ Homes of the previous tado generation (V3+ and older) are not supported here. Us
 
 Fixed upstream issues:
 
-- **Token handling** (#36, #75, #79, #80): one refresh at a time per home, including after a 401. A rotated refresh token is saved before it is used. A network error, timeout, 429 or 5xx during a refresh is retried with backoff and never starts a reauthentication. Only answers such as `invalid_grant` do.
+- **Token handling** (#36, #75, #79, #80): one refresh at a time per home, including after a 401. A rotated refresh token is written to the config entry immediately, before it is used; Home Assistant flushes it to disk about 1 s later. Only a crash or power cut within that second loses it, and you then sign in again. A network error, timeout, 429 or 5xx during a refresh is retried with backoff and never starts a reauthentication. Only answers such as `invalid_grant` do.
 - **Sign-in link** (#76): the device-code link always carries `client_id`, so tado no longer answers `missing_client_id`.
 - **Config flow error 500 on Python 3.14** (#73): every error path aborts cleanly, HA's shared HTTP session is used, and the flow is also tested through HA's HTTP view. The original 500 was never reproduced, so please report a traceback if you still see one.
 - **"Timezone of home not found"** (#40): only tado X (`LINE_X`) homes are offered. Older homes are listed as skipped, and an existing entry for a non-X home gets a repair issue.
@@ -100,7 +100,9 @@ If you installed the upstream `exabird/ha-tado-x` through HACS, remove it in HAC
 
 ### Manual
 
-Copy `custom_components/tado_x` from a [release](https://github.com/HeeroML/ha-tado-x/releases) (the `tado_x.zip` asset) to `config/custom_components/tado_x` and restart Home Assistant.
+1. Download the `tado_x.zip` asset of a [release](https://github.com/HeeroML/ha-tado-x/releases).
+2. Create the folder `config/custom_components/tado_x` and extract the archive into it. The archive holds the integration files at its top level, without a `tado_x` folder, so you get `config/custom_components/tado_x/manifest.json`.
+3. Restart Home Assistant.
 
 ## Coexistence with the core tado integration
 
@@ -516,16 +518,16 @@ python3 scripts/live_probe.py --max-rooms 6
 What it does:
 
 - It signs in with its own device code, the same kind of link and code as the config flow. Home Assistant's tokens are not touched.
-- Tokens stay in memory unless you pass `--token-file`. That file holds only the refresh token, with mode 0600; delete it afterwards.
+- Tokens stay in memory unless you pass `--token-file`, for example `--token-file ~/tado_x_probe_token.json`. That file holds only the refresh token, with mode 0600; delete it afterwards. The probe refuses a `--token-file` or `--keep-raw` path inside a git work tree such as the clone, where a commit could publish it.
 - Before the first request it says how many it will send and waits for `y` (or `--yes`). With `--max-rooms 6` that is about 53 requests plus the sign-in. `--history` adds one day report per room.
 - It sends **GET requests only**. The only POSTs are the sign-in at login.tado.com. It stops at the first 429.
 - It skips homes that are not tado X homes before any tado X request.
 
-What it writes:
+What it writes, also when the run stops early at a 429, on Ctrl-C or on an error:
 
-- `tado_x_probe_<time>.json`, or the file given with `--out`. Every id, serial number and name in it is replaced by a stable pseudonym (`home#1`, `room#3`, `VA04#2`), and address, coordinates, contact details and e-mail are dropped. It ends with a findings block of booleans and enums. **Read the file before you share it.**
-- With `--keep-raw PATH`, an unredacted copy (mode 0600) for yourself. Do not share that one.
-- With `--emit-fixtures DIR`, pseudonymized payloads in the format of `tests/fixtures/`.
+- `tado_x_probe_<time>.json` in the current folder (git ignores this name), or the file given with `--out`. Every id, serial number and name in it is replaced by a stable pseudonym (`home#1`, `room#3`, `VA04#2`), and address, coordinates, contact details and e-mail are dropped. It ends with a findings block of booleans and enums. **Read the file before you share it.**
+- With `--keep-raw PATH`, for example `--keep-raw ~/tado_x_probe_raw.json`, an unredacted copy (mode 0600) for yourself. Do not share that one.
+- With `--emit-fixtures DIR`, pseudonymized payloads in the format of `tests/fixtures/`. Ids, serial numbers and room and phone names follow the current fixtures, so a capture can replace them.
 
 ## Diagnostics and privacy
 
@@ -558,7 +560,7 @@ logger:
 | "This tado account has no tado X home" | The account has only older homes. Use the core tado integration for them. |
 | Repair issue "… is not a tado X home" | An entry from v1.8 points at a V3+ home (upstream #40). Remove the entry and add that home with the core tado integration. |
 | Repair issue "… is set up twice" | Two entries control the same home, which v1.8 allowed. Remove one. |
-| Home Assistant asks you to sign in again | tado rejected the stored sign-in, for example because the refresh token was revoked or not used for 30 days after a long shutdown. Sign in again with the same account. Network problems never cause this. |
+| Home Assistant asks you to sign in again | tado rejected the stored sign-in, for example because the refresh token was revoked, not used for 30 days after a long shutdown, or rotated less than a second before Home Assistant crashed. Sign in again with the same account. Network problems never cause this. |
 | Entities unavailable, and the log says tado is unreachable | A network or tado outage. The integration retries on its own. |
 | `api_status` is `rate_limited` | The account's quota is used up; see [Quota hold](#quota-hold). Compare "API calls used (account)" with "API calls by this integration (24 h)". If the first is much higher, the core integration or the apps use most of the quota. Lower the budget or raise the reserve. |
 | `api_status` is `conserving` or `throttled` | The account is close to its limit. Values update more slowly; commands still work. |

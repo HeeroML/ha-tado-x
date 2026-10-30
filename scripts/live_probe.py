@@ -14,17 +14,21 @@ or the integration.
     python3 scripts/live_probe.py                          # pick the tado X home
     python3 scripts/live_probe.py --home-id 123456 --yes   # no questions
     python3 scripts/live_probe.py --emit-fixtures tests/fixtures
-    python3 scripts/live_probe.py --keep-raw ~/probe-raw.json   # private copy
+    python3 scripts/live_probe.py --keep-raw ~/tado_x_probe_raw.json   # private
+    python3 scripts/live_probe.py --token-file ~/tado_x_probe_token.json
 
 Tokens stay in memory. --token-file keeps only the rotating refresh token, in
 a file with mode 0600; delete it when you are done. The probe has its own
-sign-in, so the tokens of Home Assistant are not touched.
+sign-in, so the tokens of Home Assistant are not touched. --token-file and
+--keep-raw are refused inside a git work tree, where a commit could publish
+them.
 """
 
 import argparse
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+import http.client
 import json
 import os
 from pathlib import Path
@@ -128,7 +132,9 @@ DROP_KEYS = frozenset(
 BLUR_KEYS = frozenset({"bearingFromHome", "relativeDistanceFromHomeFence"})
 CONTEXT_KEYS = {
     "homes": "home",
+    "room": "room",
     "rooms": "room",
+    "otherRooms": "room",
     "zones": "room",
     "comfort": "room",
     "roomSettings": "room",
@@ -174,6 +180,17 @@ FIXTURE_FAKES: dict[str, Any] = {
 }
 FIXTURE_HOME_IDS = (1000002, 1000001, 1000003)
 FIXTURE_HOME_NAMES = {1000001: "Haus A", 1000002: "Haus B", 1000003: "Haus C"}
+FIXTURE_ROOM_NAMES = (
+    "Wohnzimmer",
+    "Kueche",
+    "Schlafzimmer",
+    "Kinderzimmer",
+    "Bad",
+    "Arbeitszimmer",
+)
+FIXTURE_PHONE_BASE = 5000000
+FIXTURE_PHONE_NAMES = ("Phone", "Phone 2", "Tablet")
+FIXTURE_PLATFORMS = ("Android", "iOS")
 
 
 class ProbeError(Exception):
@@ -242,7 +259,7 @@ def _http(
             status, raw_headers, raw = resp.status, resp.headers, resp.read()
     except urllib.error.HTTPError as err:
         status, raw_headers, raw = err.code, err.headers, err.read()
-    except (urllib.error.URLError, TimeoutError) as err:
+    except (OSError, http.client.HTTPException) as err:
         host = urllib.parse.urlsplit(url).netloc
         raise ProbeError(f"cannot reach {host}: {err}") from err
     text = raw.decode("utf-8", "replace")
@@ -289,6 +306,24 @@ def write_private(path: Path, text: str) -> None:
         os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def git_work_tree(path: Path) -> Path | None:
+    """Return the git work tree a path would be written into, or None.
+
+    Like git, a folder counts only when its .git is a repository (it holds
+    HEAD) or a gitdir link of a linked work tree or submodule.
+    """
+    for folder in path.resolve().parents:
+        marker = folder / ".git"
+        if (marker / "HEAD").is_file() or (
+            marker.is_file()
+            and marker.read_text(encoding="utf-8", errors="replace").startswith(
+                "gitdir:"
+            )
+        ):
+            return folder
+    return None
 
 
 def parse_ratelimit(value: str | None) -> dict[str, int]:
@@ -343,8 +378,11 @@ class Anonymizer:
 
     In pseudonym mode a real id, serial or name always maps to the same token
     (home#1, room#3, VA04#2) and dropped keys disappear. In fixture mode the
-    values follow tests/fixtures: the probed home is 1000002, rooms are 1..n,
-    serials look like VA0000000101 and dropped keys get fixed fake values.
+    values follow tests/fixtures, so a capture can replace them: the probed
+    home is 1000002, rooms are 1..n with the fixture room names, phones are
+    5000001.. with the fixture phone names and models Model1.., serials are
+    VA0000000101 in a room and IB0000000001 outside one, and dropped keys
+    get fixed fake values.
     """
 
     def __init__(self, *, fixtures: bool = False) -> None:
@@ -356,12 +394,11 @@ class Anonymizer:
 
     def learn_topology(self, topology: object) -> None:
         """Record type and room of every device of a roomsAndDevices payload."""
-        if not isinstance(topology, Mapping):
-            return
-        for room in topology.get("rooms") or []:
-            for device in room.get("devices") or []:
+        topology = _mapping(topology)
+        for room in _mappings(topology.get("rooms")):
+            for device in _mappings(room.get("devices")):
                 self._learn_device(device, room.get("roomId"))
-        for device in topology.get("otherDevices") or []:
+        for device in _mappings(topology.get("otherDevices")):
             self._learn_device(device, None)
 
     def _learn_device(self, device: Mapping[str, Any], room_id: object) -> None:
@@ -395,7 +432,7 @@ class Anonymizer:
         if kind == "room":
             return number
         if kind == "phone":
-            return 5000000 + number
+            return FIXTURE_PHONE_BASE + number
         if kind == "user":
             return f"00000000-0000-4000-8000-{number:012d}"
         return 9000000 + number if isinstance(real, int) else f"{kind}-{number}"
@@ -404,9 +441,15 @@ class Anonymizer:
         device_type, room_id = self._serials.get(serial, (serial[:2], None))
         if not self.fixtures:
             return f"{device_type}#{self._next(f'serial:{device_type}')}"
-        room = self.token("room", room_id) if room_id is not None else 0
+        if room_id is None:
+            return f"{serial[:2]}{self._next(f'serial:{serial[:2]}'):010d}"
+        room = self.token("room", room_id)
         index = self._next(f"serial:{serial[:2]}:{room}")
         return f"{serial[:2]}000000{index:02d}{room:02d}"
+
+    def _phone_number(self, phone: object) -> int | None:
+        token = self.token("phone", phone)
+        return token - FIXTURE_PHONE_BASE if isinstance(token, int) else None
 
     def name(self, kind: str, real: object, owner: object) -> object:
         """Return the token of a name; in fixtures a name follows its owner."""
@@ -415,7 +458,11 @@ class Anonymizer:
         if not self.fixtures:
             return self.token("name", real)
         if kind == "room":
-            return f"Room {self.token('room', owner)}"
+            return _fixture_name(FIXTURE_ROOM_NAMES, "Room", self.token("room", owner))
+        if kind == "phone":
+            return _fixture_name(
+                FIXTURE_PHONE_NAMES, "Phone", self._phone_number(owner)
+            )
         if kind == "home":
             home = self.token("home", owner)
             return (
@@ -444,10 +491,25 @@ class Anonymizer:
                     result[key] = None if item is None else FIXTURE_FAKES[key]
             elif key in BLUR_KEYS:
                 result[key] = _blur(item)
+            elif (
+                self.fixtures and key == "deviceMetadata" and isinstance(item, Mapping)
+            ):
+                result[key] = self._fixture_metadata(item, owner)
             elif isinstance(item, (Mapping, list)):
                 result[key] = self.anonymize(item, CONTEXT_KEYS.get(key))
             else:
                 result[key] = self._field(key, item, kind, owner)
+        return result
+
+    def _fixture_metadata(
+        self, metadata: Mapping[str, Any], phone: object
+    ) -> dict[str, Any]:
+        """Return phone metadata with a known platform kept and a numbered model."""
+        result = self._mapping(metadata, None)
+        if metadata.get("platform") in FIXTURE_PLATFORMS:
+            result["platform"] = metadata["platform"]
+        if "model" in metadata:
+            result["model"] = f"Model{self._phone_number(phone)}"
         return result
 
     def _field(
@@ -462,6 +524,13 @@ class Anonymizer:
         if key == "name" or key in NAME_KEYS:
             return self.name(NAME_KEYS.get(key, kind or "other"), value, owner)
         return _scalar(value)
+
+
+def _fixture_name(names: tuple[str, ...], prefix: str, number: object) -> str:
+    """Return the fixture name of the n-th room or phone, then "Prefix n"."""
+    if isinstance(number, int) and 0 < number <= len(names):
+        return names[number - 1]
+    return f"{prefix} {number}"
 
 
 def _scalar(value: object) -> object:
@@ -488,6 +557,23 @@ def _payload(exchanges: Iterable[Exchange], label: str) -> Any:
     return next(iter(_payloads(exchanges, label)), None)
 
 
+def _mapping(value: Any) -> Mapping[str, Any]:
+    """Return a payload that is an object, else an empty one."""
+    return value if isinstance(value, Mapping) else {}
+
+
+def _mappings(value: Any) -> list[Mapping[str, Any]]:
+    """Return the objects of a payload that is a list; anything else has none."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def room_ids(rooms: Any) -> list[Any]:
+    """Return the room ids of a hops rooms payload of any shape."""
+    return [room["id"] for room in _mappings(rooms) if room.get("id") is not None]
+
+
 def _status(exchanges: Iterable[Exchange], label: str) -> int | None:
     return next((ex.status for ex in exchanges if ex.label == label), None)
 
@@ -510,11 +596,11 @@ def _topology_findings(topology: Any) -> dict[str, Any]:
             "battery_values_seen": [],
             "device_fields_by_type": {},
         }
-    rooms = topology.get("rooms") or []
-    defaults = [room.get("deviceManualControlTermination") or {} for room in rooms]
+    rooms = _mappings(topology.get("rooms"))
+    defaults = [_mapping(room.get("deviceManualControlTermination")) for room in rooms]
     devices = [
-        *(device for room in rooms for device in room.get("devices") or []),
-        *(topology.get("otherDevices") or []),
+        *(device for room in rooms for device in _mappings(room.get("devices"))),
+        *_mappings(topology.get("otherDevices")),
     ]
     fields: dict[str, dict[str, bool]] = {}
     for device in devices:
@@ -550,12 +636,12 @@ def _minder_ids_equal_room_ids(running_times: Any, rooms: Any) -> bool | None:
         return None
     zone_ids = {
         zone.get("id")
-        for period in running_times.get("runningTimes") or []
-        for zone in period.get("zones") or []
+        for period in _mappings(running_times.get("runningTimes"))
+        for zone in _mappings(period.get("zones"))
     }
     if not zone_ids:
         return None
-    return zone_ids <= {room.get("id") for room in rooms}
+    return zone_ids <= set(room_ids(rooms))
 
 
 def _ratelimit_findings(exchanges: Iterable[Exchange]) -> dict[str, Any]:
@@ -584,15 +670,11 @@ def compute_findings(
     block holds no personal data.
     """
     rooms = _payload(exchanges, "hops rooms")
-    homes = _payloads(exchanges, "my home")
+    homes = _mappings(_payloads(exchanges, "my home"))
     probed = next((home for home in homes if home.get("generation") == "LINE_X"), {})
-    hops_home = _payload(exchanges, "hops home") or {}
+    hops_home = _mapping(_payload(exchanges, "hops home"))
     holiday = _payload(exchanges, "hops holidayMode")
-    room_states = [
-        room
-        for room in [*(rooms or []), *_payloads(exchanges, "hops room")]
-        if isinstance(room, Mapping)
-    ]
+    room_states = _mappings([*_mappings(rooms), *_payloads(exchanges, "hops room")])
     return {
         **login,
         **_ratelimit_findings(exchanges),
@@ -629,7 +711,7 @@ def compute_findings(
         "meter_readings_shape": _shape(
             _payload(exchanges, "eiq meterReadings"), "readings"
         ),
-        "dhw_capable": (_payload(exchanges, "hops domesticHotWater") or {}).get(
+        "dhw_capable": _mapping(_payload(exchanges, "hops domesticHotWater")).get(
             "isDomesticHotWaterCapable"
         ),
     }
@@ -832,7 +914,7 @@ def probe_home(probe: Probe, home: int, *, max_rooms: int, history: bool) -> Non
     day = home_today(time_zone, datetime.now(UTC)).isoformat()
     for label, template, kind, fixture in HOME_READS:
         probe.get(label, template, kind=kind, fixture=fixture, home=home, day=day)
-    rooms = [room["id"] for room in _payload(probe.exchanges, "hops rooms") or []]
+    rooms = room_ids(_payload(probe.exchanges, "hops rooms"))
     room_reads = (*ROOM_READS, DAY_REPORT) if history else ROOM_READS
     for index, room in enumerate(rooms[:max_rooms]):
         for label, template, kind, fixture in room_reads:
@@ -885,8 +967,8 @@ def _prepare(
     anonymizer.token("home", home)
     for exchange in exchanges:
         anonymizer.token("home", exchange.params.get("home"))
-    for room in _payload(exchanges, "hops rooms") or []:
-        anonymizer.token("room", room.get("id"))
+    for room in room_ids(_payload(exchanges, "hops rooms")):
+        anonymizer.token("room", room)
     anonymizer.learn_topology(_payload(exchanges, "hops roomsAndDevices"))
 
 
@@ -982,7 +1064,11 @@ def write_outputs(
 
 
 def run(args: argparse.Namespace) -> int:
-    """Run the probe and write its results; return the exit code."""
+    """Run the probe and write what it collected, also when it stops early.
+
+    Return 0 after a full run, 2 after a 429, 130 after Ctrl-C and 1 after
+    any other stop.
+    """
     if not _confirm(args):
         print("Nothing sent.")
         return 1
@@ -1002,32 +1088,49 @@ def run(args: argparse.Namespace) -> int:
     except ProbeError as err:
         print(f"\nStopped early: {err}")
         code = 1
-    findings = compute_findings(
-        probe.exchanges, login=probe.login_findings, deltas=deltas
-    )
-    write_outputs(args, probe.exchanges, findings, home)
-    if args.token_file is not None:
-        print(
-            f"Delete {args.token_file} when you are done; it signs in to your tado account."
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        code = 130
+    except Exception as err:  # noqa: BLE001 - the requests already sent are reported
+        print(f"\nStopped by an unexpected error: {type(err).__name__}: {err}")
+        code = 1
+    try:
+        findings = compute_findings(
+            probe.exchanges, login=probe.login_findings, deltas=deltas
         )
+        write_outputs(args, probe.exchanges, findings, home)
+    finally:
+        if args.token_file is not None:
+            print(
+                f"Delete {args.token_file} when you are done; "
+                "it signs in to your tado account."
+            )
     return code
 
 
+def _user_path(value: str) -> Path:
+    return Path(value).expanduser()
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Return the command line options."""
+    """Return the command line options; private files must stay outside git."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--home-id", type=int, help="tado X home to probe")
-    parser.add_argument("--out", type=Path, help="shareable result file")
+    parser.add_argument("--out", type=_user_path, help="shareable result file")
     parser.add_argument(
-        "--token-file", type=Path, help="keep the refresh token here (0600)"
+        "--token-file",
+        type=_user_path,
+        help="keep the refresh token here (0600), outside any git work tree",
     )
     parser.add_argument(
-        "--keep-raw", type=Path, help="unredacted copy, written with mode 0600"
+        "--keep-raw",
+        type=_user_path,
+        help="unredacted copy (0600), outside any git work tree",
     )
     parser.add_argument(
-        "--emit-fixtures", type=Path, help="write test fixtures to this directory"
+        "--emit-fixtures", type=_user_path, help="write test fixtures to this directory"
     )
     parser.add_argument(
         "--max-rooms", type=int, default=10, help="probe at most this many rooms"
@@ -1038,7 +1141,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--yes", action="store_true", help="do not ask before sending requests"
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    for option, path, example in (
+        ("--token-file", args.token_file, "~/tado_x_probe_token.json"),
+        ("--keep-raw", args.keep_raw, "~/tado_x_probe_raw.json"),
+    ):
+        if path is not None and (tree := git_work_tree(path)) is not None:
+            parser.error(
+                f"{option} {path} is inside the git work tree {tree}, where a "
+                f"commit could publish it; use a path outside it, such as {example}"
+            )
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

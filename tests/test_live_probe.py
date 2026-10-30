@@ -1,17 +1,20 @@
 """Unit tests of scripts/live_probe.py; nothing here touches the network."""
 
 from datetime import UTC, date, datetime
+import http.client
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import stat
+import subprocess
 from types import ModuleType
 from typing import Any
 import urllib.parse
 
 import pytest
 
-from tests.tado_mock import load_fixture
+from tests.tado_mock import FIXTURES, load_fixture
 
 ROOT = Path(__file__).parent.parent
 
@@ -100,6 +103,21 @@ TOPOLOGY = {
 }
 
 
+# The documented shape (docs/design/api_catalogue.md section 4.10).
+SCHEDULE = {
+    "room": {"id": 7, "name": "Arbeitszimmer"},
+    "otherRooms": [{"id": 42, "name": "Bad"}],
+    "schedule": [
+        {
+            "dayType": "MONDAY",
+            "start": "00:00",
+            "end": "24:00",
+            "setting": {"power": "ON", "temperature": {"value": 20.0}},
+        }
+    ],
+}
+
+
 def _exchange(
     label: str,
     template: str,
@@ -161,7 +179,7 @@ def _account_exchanges() -> list[Any]:
         _exchange(
             "hops schedule",
             probe.HOME + "/rooms/{room}/schedule",
-            {"roomId": 7, "otherRoomIds": []},
+            SCHEDULE,
             fixture="schedule.json",
             home=815,
             room=7,
@@ -318,7 +336,7 @@ def test_serial_pseudonyms_use_the_device_type() -> None:
     assert anonymizer.token("serial", "VA9988776655") == "VA04#1"
     assert anonymizer.token("serial", "VA7766554433") == "VA04#2"
     assert anonymizer.token("serial", "SU1122334455") == "SU04#1"
-    assert anonymizer.token("serial", "TR0000000301") == "TR#1"
+    assert anonymizer.token("serial", "TR0000000001") == "TR#1"
     flow = anonymizer.anonymize(load_fixture("flow_temperature.json"))
     assert flow["openThermDeviceSerialNumber"] == "TR#1"
 
@@ -416,21 +434,121 @@ def test_fixtures_follow_the_test_fixture_format() -> None:
     assert home["geolocation"] == {"latitude": 50.0, "longitude": 8.0}
     assert home["address"]["city"] == "Musterstadt"
     assert [(room["id"], room["name"]) for room in fixtures["rooms.json"]] == [
-        (1, "Room 1"),
-        (2, "Room 2"),
+        (1, "Wohnzimmer"),
+        (2, "Kueche"),
     ]
     topology = fixtures["rooms_and_devices.json"]
-    assert [room["roomName"] for room in topology["rooms"]] == ["Room 1", "Room 2"]
+    assert [room["roomName"] for room in topology["rooms"]] == ["Wohnzimmer", "Kueche"]
     assert [d["serialNumber"] for d in topology["rooms"][0]["devices"]] == [
         "VA0000000101",
         "SU0000000101",
     ]
     assert topology["rooms"][1]["devices"][0]["serialNumber"] == "VA0000000102"
-    assert topology["otherDevices"][0]["serialNumber"] == "IB0000000100"
-    assert fixtures["schedule.json"]["roomId"] == 2
+    assert topology["otherDevices"][0]["serialNumber"] == "IB0000000001"
+    schedule = fixtures["schedule.json"]
+    assert schedule["room"] == {"id": 2, "name": "Kueche"}
+    assert schedule["otherRooms"] == [{"id": 1, "name": "Wohnzimmer"}]
+    assert schedule["schedule"] == SCHEDULE["schedule"]
     text = json.dumps(fixtures, ensure_ascii=False)
-    for value in PERSONAL:
+    for value in (*PERSONAL, "Arbeitszimmer"):
         assert value not in text
+
+
+def test_fixture_phones_keep_one_name_and_model() -> None:
+    """A phone gets the same fixture name and model in me.json and mobile_devices."""
+    iphone = {"platform": "iOS", "osVersion": "18.1", "model": "iPhone15,2"}
+    pixel = {"platform": "Android", "osVersion": "15", "model": "Pixel 8 Pro"}
+    phones = [
+        {"id": 77, "name": "Max iPhone", "deviceMetadata": iphone},
+        {"id": 78, "name": "Max Pixel", "deviceMetadata": pixel},
+    ]
+    exchanges = [
+        _exchange(
+            "me",
+            f"{probe.MY}/me",
+            {**ACCOUNT, "mobileDevices": [phones[1]]},
+            kind="user",
+            fixture="me.json",
+        ),
+        _exchange(
+            "my mobileDevices",
+            f"{probe.MY_HOME}/mobileDevices",
+            phones,
+            kind="phone",
+            fixture="mobile_devices.json",
+            home=815,
+        ),
+    ]
+    fixtures = probe.build_fixtures(exchanges, 815)
+    listed = fixtures["mobile_devices.json"]
+    assert fixtures["me.json"]["mobileDevices"] == [listed[1]]
+    assert [(p["id"], p["name"], p["deviceMetadata"]) for p in listed] == [
+        (5000002, "Phone 2", {**iphone, "model": "Model2"}),
+        (5000001, "Phone", {**pixel, "model": "Model1"}),
+    ]
+    text = json.dumps(fixtures, ensure_ascii=False)
+    for value in ("Max", "iPhone15", "Pixel 8"):
+        assert value not in text
+
+
+def _fixture_capture() -> list[Any]:
+    """Return what a probe run records when tado answers with tests/fixtures."""
+    capture = [
+        _exchange(
+            "me",
+            f"{probe.MY}/me",
+            load_fixture("me.json"),
+            kind="user",
+            fixture="me.json",
+        ),
+        *(
+            _exchange(
+                "my home",
+                probe.MY_HOME,
+                load_fixture(f"home_{home}.json"),
+                kind="home",
+                fixture="home_{home}.json",
+                home=home,
+            )
+            for home in (1000001, 1000002)
+        ),
+    ]
+    params: dict[str, Any] = {"home": 1000002, "room": 1, "day": "2026-10-30"}
+    for label, template, kind, fixture in (
+        *probe.HOME_READS,
+        *probe.ROOM_READS,
+        probe.DAY_REPORT,
+    ):
+        if fixture is not None and (FIXTURES / fixture).is_file():
+            capture.append(
+                _exchange(
+                    label,
+                    template,
+                    load_fixture(fixture),
+                    kind=kind,
+                    fixture=fixture,
+                    **params,
+                )
+            )
+    return capture
+
+
+def test_fixtures_round_trip() -> None:
+    """The fixtures come back unchanged, so a live capture can replace them."""
+    emitted = probe.build_fixtures(_fixture_capture(), 1000002)
+    assert {
+        "me.json",
+        "home_1000001.json",
+        "home_1000002.json",
+        "rooms.json",
+        "rooms_and_devices.json",
+        "flow_temperature.json",
+        "mobile_devices.json",
+        "schedule.json",
+        "day_report.json",
+    } <= set(emitted)
+    for name, payload in emitted.items():
+        assert payload == load_fixture(name), name
 
 
 def test_fixtures_skip_failed_requests() -> None:
@@ -573,18 +691,18 @@ def test_declining_sends_nothing(
     assert "Nothing sent." in out
 
 
-def test_options() -> None:
+def test_options(tmp_path: Path) -> None:
     """The command line matches the documented contract."""
     args = probe.parse_args(
         [
             "--home-id",
             "815",
             "--out",
-            "out.json",
+            "~/out.json",
             "--token-file",
-            "t.json",
+            str(tmp_path / "t.json"),
             "--keep-raw",
-            "raw.json",
+            str(tmp_path / "raw.json"),
             "--emit-fixtures",
             "fx",
             "--max-rooms",
@@ -594,7 +712,9 @@ def test_options() -> None:
         ]
     )
     assert args.home_id == 815
-    assert args.keep_raw == Path("raw.json")
+    assert args.out == Path.home() / "out.json"
+    assert args.token_file == tmp_path / "t.json"
+    assert args.keep_raw == tmp_path / "raw.json"
     assert args.emit_fixtures == Path("fx")
     assert (args.max_rooms, args.history, args.yes) == (6, True, True)
 
@@ -730,3 +850,199 @@ def test_quota_exhaustion_stops_the_run(
     report = json.loads(out.read_text(encoding="utf-8"))
     assert report["findings"]["status_429_seen"] is True
     assert report["requests"][-1]["headers"] == {"ratelimit": '"perday";r=0;t=7082'}
+
+
+def _run_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, http: Any
+) -> tuple[Any, Path, Path, Path]:
+    monkeypatch.setattr(probe, "_http", http)
+    monkeypatch.setattr(probe.time, "sleep", lambda _seconds: None)
+    out, raw, tokens = (
+        tmp_path / "report.json",
+        tmp_path / "raw.json",
+        tmp_path / "tokens.json",
+    )
+    args = ["--yes", "--out", str(out), "--keep-raw", str(raw)]
+    code = probe.main([*args, "--token-file", str(tokens)])
+    return code, out, raw, tokens
+
+
+def test_interrupt_writes_what_was_collected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ctrl-C in the r-delta phase still writes the report and the reminder."""
+    fake = FakeTado()
+
+    def interrupted(method: str, url: str, **kwargs: Any) -> Any:
+        # The first runningTimes read is the home read, the second the r-delta run.
+        if "runningTimes" in url and any("runningTimes" in u for _, u in fake.requests):
+            raise KeyboardInterrupt
+        return fake(method, url, **kwargs)
+
+    code, out, raw, tokens = _run_with(tmp_path, monkeypatch, interrupted)
+    assert code == 130
+    printed = capsys.readouterr().out
+    assert "Interrupted." in printed
+    assert f"Delete {tokens}" in printed
+    labels = [
+        r["label"] for r in json.loads(out.read_text(encoding="utf-8"))["requests"]
+    ]
+    assert labels[-1] == "r-delta me"
+    assert "hops schedule" in labels
+    assert "Bad" in raw.read_text(encoding="utf-8")
+    assert tokens.is_file()
+
+
+def test_unexpected_error_writes_what_was_collected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An error the probe does not expect ends the run with code 1 and all outputs."""
+    fake = FakeTado()
+
+    def broken(method: str, url: str, **kwargs: Any) -> Any:
+        if url.endswith("/airComfort"):
+            raise RuntimeError("socket closed")
+        return fake(method, url, **kwargs)
+
+    code, out, raw, tokens = _run_with(tmp_path, monkeypatch, broken)
+    assert code == 1
+    printed = capsys.readouterr().out
+    assert "RuntimeError: socket closed" in printed
+    assert f"Delete {tokens}" in printed
+    labels = [
+        r["label"] for r in json.loads(out.read_text(encoding="utf-8"))["requests"]
+    ]
+    assert "hops roomsAndDevices" in labels
+    assert raw.is_file()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        http.client.RemoteDisconnected("Remote end closed connection"),
+        http.client.IncompleteRead(b"{"),
+        ConnectionResetError("reset by peer"),
+    ],
+)
+def test_broken_connection_is_a_probe_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """A connection that breaks mid-response stops the run like a network error."""
+
+    def urlopen(*_args: Any, **_kwargs: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
+    with pytest.raises(probe.ProbeError, match=r"cannot reach my\.tado\.com"):
+        probe._http("GET", f"{probe.MY}/me")  # noqa: SLF001
+
+
+ODD_PAYLOADS = [
+    "Bad Gateway",
+    5,
+    ["text", 5, None],
+    {"rooms": "x", "otherDevices": ["x"], "runningTimes": ["x"], "homes": ["x"]},
+    {"rooms": [{"devices": ["x"]}, "x"], "runningTimes": [{"zones": ["x"]}, "x"]},
+]
+
+
+@pytest.mark.parametrize("payload", ODD_PAYLOADS)
+def test_outputs_survive_unexpected_shapes(payload: Any) -> None:
+    """Findings, report and fixtures are built whatever shape tado sent."""
+    reads = [*probe.HOME_READS, *probe.ROOM_READS, probe.DAY_REPORT]
+    params: dict[str, Any] = {"home": 815, "room": 7, "day": "2026-10-30"}
+    exchanges = [
+        _exchange("me", f"{probe.MY}/me", payload, kind="user", fixture="me.json"),
+        _exchange("my home", probe.MY_HOME, payload, kind="home", home=815),
+        *(
+            _exchange(label, template, payload, kind=kind, fixture=fixture, **params)
+            for label, template, kind, fixture in reads
+        ),
+    ]
+    findings = probe.compute_findings(exchanges, login={}, deltas={})
+    assert probe.build_report(exchanges, findings, 815)["findings"] == findings
+    assert "rooms.json" in probe.build_fixtures(exchanges, 815)
+
+
+def test_rooms_of_an_unexpected_shape_are_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rooms answer that is not a list ends no run; the room reads are skipped."""
+    fake = FakeTado()
+
+    def odd_rooms(method: str, url: str, **kwargs: Any) -> Any:
+        response = fake(method, url, **kwargs)
+        if url.endswith("/homes/815/rooms"):
+            return probe.Response(200, response.headers, {"errors": []})
+        return response
+
+    code, out, _raw, _tokens = _run_with(tmp_path, monkeypatch, odd_rooms)
+    assert code == 0
+    labels = [
+        r["label"] for r in json.loads(out.read_text(encoding="utf-8"))["requests"]
+    ]
+    assert "hops schedule" not in labels
+    assert "r-delta login" in labels
+
+
+@pytest.mark.parametrize("option", ["--token-file", "--keep-raw"])
+@pytest.mark.parametrize("linked", [False, True], ids=["clone", "linked work tree"])
+def test_private_files_are_refused_inside_a_git_work_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    linked: bool,
+) -> None:
+    """A token file or raw copy inside a clone could be committed; nothing is sent."""
+    clone = tmp_path / "ha-tado-x"
+    if linked:
+        clone.mkdir()
+        (clone / ".git").write_text("gitdir: /src/.git/worktrees/x\n", encoding="utf-8")
+    else:
+        (clone / ".git").mkdir(parents=True)
+        (clone / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    fake = FakeTado()
+    monkeypatch.setattr(probe, "_http", fake)
+    with pytest.raises(SystemExit) as exc:
+        probe.main(["--yes", option, str(clone / "sub" / "secret.json")])
+    assert exc.value.code == 2
+    assert f"inside the git work tree {clone}" in capsys.readouterr().err
+    assert fake.requests == []
+    assert not (clone / "sub").exists()
+
+
+def test_an_empty_git_folder_is_no_work_tree(tmp_path: Path) -> None:
+    """Only a real repository or work tree link counts, as for git itself."""
+    (tmp_path / ".git").mkdir()
+    assert probe.git_work_tree(tmp_path / "tokens.json") is None
+    args = probe.parse_args(["--token-file", str(tmp_path / "tokens.json")])
+    assert args.token_file == tmp_path / "tokens.json"
+
+
+def test_probe_outputs_are_git_ignored() -> None:
+    """The report and the suggested private file names never show up in git."""
+    git = shutil.which("git")
+    if git is None or not (ROOT / ".git").exists():
+        pytest.skip("needs a git checkout")
+    names = [
+        "tado_x_probe_20261030-101500.json",
+        "tado_x_probe_token.json",
+        "tado_x_probe_raw.json",
+        "scripts/tado_x_probe_20261030-101500.json",
+    ]
+    ignored = subprocess.run(
+        [git, "check-ignore", "--no-index", "--stdin"],
+        input="\n".join(names),
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ignored.stdout.split() == names
+    fixture = subprocess.run(
+        [git, "check-ignore", "--no-index", "-q", "tests/fixtures/token.json"],
+        cwd=ROOT,
+        check=False,
+    )
+    assert fixture.returncode == 1
