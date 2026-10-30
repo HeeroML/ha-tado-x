@@ -22,12 +22,7 @@ from custom_components.tado_x.token_store import (
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from tests.tado_mock import TadoCloudMock
-from tests.test_init import (  # noqa: F401
-    make_entry,
-    requires_config_flow,
-    setup_entry,
-    skip_service_stub,
-)
+from tests.test_init import make_entry, requires_config_flow, setup_entry
 
 TOKEN_PATH = "/oauth2/token"
 EXPIRED_ISO = "2026-01-01T00:00:00+00:00"

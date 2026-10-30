@@ -1,12 +1,8 @@
 """Tests for setting up, unloading and removing a tado X entry."""
 
-import ast
-from collections.abc import Generator
 from datetime import timedelta
 import logging
-from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 from aiohttp import ClientConnectionError
 import pytest
@@ -39,23 +35,10 @@ from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.util import dt as dt_util
+from tests.conftest import is_stub
 from tests.tado_mock import HOME_A, HOME_B, USER_ID, TadoCloudMock, entry_tokens
 
-PACKAGE = Path(__file__).parent.parent / "custom_components" / "tado_x"
 FORBIDDEN_LOG_WORDS = ("deprecated", "via_device", "location_name", "config_entry")
-
-
-def is_stub(module: str) -> bool:
-    """Return whether a module is still the interface stub of an unmerged package."""
-    tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
-    return any(
-        isinstance(node, ast.Raise)
-        and isinstance(node.exc, ast.Name)
-        and node.exc.id == "NotImplementedError"
-        for node in ast.walk(tree)
-    )
-
-
 PLATFORMS_STUBBED = any(is_stub(platform.value) for platform in PLATFORMS)
 requires_config_flow = pytest.mark.skipif(
     is_stub("config_flow"),
@@ -64,19 +47,6 @@ requires_config_flow = pytest.mark.skipif(
 requires_services = pytest.mark.skipif(
     is_stub("services"), reason="services.py is still the WP4 interface stub"
 )
-
-
-@pytest.fixture(autouse=True)
-def skip_service_stub() -> Generator[None]:
-    """Set up without services while services.py is the WP4 interface stub.
-
-    The guard turns itself off once WP4 replaces the stub.
-    """
-    if not is_stub("services"):
-        yield
-        return
-    with patch("custom_components.tado_x.async_setup_services"):
-        yield
 
 
 def entry_data(home_id: int = HOME_B, **changes: Any) -> dict[str, Any]:

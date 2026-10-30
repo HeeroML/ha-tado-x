@@ -1,5 +1,6 @@
 """Tests of the tado X config flow and options flow."""
 
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
@@ -72,6 +73,13 @@ OPTIONS_STORED = {
     "off_follows_policy": True,
     "presence_zone": "zone.haus_b",
 }
+
+
+@pytest.fixture(autouse=True)
+async def finish_scheduled_reloads(hass: HomeAssistant) -> AsyncGenerator[None]:
+    """Let the reload a finished flow schedules complete before hass stops."""
+    yield
+    await hass.async_block_till_done()
 
 
 def _assert_serializes(schema: probatio.Schema | None) -> probatio.Schema:

@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import (
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
 from custom_components.tado_x.const import CONF_HOME_ID, DOMAIN
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from tests.tado_mock import HOME_A, HOME_B, HOME_C, TadoCloudMock
@@ -185,3 +186,7 @@ async def test_options_flow_over_http(
 
     assert result["type"] == "create_entry"
     assert config_entry.options["daily_call_budget"] == 2500
+
+    # The options flow schedules a reload; finish it before the test tears down.
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.LOADED

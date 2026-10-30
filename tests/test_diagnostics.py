@@ -7,7 +7,6 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
     get_diagnostics_for_config_entry,
     get_diagnostics_for_device,
 )
-from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotExtension
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 from syrupy.assertion import SnapshotAssertion
 
@@ -19,7 +18,7 @@ from custom_components.tado_x.devices import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from tests.tado_mock import HOME_B, USER_ID, TadoCloudMock
-from tests.test_init import make_entry, skip_service_stub  # noqa: F401
+from tests.test_init import make_entry
 
 START = "2026-10-30T10:00:00+00:00"
 SECRETS = (
@@ -32,12 +31,6 @@ SECRETS = (
     "VA0000000101",
     "IB0000000001",
 )
-
-
-@pytest.fixture
-def snapshot(snapshot: SnapshotAssertion) -> SnapshotAssertion:
-    """Store snapshots in tests/snapshots like Home Assistant does."""
-    return snapshot.use_extension(HomeAssistantSnapshotExtension)
 
 
 @pytest.fixture(autouse=True)

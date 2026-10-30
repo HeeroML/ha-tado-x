@@ -30,7 +30,7 @@ from homeassistant.helpers import area_registry as ar, device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry, DeviceEntryType
 from homeassistant.helpers.entity import Entity, EntityDescription
 from tests.tado_mock import HOME_B, TadoCloudMock
-from tests.test_init import make_entry, setup_entry, skip_service_stub  # noqa: F401
+from tests.test_init import make_entry, setup_entry
 
 START = "2026-10-30T10:00:00+00:00"
 

@@ -1,13 +1,17 @@
 """Fixtures for tado X tests."""
 
+import ast
 from collections.abc import Generator
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import PropertyMock, patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotExtension
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
+from syrupy.assertion import SnapshotAssertion
 
 # Importing the integration at collection time makes this repository's
 # custom_components package win over the stub in HA's testing_config.
@@ -35,6 +39,18 @@ from homeassistant.util import dt as dt_util
 from tests.tado_mock import HOME_A, HOME_B, HOME_C, USER_ID, TadoCloudMock, entry_tokens
 
 HOME_TITLES = {HOME_B: "Haus B", HOME_C: "Haus C"}
+PACKAGE = Path(__file__).parent.parent / "custom_components" / "tado_x"
+
+
+def is_stub(module: str) -> bool:
+    """Return whether a module is still the interface stub of an unmerged package."""
+    tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
+    return any(
+        isinstance(node, ast.Raise)
+        and isinstance(node.exc, ast.Name)
+        and node.exc.id == "NotImplementedError"
+        for node in ast.walk(tree)
+    )
 
 
 def _entry_data(home_id: int) -> dict[str, Any]:
@@ -64,6 +80,25 @@ def _config_entry(home_id: int) -> MockConfigEntry:
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Enable custom integrations in every test."""
+
+
+@pytest.fixture(autouse=True)
+def skip_service_stub() -> Generator[None]:
+    """Set up without services while services.py is the WP4 interface stub.
+
+    The guard turns itself off once WP4 replaces the stub.
+    """
+    if not is_stub("services"):
+        yield
+        return
+    with patch("custom_components.tado_x.async_setup_services"):
+        yield
+
+
+@pytest.fixture
+def snapshot(snapshot: SnapshotAssertion) -> SnapshotAssertion:
+    """Store snapshots in tests/snapshots like Home Assistant does."""
+    return snapshot.use_extension(HomeAssistantSnapshotExtension)
 
 
 @pytest.fixture

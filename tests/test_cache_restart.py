@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from tests.tado_mock import HOME_B, HOME_C, TadoCloudMock, load_fixture
-from tests.test_init import PLATFORMS_STUBBED, make_entry, skip_service_stub, state  # noqa: F401
+from tests.test_init import PLATFORMS_STUBBED, make_entry, state
 
 START = "2026-10-30T10:00:00+00:00"
 CACHED_AT = datetime(2026, 10, 30, 9, 30, tzinfo=UTC)
