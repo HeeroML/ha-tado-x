@@ -68,6 +68,7 @@ from .models import (
     Topology,
     Weather,
     format_clock,
+    parse_clock,
     utcnow,
 )
 from .ratelimit import CallCounter, Priority, QuotaTracker, parse_rate_limit
@@ -141,6 +142,7 @@ __all__ = [
     "Weather",
     "WeatherState",
     "format_clock",
+    "parse_clock",
     "parse_enum",
     "parse_rate_limit",
     "summarize_day_report",

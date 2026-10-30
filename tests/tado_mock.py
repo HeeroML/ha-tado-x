@@ -364,7 +364,9 @@ class TadoCloudMock:
         self.quota_remaining -= 1
         if failure is not None and failure.status is not None:
             if failure.status == HTTPStatus.TOO_MANY_REQUESTS:
-                headers_429 = failure.headers or DEFAULT_429_HEADERS
+                headers_429 = (
+                    DEFAULT_429_HEADERS if failure.headers is None else failure.headers
+                )
                 return self._response(
                     method, url, failure.status, failure.body, headers_429
                 )

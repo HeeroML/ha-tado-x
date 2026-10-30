@@ -48,3 +48,7 @@ htmlcov/
 
 # Promotion logs
 PROMOTE-LOG.md
+
+# Tooling caches
+.ruff_cache/
+.mypy_cache/

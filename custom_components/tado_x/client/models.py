@@ -67,7 +67,7 @@ def _parse_datetime(raw: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def _parse_clock(raw: object) -> int | None:
+def parse_clock(raw: object) -> int | None:
     """Parse "HH:MM" into minutes after midnight; "24:00" is 1440."""
     if not isinstance(raw, str):
         return None
@@ -166,13 +166,18 @@ class _Reader:
         return _parse_datetime(self._data.get(key))
 
     def req_clock(self, key: str) -> int:
-        if (value := _parse_clock(self._data.get(key))) is None:
+        if (value := parse_clock(self._data.get(key))) is None:
             raise self._error(key)
         return value
 
     def opt_seconds(self, key: str) -> timedelta | None:
         value = self.opt_int(key)
-        return None if value is None else timedelta(seconds=value)
+        if value is None:
+            return None
+        try:
+            return timedelta(seconds=value)
+        except OverflowError:
+            return None
 
     def enum[E: StrEnum](self, cls: type[E], key: str, *, field: str) -> E | None:
         return parse_enum(cls, self._data.get(key), field=field)
@@ -915,7 +920,9 @@ class TokenSet:
         without a refresh token keeps the previous one.
         """
         reader = _Reader(body, "token")
-        lifetime = reader.opt_seconds("expires_in") or DEFAULT_TOKEN_LIFETIME
+        lifetime = reader.opt_seconds("expires_in")
+        if lifetime is None:
+            lifetime = DEFAULT_TOKEN_LIFETIME
         refresh = reader.opt_str("refresh_token") or previous_refresh
         if not refresh:
             raise TadoXParseError("token", "$.refresh_token")
@@ -941,8 +948,8 @@ class DeviceAuthorization:
         """Parse a device_authorize response.
 
         The verification URL is always rebuilt from verification_uri with the
-        user code and the client id, because tado's complete URL lacks the
-        client id.
+        user code and the client id, because tado's complete URL may lack the
+        client id (#76).
         """
         reader = _Reader(raw, "device_authorize")
         user_code = reader.req_str("user_code")
@@ -950,7 +957,9 @@ class DeviceAuthorization:
         if not base.absolute:
             raise TadoXParseError("device_authorize", "$.verification_uri")
         interval = reader.opt_seconds("interval") or DEVICE_FLOW_MIN_INTERVAL
-        lifetime = reader.opt_seconds("expires_in") or DEFAULT_DEVICE_CODE_LIFETIME
+        lifetime = reader.opt_seconds("expires_in")
+        if lifetime is None:
+            lifetime = DEFAULT_DEVICE_CODE_LIFETIME
         return cls(
             device_code=reader.req_str("device_code"),
             user_code=user_code,
