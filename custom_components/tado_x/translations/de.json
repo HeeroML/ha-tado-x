@@ -420,7 +420,7 @@
             },
             "data_description": {
               "manual_termination": "Wann eine in Home Assistant eingestellte Temperatur wieder dem Zeitplan folgt. „Wie in der tado° App“ verwendet die Einstellung, die jeder Raum in der tado° App hat.",
-              "off_follows_policy": "Ist diese Option aus, bleibt ein Raum, den du in Home Assistant ausgeschaltet hast, aus, bis du ihn wieder änderst.",
+              "off_follows_policy": "Ist diese Option an, kehrt ein Raum, den du in Home Assistant ausgeschaltet hast, wie andere manuelle Änderungen zum Zeitplan zurück. Ist sie aus, bleibt er aus, bis du ihn wieder änderst.",
               "presence_zone": "Die Zone, die ein Smartphone-Tracker meldet, solange das Smartphone in diesem Zuhause ist. Wähle eine Zone dieses Zuhauses, wenn die Zuhause-Zone von Home Assistant an einem anderen Ort liegt.",
               "timer_minutes": "Minuten, bis wieder der Zeitplan gilt, wenn oben der Timer ausgewählt ist."
             },

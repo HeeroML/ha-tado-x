@@ -87,7 +87,7 @@
             },
             "data_description": {
               "manual_termination": "When a temperature set from Home Assistant returns to the schedule. Following the tado app uses the setting of each room in the tado app.",
-              "off_follows_policy": "When turned off, a room that was turned off from Home Assistant stays off until you change it.",
+              "off_follows_policy": "When on, a room turned off from Home Assistant returns to its schedule like other manual changes. When off, it stays off until you change it.",
               "presence_zone": "The zone a phone tracker reports while the phone is at this home. Choose a zone of this home if the Home Assistant home zone is another place.",
               "timer_minutes": "Minutes until the schedule resumes when the timer is chosen above."
             }
