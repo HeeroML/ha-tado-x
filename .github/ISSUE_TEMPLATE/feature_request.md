@@ -1,30 +1,30 @@
 ---
-name: Feature Request
-about: Suggest a new feature or enhancement for the Tado X integration
-title: '[FEATURE] '
+name: Feature request
+about: Suggest a new feature for the tado X integration
+title: ''
 labels: enhancement
 assignees: ''
 ---
 
-## Feature Description
-<!-- A clear and concise description of the feature you'd like -->
+## What you want to do
 
-## Use Case
-<!-- Describe your use case and why this feature would be helpful -->
+<!-- The use case: what you want to achieve in Home Assistant. -->
 
-## Proposed Solution
-<!-- If you have ideas on how this could be implemented, share them here -->
+## What the tado app offers for it
 
-## Alternative Solutions
-<!-- Any alternative solutions or workarounds you've considered -->
+<!-- If the tado app can already do it, describe where. A feature needs an API
+endpoint; see docs/API.md for what is known. -->
 
-## Tado X Device(s) Affected
-<!-- Which Tado X devices would this feature apply to? -->
+## API cost
+
+<!-- Would it need polling, or is it an on-demand action? Every polled
+endpoint costs API calls each day from the account's quota. -->
+
+## Devices
+
 - [ ] Radiator Valve X (VA04)
 - [ ] Temperature Sensor X (SU04)
-- [ ] Thermostat X (TR04)
+- [ ] Wireless Receiver X (TR04)
+- [ ] Smart Thermostat X (RU04)
 - [ ] Bridge X (IB02)
-- [ ] All devices
-
-## Additional Context
-<!-- Add any other context, screenshots, or examples about the feature request -->
+- [ ] Whole home

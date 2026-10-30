@@ -1,0 +1,122 @@
+# Self-assessment against the Home Assistant integration quality scale.
+# hassfest does not read this file for custom integrations and manifest.json
+# claims no tier; it is kept as a checklist for reviews.
+rules:
+  # Bronze
+  action-setup:
+    status: done
+    comment: |
+      All actions are registered once in async_setup (services.py). Entity
+      actions resolve their target per call, home actions take a config entry.
+  appropriate-polling:
+    status: done
+    comment: |
+      There is no scan interval option. budget.py plans one period per
+      endpoint from the daily call budget and the account quota; static data
+      is polled every 15 minutes to once a day.
+  brands:
+    status: done
+    comment: Served from custom_components/tado_x/brand.
+  common-modules:
+    status: done
+    comment: coordinator.py, entity.py, devices.py and the client package.
+  config-flow-test-coverage: done
+  config-flow: done
+  dependency-transparency:
+    status: done
+    comment: |
+      There is no external requirement. The tado X client lives in this
+      repository under custom_components/tado_x/client (MIT), imports nothing
+      from Home Assistant and is linted, type-checked and tested in CI.
+  docs-actions: done
+  docs-conditions:
+    status: exempt
+    comment: The integration provides no conditions.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: The integration provides no triggers.
+  entity-event-setup:
+    status: done
+    comment: |
+      Coordinator entities subscribe through CoordinatorEntity; the API status
+      sensors subscribe to the quota monitor in async_added_to_hass and
+      unsubscribe through async_on_remove.
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure:
+    status: done
+    comment: |
+      The flow reads the account and every home before it creates an entry
+      and offers only tado X homes.
+  test-before-setup: done
+  unique-config-entry:
+    status: done
+    comment: The unique id is the tado home id.
+
+  # Silver
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable:
+    status: done
+    comment: |
+      One deliberate exception: while the tado API quota of the account is used
+      up, the coordinators keep serving the last data, at most 6 hours for
+      rooms, 12 hours for home data and 48 hours for devices. The API status
+      sensor, the data updated sensor and a repair issue show the hold.
+      Network, server and parse errors make entities unavailable as usual.
+  integration-owner: done
+  log-when-unavailable: done
+  parallel-updates: done
+  reauthentication-flow: done
+  test-coverage: done
+
+  # Gold
+  devices: done
+  diagnostics: done
+  discovery:
+    status: exempt
+    comment: |
+      tado X is a cloud service. The local discovery matchers for tado
+      hardware belong to the core tado integration.
+  discovery-update-info:
+    status: exempt
+    comment: The integration is not discovered.
+  docs-data-update: done
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: done
+    comment: |
+      Rooms, devices, phones and fields that appear later get their entities
+      on the next poll. Known gap: a device that is removed and comes back
+      while the entry stays loaded gets its entities again only after a reload.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done
+  entity-translations: done
+  exception-translations: done
+  icon-translations: done
+  reconfiguration-flow:
+    status: done
+    comment: Switches the tado account used for a home.
+  repair-issues: done
+  stale-devices:
+    status: done
+    comment: |
+      Devices missing from a live topology read are removed; a cached read
+      never removes anything.
+
+  # Platinum
+  async-dependency: done
+  inject-websession: done
+  strict-typing: done

@@ -414,7 +414,7 @@
           "control": {
             "data": {
               "manual_termination": "Ende manueller Änderungen",
-              "off_follows_policy": "Ausschalten endet genauso",
+              "off_follows_policy": "Ausschalten eines Raums endet genauso",
               "presence_zone": "Zone dieses Zuhauses",
               "timer_minutes": "Timer"
             },
