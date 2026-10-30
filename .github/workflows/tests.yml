@@ -43,9 +43,6 @@ jobs:
       - run: pip install -r requirements_test.txt
       - run: ruff check .
       - run: ruff format --check .
-      # Named explicitly so the probe is linted even while pyproject excludes it.
-      - run: ruff check scripts/live_probe.py
-      - run: ruff format --check scripts/live_probe.py
       - run: mypy
       - name: translations/en.json matches strings.json
         run: python scripts/gen_translations.py --check

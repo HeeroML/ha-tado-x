@@ -4,8 +4,6 @@
 [tool.ruff]
 required-version = ">=0.16.9"
 target-version = "py314"
-# The probe draft predates these rules; WP6 brings it under them and drops this.
-extend-exclude = ["scripts/live_probe.py"]
 
 [tool.ruff.lint]
 select = [

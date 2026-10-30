@@ -4,7 +4,7 @@ The package depends on the standard library, aiohttp and yarl only, so it can
 be published on its own.
 """
 
-from .api import TadoXClient, TadoXHome
+from .api import TadoXClient, TadoXHome, tariff_cents
 from .auth import DeviceCodeFlow, MemoryTokenStore, TokenManager, TokenStore
 from .const import CLIENT_ID, REFRESH_MARGIN
 from .enums import (
@@ -146,6 +146,7 @@ __all__ = [
     "parse_enum",
     "parse_rate_limit",
     "summarize_day_report",
+    "tariff_cents",
     "utcnow",
     "validate_day",
 ]
