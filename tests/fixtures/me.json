@@ -1,0 +1,20 @@
+{
+  "name": "Test User",
+  "email": "user@example.invalid",
+  "username": "user@example.invalid",
+  "id": "00000000-0000-4000-8000-000000000001",
+  "locale": "de",
+  "homes": [
+    {"id": 1000001, "name": "Haus A"},
+    {"id": 1000002, "name": "Haus B"}
+  ],
+  "mobileDevices": [
+    {
+      "name": "Phone",
+      "id": 5000001,
+      "settings": {"geoTrackingEnabled": true, "specialOffersEnabled": false, "onDemandLogRetrievalEnabled": false},
+      "location": {"stale": false, "atHome": true, "bearingFromHome": {"degrees": 0.0, "radians": 0.0}, "relativeDistanceFromHomeFence": 0.0},
+      "deviceMetadata": {"platform": "Android", "osVersion": "15", "model": "Model1", "locale": "de"}
+    }
+  ]
+}
