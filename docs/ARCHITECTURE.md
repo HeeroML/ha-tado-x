@@ -155,7 +155,7 @@ For a home with 6 rooms, the defaults give rooms every 45 s and 2,521 planned ca
 
 | Situation | Result |
 |---|---|
-| gate closed or 429, and the data is younger than the stale cap, or the hold ends at a reset from `t=` and the data was younger than the cap when the hold began (the start the quota tracker keeps and persists, so it holds across reloads and restarts; a quota state saved without it gives only the cap) | keep the data; entities stay available; `api_status` = `rate_limited`; repair issue; zero HTTP until the reset |
+| gate closed or 429, and the data is younger than the stale cap, or the hold ends at a reset from `t=` and the data was younger than the cap when the hold began (the start the quota tracker keeps and persists, so it holds across reloads and restarts; a quota state saved without it counts the hold from the restart, which never extends serving past what the real start allows) | keep the data; entities stay available; `api_status` = `rate_limited`; repair issue; zero HTTP until the reset |
 | gate closed or 429, otherwise | `UpdateFailed`; entities unavailable |
 | first refresh, gate closed, no cache | `ConfigEntryNotReady`; HA's retries hit the persisted gate and send nothing |
 | network, 5xx or parse error | standard HA behaviour, never served from the cache |
