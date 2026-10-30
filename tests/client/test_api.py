@@ -190,9 +190,10 @@ async def test_commands_pass_the_poll_floor(
     with pytest.raises(TadoXRateLimitError):
         await client.async_get_home_info(HOME_B)
     await home.async_get_room(1)
+    await home.async_read_holiday_mode()
     await home.async_resume_schedule(1)
     await client.async_get_account()
-    assert len(mock_tado.calls()) == 3
+    assert len(mock_tado.calls()) == 4
 
 
 @pytest.mark.parametrize(

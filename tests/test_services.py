@@ -1,5 +1,6 @@
 """Tests for the tado X services (#51, #60, #64, #69, #92)."""
 
+from datetime import timedelta
 from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
@@ -733,6 +734,20 @@ async def test_get_holiday_mode(
         "start": "2026-12-20T09:00:00+00:00",
         "end": None,
     }
+
+
+async def test_get_holiday_mode_passes_the_poll_floor(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A user's holiday read is a command, so the poll floor does not refuse it."""
+    await setup(hass, freezer)
+    mock_tado.set_quota(remaining=10, reset_in=timedelta(hours=1))
+
+    await call(hass, "get_holiday_mode", response=True)
+    response = await call(hass, "get_holiday_mode", response=True)
+
+    assert response["enabled"] is False
+    assert len(mock_tado.calls("GET", HOLIDAY)) == 2
 
 
 async def test_set_holiday_mode_keeps_unknown_settings(

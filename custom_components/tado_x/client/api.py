@@ -167,6 +167,12 @@ class TadoXHome:
         )
         return DayReport.from_api(raw, day=day)
 
+    async def async_read_holiday_mode(self) -> HolidayMode:
+        """Read the holiday mode on demand, with command priority."""
+        return HolidayMode.from_api(
+            await self._read(self._hops / "settings" / "holidayMode")
+        )
+
     async def async_set_manual_control(
         self, room_id: int, setting: Setting, termination: Termination
     ) -> None:
@@ -257,14 +263,13 @@ class TadoXHome:
         Keys this client does not know, such as room and hot water settings,
         are sent back unchanged.
         """
-        url = self._hops / "settings" / "holidayMode"
-        current = HolidayMode.from_api(await self._read(url))
+        current = await self.async_read_holiday_mode()
         body = {**current.raw, "enabled": enabled}
         if start is not None:
             body["startDate"] = _utc_timestamp(start)
         if end is not None:
             body["endDate"] = _utc_timestamp(end)
-        await self._command("PATCH", url, body)
+        await self._command("PATCH", self._hops / "settings" / "holidayMode", body)
 
     async def async_set_flow_temperature(
         self, *, maximum: int | None = None, auto_adaptation: bool | None = None

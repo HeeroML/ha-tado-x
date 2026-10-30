@@ -337,7 +337,7 @@ async def _async_get_holiday_mode(call: ServiceCall) -> ServiceResponse:
     """Return the holiday mode of a home."""
     entry = _entry(call)
     try:
-        holiday = await entry.runtime_data.api.async_get_holiday_mode()
+        holiday = await entry.runtime_data.api.async_read_holiday_mode()
     except TadoXError as err:
         _raise_holiday_error(err, entry)
     return {
