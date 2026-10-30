@@ -1,148 +1,28 @@
 # Roadmap
 
-This document tracks planned features and enhancements for the Tado X Home Assistant integration.
+Plans for the HeeroML fork after 1.9.0. Items are ordered by priority. Nothing here has a date.
 
-## Planned Features
+## Before or right after the 1.9.0 release
 
-### P1 - Critical Priority
+- **Live verification.** Run `scripts/live_probe.py` against a real tado X home and settle the open points in [docs/API.md](docs/API.md#open-questions-for-a-live-check). Replace the synthesized test fixtures with the probe's `--emit-fixtures` output.
+- **Manual write test** on a real home: the room termination PATCH, manual control with each termination, presence lock removal, and open window mode without a detection.
+- **Entity ids of new installations.** Room devices are named after the room and suggest an area with the same name, so Home Assistant 2026.10 builds ids such as `climate.living_room_living_room` for new installations. Decide whether to keep the `{room}` placeholder and the suggested area, or change the naming before more installations depend on it.
 
-- **🔥 Local Control Mode** - Control Tado X devices locally via Thread/Matter
-  - Zero cloud dependency - works even when Tado servers are down
-  - No API rate limits - unlimited updates
-  - Ultra-fast response times (~10-50ms vs ~500ms cloud)
-  - Real-time state updates
-  - Full local temperature control
+## Next
 
-  **How it works:** Tado X devices use the Thread protocol with Matter support. The Bridge X acts as a Thread Border Router, enabling direct IPv6 communication with all devices on your local network. Tado officially supports local control via Matter: *"The devices continue to work even without a connection to the Tado cloud."*
+- **Devices that come back.** A device that drops out of a live topology and returns while the entry stays loaded gets its device back but its entities only after a reload. The fix forgets a unique id only once its entity registry entry is gone; it touches every platform and needs an HTTP-level test.
+- **Shared room and device entity bases** in `entity.py`, to remove repetition across the platforms and bring `climate.py` and `button.py` back within their size budgets.
+- **French and Italian translations** for the strings added in 1.9 (missing strings fall back to English). Contributions from native speakers are welcome.
+- **Spec follow-up:** document `TadoXHome.async_read_holiday_mode()` (a command-priority read used by the holiday mode actions) in the architecture notes.
 
-  **What's possible:**
-  - Temperature control ✓
-  - On/Off switching ✓
-  - Home/Away modes ✓
-  - Heating schedules (Matter 1.4+) ✓
-  - Real-time state monitoring ✓
+## Later, if there is demand
 
-  **Technical approaches:**
-  1. **Matter integration** - Native Matter protocol (most promising)
-  2. **HomeKit bridge** - Via [TadoLocal](https://github.com/AmpScm/TadoLocal) project
-  3. **Thread direct** - Direct IPv6 communication with Thread devices
+- **Domestic hot water** (upstream PRs #53 and #74). Needs someone with a tado X hot water setup to test. The endpoints are in [docs/API.md](docs/API.md#domestic-hot-water-not-implemented).
+- **Away temperature per room** (`settings/away/rooms/{room}`), single-source so far.
+- **Publishing the client** (`custom_components/tado_x/client`) as a separate package; it already has no Home Assistant imports.
 
-  **Requirements:**
-  - Bridge X and Home Assistant on same local network
-  - One-time Matter/HomeKit pairing setup
+## Not planned
 
-  **Status:** Research phase - investigating Matter and Thread integration options
-
-### P2 - High Priority
-
-- **🔥 Heat Pump Optimizer / DHW Control** - Hot water and boiler temperature control
-  - Boost / disable / resume hot water via buttons
-  - Heat pump optimizer temperature control
-  - DHW setpoint adjustment
-  - Requested by: @JayTBennett (#50), @jordypaulussen (#46, #49), @mike-vention, @donalfenwick (has working prototype)
-
-- **⏰ Configurable API Reset Time** - Auto-detect or manually set quota reset time
-  - Auto-detect from `t=` parameter in rate-limited API responses
-  - Manual override via integration options
-  - Requested by: @LeroyK (#47), @TexTown, @nikbyte (#48)
-
-- **📊 Energy IQ Dashboard** - Gas consumption and cost tracking
-  - Daily/weekly/monthly consumption sensors
-  - Cost estimates based on configured tariffs
-  - Comparison with previous periods
-
-- **📅 Schedule Management** - Full schedule control from Home Assistant
-  - Read current heating schedules
-  - Modify schedules via service calls
-  - Copy/duplicate schedules between days
-  - Switch between schedule profiles
-
-- **📈 Heating Statistics** - Advanced heating analytics
-  - Historical heating time per room
-  - Heating efficiency metrics
-  - Monthly reports with trends
-
-### P3 - Medium Priority
-
-- **⏸️ Disable Polling Option** - Allow users to completely disable API polling
-  - Add checkbox or "0" option in scan interval to disable polling
-  - Use case: Users who only need the integration for services (temperature offset) and use Matter for state
-  - Saves API quota for custom automations
-  - Requested by: @LeroyK (#41), supported by @rofra
-
-- **🔥 Zone Controller Toggle (Passive Heating Mode)** - Per-room control of boiler "call for heat"
-  - Toggle Zone Controller association per room to enable "passive heating"
-  - When disabled: room valves open based on setpoints but don't trigger the boiler relay
-  - Use case: Let rooms benefit from heat generated for other rooms without independent boiler calls
-  - New select entity or switch per room to control Zone Controller state
-  - Requested by: @polamoros (#29)
-
-- **🏷️ Improved Flow Sensor Naming** - ~~More descriptive entity names for flow temperature sensors~~ ✅ Fixed in v1.8.5
-  - ~~Rename `_none` entities to include "flow" prefix~~
-  - Requested by: @TexTown (#26), @xiic (#21)
-
-- **🌡️ Historic Data** - Historical temperature, humidity, and heating data
-  - Temperature graphs in HA
-  - Long-term statistics integration
-
-- **💧 Hot Water Control** - Dedicated water heater support
-  - Water heater entity
-  - Timer for hot water schedules
-  - Boost hot water service
-
-- **🤖 Smart Schedule Suggestions** - AI-powered optimization
-  - Analyze usage patterns
-  - Suggest schedule improvements
-  - Integration with HA history
-
-### P4 - Low Priority
-
-- **📍 Away Radius Configuration** - Configure geofencing radius
-- **❄️ AC Support** - Air conditioning control (if requested)
-  - Fan speed control
-  - Swing adjustment
-  - DRY/FAN/AUTO modes
-- **📺 Display Messages** - Send messages to thermostat displays
-- **⏰ Early Start Settings** - Control pre-heating behavior
-
----
-
-## Completed
-
-See [CHANGELOG](https://github.com/exabird/ha-tado-x/releases) for completed features by version.
-
-**Recent highlights:**
-- v1.8.11 - Fix entity translations for non-English languages (Italian, German)
-- v1.8.10 - Fix: TR04 is Wireless Receiver X, not Thermostat X
-- v1.8.1 - Fix entity naming, add flow temp toggle option
-- v1.8.0 - Flow Temperature Optimization (max flow temp control, auto-adaptation switch)
-- v1.7.1 - Fix set_climate_timer validation for non-Tado entities
-- v1.7.0 - Home presence sensors, select entity, set_climate_timer service, graceful 429 rate limit handling
-- v1.6.7 - Weather sensor fix (all states supported)
-- v1.6.6 - Fix HVAC mode OFF vs AUTO detection
-- v1.6.5 - Temperature offset sensor
-- v1.6.4 - Fix OptionsFlow for HA 2024.x
-- v1.6.0 - Weather sensors, air comfort, mobile tracking, heating time
-- v1.5.0 - Quick actions, Energy IQ tariff management
-- v1.4.0 - Child lock, open window controls
-- v1.3.0 - API usage monitoring, smart polling
-
----
-
-## Won't Implement
-
-*None currently*
-
----
-
-## Support Development
-
-If you find this integration useful, consider [buying me a coffee ☕](https://buymeacoffee.com/exabird) to support ongoing development!
-
-Your support helps prioritize and accelerate the features on this roadmap.
-
----
-
-## How to Request Features
-
-Open an issue using the [Feature Request template](https://github.com/exabird/ha-tado-x/issues/new?template=feature_request.md).
+- **Local control over Matter or Thread.** tado X devices can join Home Assistant's own Matter integration. This integration stays a cloud integration and does not duplicate that.
+- **An update interval option.** Polling follows the daily call budget; see the README.
+- **Support for V3+ homes.** They belong to the core tado integration.
