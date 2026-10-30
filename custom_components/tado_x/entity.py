@@ -1,6 +1,6 @@
 """Base entities and error mapping of the tado X integration."""
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Callable, Coroutine, Iterable
 from functools import wraps
 from typing import Any, Concatenate, NoReturn, override
 
@@ -133,8 +133,8 @@ def raise_for_tado_error(err: TadoXError, entry: TadoXConfigEntry) -> NoReturn:
 
 
 def handle_tado_errors[E: TadoXEntity[Any], **P, R](
-    func: Callable[Concatenate[E, P], Awaitable[R]],
-) -> Callable[Concatenate[E, P], Awaitable[R]]:
+    func: Callable[Concatenate[E, P], Coroutine[Any, Any, R]],
+) -> Callable[Concatenate[E, P], Coroutine[Any, Any, R]]:
     """Translate client errors raised by an entity action."""
 
     @wraps(func)
