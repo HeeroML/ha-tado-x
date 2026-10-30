@@ -454,3 +454,26 @@ async def test_late_success_over_http_keeps_a_closed_gate(
     with pytest.raises(TadoXRateLimitError) as err:
         await transport.request("GET", rooms, priority=Priority.COMMAND)
     assert err.value.local
+
+
+def test_known_hold_end(freezer: FrozenDateTimeFactory) -> None:
+    """A hold has a known end only when it waits for a reset tado sent."""
+    quota = QuotaTracker()
+    assert quota.known_hold_end(NOW) is None
+
+    quota.observe(_info(500), status=200)
+    assert quota.known_hold_end(NOW) is None
+
+    quota.observe(_info(500, reset_in=60), status=200)
+    assert quota.known_hold_end(NOW) is None
+
+    quota.observe(_info(QuotaTracker.POLL_FLOOR, reset_in=600), status=200)
+    assert quota.known_hold_end(NOW) == NOW + timedelta(seconds=600)
+
+    quota.observe(_info(0, reset_in=7082), status=429)
+    assert quota.known_hold_end(NOW) == NOW + timedelta(seconds=7112)
+
+    freezer.tick(timedelta(seconds=7112))
+    quota.observe(None, status=429)
+    assert quota.blocked_until is not None
+    assert quota.known_hold_end(datetime.now(UTC)) is None

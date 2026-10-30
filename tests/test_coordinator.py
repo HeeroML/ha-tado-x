@@ -257,12 +257,12 @@ async def test_error_after_a_quota_hold_ends_the_hold(
     assert _status(data) is ApiStatus.OK
 
 
-async def test_quota_hold_longer_than_max_stale(
+async def test_quota_hold_without_reset_longer_than_max_stale(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Room values older than 6 hours are not served; the rooms go unavailable."""
+    """Without a reset from tado, room values older than 6 hours go unavailable."""
     data = await _setup(hass, freezer)
-    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=8))
+    mock_tado.set_quota(remaining=0)
     await _tick(hass, freezer, 45)
     assert data.rooms.stale_since is not None
 
@@ -274,6 +274,48 @@ async def test_quota_hold_longer_than_max_stale(
     assert error.translation_key == "quota_exhausted"
     assert data.home.last_update_success
     assert data.monitor.status is ApiStatus.RATE_LIMITED
+
+
+async def test_quota_hold_with_reset_serves_until_the_reset(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A hold that ends at a reset tado sent serves the values until then, past 6 h."""
+    data = await _setup(hass, freezer)
+    before = data.rooms.data
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=8))
+    await _tick(hass, freezer, 45)
+
+    await _tick(hass, freezer, 6 * 3600)
+    await _run(hass, freezer, 23, step=300)
+
+    assert data.rooms.last_update_success
+    assert data.rooms.data == before
+    assert data.monitor.status is ApiStatus.RATE_LIMITED
+
+    await _run(hass, freezer, 2, step=300)
+
+    assert data.rooms.last_update_success
+    assert _stale_since(data.rooms) is None
+    assert _status(data) is ApiStatus.OK
+
+
+async def test_hold_does_not_revive_values_older_than_max_stale(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Room values already older than 6 h when a hold begins stay unavailable."""
+    data = await _setup(hass, freezer)
+    mock_tado.fail("GET", ROOMS, status=503)
+    await _tick(hass, freezer, 6 * 3600 + 60)
+    assert not data.rooms.last_update_success
+    mock_tado.clear_failures()
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=8))
+
+    await _run(hass, freezer, 3)
+
+    assert not data.rooms.last_update_success
+    error = data.rooms.last_exception
+    assert isinstance(error, UpdateFailed)
+    assert error.translation_key == "quota_exhausted"
 
 
 async def test_network_error_makes_data_unavailable(

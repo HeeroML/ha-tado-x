@@ -141,6 +141,10 @@ class QuotaMonitor:
             return blocked
         return None if self.info is None else self.info.reset_at
 
+    def known_hold_end(self, now: datetime) -> datetime | None:
+        """Return when a quota hold ends, if tado sent that time."""
+        return self._quota.known_hold_end(now)
+
     def calls_24h(self, now: datetime | None = None) -> int:
         """Return the requests this entry sent in the last 24 hours."""
         return self._quota.calls.total(now or dt_util.utcnow())

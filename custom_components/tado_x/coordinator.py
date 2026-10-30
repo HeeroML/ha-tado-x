@@ -151,8 +151,9 @@ class _PendingPatches[S]:
 class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     """Coordinator with per-endpoint periods, stale serving and optimistic patches.
 
-    During a quota hold the last snapshot is served for up to MAX_STALE;
-    network, server and parse errors make the entities unavailable as usual.
+    During a quota hold the last snapshot is served until the reset tado
+    sent, or for up to MAX_STALE without one; network, server and parse
+    errors make the entities unavailable as usual.
     """
 
     config_entry: TadoXConfigEntry
@@ -309,13 +310,27 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         data: S | None = self._seed_data if setup else self.data
         at = self._seed_at if setup else self.last_live_update
         reset = err.reset_at or self._monitor.reset_time
-        if data is None or at is None or now - at > self.MAX_STALE:
+        if data is None or at is None or not self._servable(at, now):
             raise _quota_failed(reset, now, setup=setup) from err
         if self.stale_since is None:
             self.stale_since = now
             LOGGER.debug("Serving cached %s data of %s", self.KIND, at)
         self.last_live_update = at
         return data
+
+    def _servable(self, at: datetime, now: datetime) -> bool:
+        """Return whether data read at a time may be served during the hold.
+
+        A hold that ends at a reset tado sent keeps serving what was within
+        MAX_STALE when the hold began; otherwise MAX_STALE counts from now.
+        """
+        if now - at <= self.MAX_STALE:
+            return True
+        began = self.stale_since or now
+        return (
+            self._monitor.known_hold_end(now) is not None
+            and began - at <= self.MAX_STALE
+        )
 
     async def _async_gather(
         self, due: frozenset[str], fetchers: Mapping[str, Fetcher]

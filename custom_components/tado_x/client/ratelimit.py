@@ -218,6 +218,20 @@ class QuotaTracker:
         ):
             raise TadoXRateLimitError(info, info.reset_at, local=True)
 
+    def known_hold_end(self, now: datetime) -> datetime | None:
+        """Return when refused polls go out again, if that is a reset tado sent.
+
+        None while polls pass, without t=, and for a backoff after a 429
+        without t= that ends after the last reset tado sent.
+        """
+        info = self.latest
+        if info is None or (reset := info.reset_at) is None:
+            return None
+        blocked = self.blocked_until
+        if blocked is not None and now < blocked:
+            return blocked if blocked <= reset + _GATE_GRACE else None
+        return reset if self._below_floor(info, now) else None
+
     def _below_floor(self, info: RateLimitInfo, now: datetime) -> bool:
         if info.remaining is None or info.remaining > self.POLL_FLOOR:
             return False
