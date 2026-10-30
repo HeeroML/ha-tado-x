@@ -196,7 +196,11 @@ class TadoXHolidayBinarySensor(TadoXEntity[DevicesCoordinator], BinarySensorEnti
 
 
 class TadoXAtHomeBinarySensor(TadoXEntity[HomeCoordinator], BinarySensorEntity):
-    """Whether tado's geofencing sees a phone at the home, independent of zones."""
+    """Whether tado's geofencing sees a phone at the home, independent of zones.
+
+    The state is unknown while geofencing is off for the phone or its
+    location is unknown or outdated, as on the phone's tracker.
+    """
 
     def __init__(self, coordinator: HomeCoordinator, mobile_id: int) -> None:
         """Initialize a binary sensor of a phone device."""
@@ -216,9 +220,11 @@ class TadoXAtHomeBinarySensor(TadoXEntity[HomeCoordinator], BinarySensorEntity):
     @property
     @override
     def is_on(self) -> bool | None:
-        """Return the state; None while geofencing is off for the phone."""
+        """Return the state; None without geofencing or a current location."""
         phone = (self.coordinator.data.mobile_devices or {})[self._mobile_id]
-        return phone.at_home if phone.geo_tracking else None
+        if not phone.geo_tracking or phone.stale:
+            return None
+        return phone.at_home
 
 
 async def async_setup_entry(
