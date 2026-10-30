@@ -516,15 +516,15 @@ python3 scripts/live_probe.py --max-rooms 6
 What it does:
 
 - It signs in with its own device code, the same kind of link and code as the config flow. Home Assistant's tokens are not touched.
-- Tokens stay in memory unless you pass `--token-file`. That file holds only the refresh token, with mode 0600; delete it afterwards.
+- Tokens stay in memory unless you pass `--token-file`, for example `--token-file ~/tado_x_probe_token.json`. That file holds only the refresh token, with mode 0600; delete it afterwards. The probe refuses a `--token-file` or `--keep-raw` path inside a git work tree such as the clone, where a commit could publish it.
 - Before the first request it says how many it will send and waits for `y` (or `--yes`). With `--max-rooms 6` that is about 53 requests plus the sign-in. `--history` adds one day report per room.
 - It sends **GET requests only**. The only POSTs are the sign-in at login.tado.com. It stops at the first 429.
 - It skips homes that are not tado X homes before any tado X request.
 
-What it writes:
+What it writes, also when the run stops early at a 429, on Ctrl-C or on an error:
 
-- `tado_x_probe_<time>.json`, or the file given with `--out`. Every id, serial number and name in it is replaced by a stable pseudonym (`home#1`, `room#3`, `VA04#2`), and address, coordinates, contact details and e-mail are dropped. It ends with a findings block of booleans and enums. **Read the file before you share it.**
-- With `--keep-raw PATH`, an unredacted copy (mode 0600) for yourself. Do not share that one.
+- `tado_x_probe_<time>.json` in the current folder (git ignores this name), or the file given with `--out`. Every id, serial number and name in it is replaced by a stable pseudonym (`home#1`, `room#3`, `VA04#2`), and address, coordinates, contact details and e-mail are dropped. It ends with a findings block of booleans and enums. **Read the file before you share it.**
+- With `--keep-raw PATH`, for example `--keep-raw ~/tado_x_probe_raw.json`, an unredacted copy (mode 0600) for yourself. Do not share that one.
 - With `--emit-fixtures DIR`, pseudonymized payloads in the format of `tests/fixtures/`.
 
 ## Diagnostics and privacy

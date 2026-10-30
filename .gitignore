@@ -52,3 +52,7 @@ PROMOTE-LOG.md
 # Tooling caches
 .ruff_cache/
 .mypy_cache/
+
+# Live probe output. The token file and the raw copy are refused inside the
+# repository; these names cover the report and the suggested file names.
+tado_x_probe_*.json

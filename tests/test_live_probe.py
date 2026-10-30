@@ -5,7 +5,9 @@ import http.client
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import stat
+import subprocess
 from types import ModuleType
 from typing import Any
 import urllib.parse
@@ -574,18 +576,18 @@ def test_declining_sends_nothing(
     assert "Nothing sent." in out
 
 
-def test_options() -> None:
+def test_options(tmp_path: Path) -> None:
     """The command line matches the documented contract."""
     args = probe.parse_args(
         [
             "--home-id",
             "815",
             "--out",
-            "out.json",
+            "~/out.json",
             "--token-file",
-            "t.json",
+            str(tmp_path / "t.json"),
             "--keep-raw",
-            "raw.json",
+            str(tmp_path / "raw.json"),
             "--emit-fixtures",
             "fx",
             "--max-rooms",
@@ -595,7 +597,9 @@ def test_options() -> None:
         ]
     )
     assert args.home_id == 815
-    assert args.keep_raw == Path("raw.json")
+    assert args.out == Path.home() / "out.json"
+    assert args.token_file == tmp_path / "t.json"
+    assert args.keep_raw == tmp_path / "raw.json"
     assert args.emit_fixtures == Path("fx")
     assert (args.max_rooms, args.history, args.yes) == (6, True, True)
 
@@ -864,3 +868,66 @@ def test_rooms_of_an_unexpected_shape_are_skipped(
     ]
     assert "hops schedule" not in labels
     assert "r-delta login" in labels
+
+
+@pytest.mark.parametrize("option", ["--token-file", "--keep-raw"])
+@pytest.mark.parametrize("linked", [False, True], ids=["clone", "linked work tree"])
+def test_private_files_are_refused_inside_a_git_work_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    linked: bool,
+) -> None:
+    """A token file or raw copy inside a clone could be committed; nothing is sent."""
+    clone = tmp_path / "ha-tado-x"
+    if linked:
+        clone.mkdir()
+        (clone / ".git").write_text("gitdir: /src/.git/worktrees/x\n", encoding="utf-8")
+    else:
+        (clone / ".git").mkdir(parents=True)
+        (clone / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    fake = FakeTado()
+    monkeypatch.setattr(probe, "_http", fake)
+    with pytest.raises(SystemExit) as exc:
+        probe.main(["--yes", option, str(clone / "sub" / "secret.json")])
+    assert exc.value.code == 2
+    assert f"inside the git work tree {clone}" in capsys.readouterr().err
+    assert fake.requests == []
+    assert not (clone / "sub").exists()
+
+
+def test_an_empty_git_folder_is_no_work_tree(tmp_path: Path) -> None:
+    """Only a real repository or work tree link counts, as for git itself."""
+    (tmp_path / ".git").mkdir()
+    assert probe.git_work_tree(tmp_path / "tokens.json") is None
+    args = probe.parse_args(["--token-file", str(tmp_path / "tokens.json")])
+    assert args.token_file == tmp_path / "tokens.json"
+
+
+def test_probe_outputs_are_git_ignored() -> None:
+    """The report and the suggested private file names never show up in git."""
+    git = shutil.which("git")
+    if git is None or not (ROOT / ".git").exists():
+        pytest.skip("needs a git checkout")
+    names = [
+        "tado_x_probe_20261030-101500.json",
+        "tado_x_probe_token.json",
+        "tado_x_probe_raw.json",
+        "scripts/tado_x_probe_20261030-101500.json",
+    ]
+    ignored = subprocess.run(
+        [git, "check-ignore", "--no-index", "--stdin"],
+        input="\n".join(names),
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ignored.stdout.split() == names
+    fixture = subprocess.run(
+        [git, "check-ignore", "--no-index", "-q", "tests/fixtures/token.json"],
+        cwd=ROOT,
+        check=False,
+    )
+    assert fixture.returncode == 1

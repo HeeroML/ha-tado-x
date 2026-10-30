@@ -14,11 +14,14 @@ or the integration.
     python3 scripts/live_probe.py                          # pick the tado X home
     python3 scripts/live_probe.py --home-id 123456 --yes   # no questions
     python3 scripts/live_probe.py --emit-fixtures tests/fixtures
-    python3 scripts/live_probe.py --keep-raw ~/probe-raw.json   # private copy
+    python3 scripts/live_probe.py --keep-raw ~/tado_x_probe_raw.json   # private
+    python3 scripts/live_probe.py --token-file ~/tado_x_probe_token.json
 
 Tokens stay in memory. --token-file keeps only the rotating refresh token, in
 a file with mode 0600; delete it when you are done. The probe has its own
-sign-in, so the tokens of Home Assistant are not touched.
+sign-in, so the tokens of Home Assistant are not touched. --token-file and
+--keep-raw are refused inside a git work tree, where a commit could publish
+them.
 """
 
 import argparse
@@ -290,6 +293,24 @@ def write_private(path: Path, text: str) -> None:
         os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def git_work_tree(path: Path) -> Path | None:
+    """Return the git work tree a path would be written into, or None.
+
+    Like git, a folder counts only when its .git is a repository (it holds
+    HEAD) or a gitdir link of a linked work tree or submodule.
+    """
+    for folder in path.resolve().parents:
+        marker = folder / ".git"
+        if (marker / "HEAD").is_file() or (
+            marker.is_file()
+            and marker.read_text(encoding="utf-8", errors="replace").startswith(
+                "gitdir:"
+            )
+        ):
+            return folder
+    return None
 
 
 def parse_ratelimit(value: str | None) -> dict[str, int]:
@@ -1039,21 +1060,29 @@ def run(args: argparse.Namespace) -> int:
     return code
 
 
+def _user_path(value: str) -> Path:
+    return Path(value).expanduser()
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Return the command line options."""
+    """Return the command line options; private files must stay outside git."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--home-id", type=int, help="tado X home to probe")
-    parser.add_argument("--out", type=Path, help="shareable result file")
+    parser.add_argument("--out", type=_user_path, help="shareable result file")
     parser.add_argument(
-        "--token-file", type=Path, help="keep the refresh token here (0600)"
+        "--token-file",
+        type=_user_path,
+        help="keep the refresh token here (0600), outside any git work tree",
     )
     parser.add_argument(
-        "--keep-raw", type=Path, help="unredacted copy, written with mode 0600"
+        "--keep-raw",
+        type=_user_path,
+        help="unredacted copy (0600), outside any git work tree",
     )
     parser.add_argument(
-        "--emit-fixtures", type=Path, help="write test fixtures to this directory"
+        "--emit-fixtures", type=_user_path, help="write test fixtures to this directory"
     )
     parser.add_argument(
         "--max-rooms", type=int, default=10, help="probe at most this many rooms"
@@ -1064,7 +1093,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--yes", action="store_true", help="do not ask before sending requests"
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    for option, path, example in (
+        ("--token-file", args.token_file, "~/tado_x_probe_token.json"),
+        ("--keep-raw", args.keep_raw, "~/tado_x_probe_raw.json"),
+    ):
+        if path is not None and (tree := git_work_tree(path)) is not None:
+            parser.error(
+                f"{option} {path} is inside the git work tree {tree}, where a "
+                f"commit could publish it; use a path outside it, such as {example}"
+            )
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
