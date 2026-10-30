@@ -415,9 +415,9 @@ async def test_backoff_suppresses_refreshes(
     ("status", "body", "reason"),
     [
         (400, None, "invalid_grant"),
-        (400, {"error": "invalid_client"}, "invalid_client"),
-        (401, {"message": "nope"}, "http_401"),
-        (403, {"error": ""}, "http_403"),
+        (400, {"error": "invalid_request"}, "invalid_request"),
+        (401, {"error": "invalid_client"}, "invalid_client"),
+        (400, {"error": "unauthorized_client"}, "unauthorized_client"),
     ],
 )
 async def test_rejected_refresh_is_sticky(
@@ -427,7 +427,7 @@ async def test_rejected_refresh_is_sticky(
     body: dict[str, Any] | None,
     reason: str,
 ) -> None:
-    """400, 401 and 403 from the token endpoint fail the auth until reload."""
+    """An OAuth rejection of the refresh token fails the auth until reload."""
     mock_tado.fail("POST", TOKEN_URL, status=status, body=body)
     manager = TokenManager(session, MemoryTokenStore(_tokens(0)))
     with pytest.raises(TadoXAuthError) as err:
@@ -444,6 +444,44 @@ async def test_rejected_refresh_is_sticky(
             await call
         assert err.value.reason == reason
     assert len(_refreshes(mock_tado)) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (403, "<html>Request blocked by the CDN</html>"),
+        (400, "<html>400 Request Header Or Cookie Too Large</html>"),
+        (401, '{"message": "proxy authentication required"}'),
+        (403, '{"error": ""}'),
+        (400, '{"error": "unsupported_grant_type"}'),
+    ],
+    ids=["waf", "proxy_400", "proxy_401", "empty_error", "other_oauth_error"],
+)
+async def test_login_rejection_without_oauth_error_is_transient(
+    aioclient_mock: AiohttpClientMocker,
+    session: ClientSession,
+    freezer: FrozenDateTimeFactory,
+    status: int,
+    body: str,
+) -> None:
+    """A 4xx that is no OAuth rejection of the grant backs off and keeps the token."""
+    aioclient_mock.post(TOKEN_URL, status=status, text=body)
+    manager = TokenManager(session, MemoryTokenStore(_tokens(0)))
+
+    with pytest.raises(TadoXServerError) as err:
+        await manager.async_get_access_token()
+
+    assert err.value.status == status
+    assert not manager.auth_failed
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={"access_token": "fake-access-token-0001", "expires_in": 599},
+    )
+    freezer.tick(timedelta(seconds=5))
+    assert await manager.async_get_access_token() == "fake-access-token-0001"
+    [(_, _, form, _)] = aioclient_mock.mock_calls
+    assert form["refresh_token"] == REFRESH_B
 
 
 async def test_reused_refresh_token_is_an_auth_failure(

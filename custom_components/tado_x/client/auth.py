@@ -37,8 +37,10 @@ from .models import DeviceAuthorization, TokenSet, utcnow
 _LOGGER = logging.getLogger(__package__)
 
 _LOGIN_TIMEOUT: Final = ClientTimeout(total=REQUEST_TIMEOUT, connect=CONNECT_TIMEOUT)
-_REJECTED: Final = frozenset(
-    {HTTPStatus.BAD_REQUEST, HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
+# RFC 6749 5.2 errors that reject the grant or the client. Any other 4xx, for
+# example a proxy or CDN page, leaves the refresh token valid.
+_GRANT_REJECTED: Final = frozenset(
+    {"invalid_grant", "invalid_client", "unauthorized_client", "invalid_request"}
 )
 
 type RefreshTaskFactory = Callable[
@@ -300,8 +302,9 @@ class TokenManager:
             return TokenSet.from_token_response(
                 body, sent_at=sent_at, previous_refresh=tokens.refresh_token
             )
-        if status in _REJECTED:
-            raise TadoXAuthError(_oauth_error(body) or f"http_{status}")
+        error = _oauth_error(body)
+        if error in _GRANT_REJECTED and not _is_transient(status):
+            raise TadoXAuthError(error)
         raise TadoXServerError(status)
 
     def _fallback(self, tokens: TokenSet, err: TadoXError, *, force: bool) -> str:
