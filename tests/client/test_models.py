@@ -262,6 +262,69 @@ def test_malformed_device_is_skipped() -> None:
     assert [device.serial for device in topology.rooms[1].devices] == ["SU0000000101"]
 
 
+def _without(raw: dict[str, Any], path: tuple[str | int, ...]) -> None:
+    """Delete the item or key at a path of a payload."""
+    parent: Any = raw
+    for key in path[:-1]:
+        parent = parent[key]
+    del parent[path[-1]]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("rooms", 2, "roomId"),
+        ("rooms", 3, "devices"),
+        ("otherDevices", 0, "serialNumber"),
+        ("otherDevices",),
+    ],
+)
+def test_skipped_topology_items_make_it_incomplete(
+    path: tuple[str | int, ...],
+) -> None:
+    """A room or device the parser skips, or a missing device list, is noted."""
+    assert _topology().complete
+
+    raw = load_fixture("rooms_and_devices.json")
+    _without(raw, path)
+    topology = Topology.from_api(raw)
+
+    assert not topology.complete
+    assert 1 in topology.rooms
+
+
+def test_device_that_is_no_object_makes_the_topology_incomplete() -> None:
+    """A device item that is no JSON object is skipped and noted."""
+    raw = load_fixture("rooms_and_devices.json")
+    raw["rooms"][0]["devices"].append("not a device")
+
+    topology = Topology.from_api(raw)
+
+    assert not topology.complete
+    assert len(topology.rooms[1].devices) == 2
+
+
+def test_skipped_items_warn_once(caplog: pytest.LogCaptureFixture) -> None:
+    """The first skip of a kind is a warning, repeats of it are debug messages."""
+    raw = load_fixture("rooms_and_devices.json")
+    raw["otherDevices"].append({"serialNumber": "TR0000000999"})
+    raw["otherDevices"].append({"serialNumber": "TR0000000998"})
+    caplog.set_level(logging.DEBUG)
+
+    Topology.from_api(raw)
+    Topology.from_api(raw)
+
+    skips = [
+        record
+        for record in caplog.records
+        if "Skipping a malformed topology item" in record.getMessage()
+    ]
+    assert [record.levelno for record in skips] == [logging.WARNING] + [
+        logging.DEBUG
+    ] * 3
+    assert "$.otherDevices[1].type" in skips[0].getMessage()
+
+
 def test_topology() -> None:
     """Rooms, devices and the bridge of roomsAndDevices."""
     topology = _topology()

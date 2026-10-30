@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from datetime import timedelta
+import logging
 from typing import Any, override
 
 from freezegun.api import FrozenDateTimeFactory
@@ -26,7 +27,11 @@ from custom_components.tado_x.entity import (
     async_add_dynamic_entities,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import area_registry as ar, device_registry as dr
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+)
 from homeassistant.helpers.device_registry import DeviceEntry, DeviceEntryType
 from homeassistant.helpers.entity import Entity, EntityDescription
 from tests.tado_mock import HOME_B, TadoCloudMock
@@ -238,6 +243,54 @@ async def test_new_and_removed_devices_follow_live_topology(
         )
     assert _device(device_registry, config_entry, room_identifier(HOME_B, 1))
     assert _device(device_registry, config_entry, home_identifier(HOME_B))
+
+
+async def test_unreadable_topology_items_remove_nothing(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    device_registry: dr.DeviceRegistry,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A device or room the parser skips keeps its device, entities and settings."""
+    await setup_entry(hass, config_entry)
+    valve = _device(device_registry, config_entry, device_identifier("VA0000000101"))
+    device_registry.async_update_device(valve.id, name_by_user="Fenster links")
+    devices = len(
+        dr.async_entries_for_config_entry(device_registry, config_entry.entry_id)
+    )
+    entities = len(
+        er.async_entries_for_config_entry(entity_registry, config_entry.entry_id)
+    )
+    topology = mock_tado.home(HOME_B).topology
+    del topology["rooms"][0]["devices"][0]["type"]
+    del topology["rooms"][1]["roomName"]
+
+    await _tick(hass, freezer, 900)
+    await _tick(hass, freezer, 900)
+
+    assert config_entry.runtime_data.devices.last_update_success
+    assert not config_entry.runtime_data.devices.data.topology.complete
+    assert (
+        len(dr.async_entries_for_config_entry(device_registry, config_entry.entry_id))
+        == devices
+    )
+    assert (
+        len(er.async_entries_for_config_entry(entity_registry, config_entry.entry_id))
+        == entities
+    )
+    valve = _device(device_registry, config_entry, device_identifier("VA0000000101"))
+    assert valve.name_by_user == "Fenster links"
+    assert _device(device_registry, config_entry, room_identifier(HOME_B, 2))
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+        and "malformed topology" in record.getMessage()
+    ]
+    assert len(warnings) == 2
 
 
 async def test_phones_are_registered_and_removed(
