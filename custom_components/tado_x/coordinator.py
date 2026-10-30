@@ -524,6 +524,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         my.tado.com homes/{id}.
         """
         self._client = client
+        self._generation_warned = False
         super().__init__(hass, entry, api, monitor, seed)
         if self._seed_data is not None:
             monitor.async_note_devices(self._seed_data)
@@ -595,6 +596,13 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         info = await self._client.async_get_home_info(home_id)
         if info.generation is HomeGeneration.PRE_LINE_X:
             raise TadoXHomeNotXError(home_id)
+        if info.generation is HomeGeneration.UNKNOWN and not self._generation_warned:
+            self._generation_warned = True
+            LOGGER.warning(
+                "tado reports no known generation for %s; it is used as a tado X "
+                "home because the tado X API serves it",
+                self.config_entry.title,
+            )
         return info
 
     @override

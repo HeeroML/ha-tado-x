@@ -982,3 +982,33 @@ async def test_required_read_that_closes_the_gate_keeps_its_data(
     assert data.devices.data.running_times is not None
     assert _mode(data) is PlanMode.BLOCKED
     assert "Reading running_times" not in caplog.text
+
+
+@pytest.mark.parametrize("generation", [None, "LINE_Y"], ids=["missing", "new"])
+async def test_unknown_home_generation_warns_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+    generation: str | None,
+) -> None:
+    """A home without a known generation loads as tado X and is logged once."""
+    info = mock_tado.home(HOME_B).info
+    if generation is None:
+        del info["generation"]
+    else:
+        info["generation"] = generation
+
+    data = await _setup(hass, freezer)
+    await _tick(hass, freezer, 86400)
+
+    assert data.rooms.config_entry.state is ConfigEntryState.LOADED
+    assert _count(mock_tado, HOME_INFO) == 2
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.tado_x"
+        and record.levelno == logging.WARNING
+        and "no known generation" in record.getMessage()
+    ]
+    assert len(warnings) == 1
