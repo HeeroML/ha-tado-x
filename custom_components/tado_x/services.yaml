@@ -1,21 +1,120 @@
-# Services for Tado X integration
+set_climate_timer:
+  target:
+    entity:
+      integration: tado_x
+      domain: climate
+  fields:
+    temperature:
+      required: true
+      example: 21.5
+      selector:
+        number:
+          min: 5
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+    duration:
+      example: 60
+      selector:
+        number:
+          min: 1
+          max: 1440
+          step: 1
+          unit_of_measurement: min
+    termination:
+      selector:
+        select:
+          options:
+            - manual
+            - next_time_block
+            - timer
+          translation_key: termination
+
+get_schedule:
+  target:
+    entity:
+      integration: tado_x
+      domain: climate
+
+set_schedule:
+  target:
+    entity:
+      integration: tado_x
+      domain: climate
+  fields:
+    days:
+      required: true
+      example: '["monday", "tuesday"]'
+      selector:
+        select:
+          multiple: true
+          options:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+          translation_key: weekday
+    blocks:
+      required: true
+      example: '[{"start": "00:00", "end": "06:30", "temperature": 17}, {"start": "06:30", "end": "22:00", "temperature": 21}, {"start": "22:00", "end": "24:00", "power": "off"}]'
+      selector:
+        object:
+          multiple: true
+          translation_key: schedule_block
+          label_field: start
+          fields:
+            start:
+              required: true
+              selector:
+                text:
+            end:
+              required: true
+              selector:
+                text:
+            power:
+              selector:
+                select:
+                  options:
+                    - "on"
+                    - "off"
+                  translation_key: power
+            temperature:
+              selector:
+                number:
+                  min: 5
+                  max: 30
+                  step: 0.5
+                  unit_of_measurement: "°C"
+
+get_day_report:
+  target:
+    entity:
+      integration: tado_x
+      domain: climate
+  fields:
+    date:
+      selector:
+        date:
 
 set_temperature_offset:
-  name: Set temperature offset
-  description: Adjust the temperature offset for a Tado X device (valve or sensor). This calibrates the device's temperature reading.
   fields:
     device_id:
-      name: Device
-      description: The Tado X device to calibrate
       required: true
       selector:
         device:
-          integration: tado_x
+          filter:
+            - integration: tado_x
+              model: Radiator Valve X
+            - integration: tado_x
+              model: Temperature Sensor X
+            - integration: tado_x
+              model: Smart Thermostat X
     offset:
-      name: Temperature offset
-      description: Temperature offset in °C. Positive values make the device read higher, negative values make it read lower.
       required: true
-      example: -2.0
+      example: -1.5
       selector:
         number:
           min: -9.9
@@ -24,12 +123,12 @@ set_temperature_offset:
           unit_of_measurement: "°C"
 
 add_meter_reading:
-  name: Add meter reading
-  description: Upload a meter reading to Tado Energy IQ
   fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: tado_x
     reading:
-      name: Reading
-      description: Meter reading value (integer)
       required: true
       example: 12345
       selector:
@@ -38,91 +137,60 @@ add_meter_reading:
           max: 999999999
           mode: box
     date:
-      name: Date
-      description: Date of reading (YYYY-MM-DD format, defaults to today)
-      required: false
-      example: "2026-01-14"
       selector:
-        text:
+        date:
 
 set_eiq_tariff:
-  name: Set energy tariff
-  description: Set an energy tariff in Tado Energy IQ for cost calculations
   fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: tado_x
     tariff:
-      name: Tariff
-      description: Price per unit (e.g., 0.85 for €0.85/m³)
       required: true
       example: 0.85
       selector:
         number:
           min: 0
           max: 100
-          step: 0.01
+          step: 0.001
           mode: box
     unit:
-      name: Unit
-      description: Energy unit type
       required: true
-      example: "m3"
       selector:
         select:
           options:
-            - label: "Cubic meters (m³)"
-              value: "m3"
-            - label: "Kilowatt hours (kWh)"
-              value: "kWh"
+            - m3
+            - kwh
+          translation_key: tariff_unit
     start_date:
-      name: Start date
-      description: Start date for the tariff (YYYY-MM-DD format, defaults to today)
-      required: false
-      example: "2026-01-01"
+      required: true
       selector:
-        text:
+        date:
     end_date:
-      name: End date
-      description: End date for the tariff (YYYY-MM-DD format, leave empty for ongoing tariff)
-      required: false
-      example: "2026-12-31"
       selector:
-        text:
+        date:
 
-set_climate_timer:
-  name: Set climate timer
-  description: Set a room temperature for a specific duration. Useful for temporary overrides like a quick boost or extending heating.
-  target:
-    entity:
-      integration: tado_x
-      domain: climate
+get_holiday_mode:
   fields:
-    entity_id:
-      name: Climate entity
-      description: The Tado X climate entity (room) to control
-      required: true
-      example: "climate.living_room"
+    config_entry_id:
       selector:
-        entity:
+        config_entry:
           integration: tado_x
-          domain: climate
-    temperature:
-      name: Temperature
-      description: Target temperature in °C
-      required: true
-      example: 22.0
+
+set_holiday_mode:
+  fields:
+    config_entry_id:
       selector:
-        number:
-          min: 5.0
-          max: 25.0
-          step: 0.5
-          unit_of_measurement: "°C"
-    duration:
-      name: Duration
-      description: Duration in minutes (1-1440, i.e., up to 24 hours)
+        config_entry:
+          integration: tado_x
+    enabled:
       required: true
-      example: 30
       selector:
-        number:
-          min: 1
-          max: 1440
-          step: 1
-          unit_of_measurement: "min"
+        boolean:
+    start:
+      selector:
+        datetime:
+    end:
+      selector:
+        datetime:
