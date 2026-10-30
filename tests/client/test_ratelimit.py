@@ -1,21 +1,29 @@
 """Tests for the ratelimit header parser, the call counter and the quota gate."""
 
+import asyncio
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 import logging
 
 from freezegun.api import FrozenDateTimeFactory
 from multidict import CIMultiDict
 import pytest
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from custom_components.tado_x.client import (
     CallCounter,
+    MemoryTokenStore,
     Priority,
     QuotaTracker,
     RateLimitInfo,
     TadoXRateLimitError,
+    TokenManager,
+    TokenSet,
+    Transport,
     parse_rate_limit,
 )
-from tests.tado_mock import load_fixture
+from custom_components.tado_x.client.const import HOPS_API_URL, MY_API_URL
+from tests.tado_mock import HOME_B, TadoCloudMock, entry_tokens, load_fixture
 
 NOW = datetime(2026, 10, 30, 10, 0, tzinfo=UTC)
 POLICY = '"perday";q=20000;w=86400'
@@ -374,3 +382,98 @@ def test_restore_reads_naive_times_as_utc() -> None:
         observed_at=NOW,
     )
     assert quota.blocked_until == NOW + timedelta(hours=1)
+
+
+def test_late_success_keeps_a_closed_gate(freezer: FrozenDateTimeFactory) -> None:
+    """A 2xx to a request sent before a 429 neither reopens the gate nor replaces its quota."""
+    quota = QuotaTracker()
+    earlier = quota.record_call()
+    later = quota.record_call()
+    quota.observe(_info(0, reset_in=7082), status=429, ticket=later)
+    blocked_until = quota.blocked_until
+    exhausted = quota.latest
+
+    quota.observe(_info(1), status=200, ticket=earlier)
+
+    assert quota.blocked_until == blocked_until
+    assert quota.latest == exhausted
+    with pytest.raises(TadoXRateLimitError):
+        quota.check(Priority.COMMAND)
+
+    freezer.tick(timedelta(seconds=7112))
+    probe = quota.record_call()
+    quota.observe(_info(20000), status=200, ticket=probe)
+    assert quota.blocked_until is None
+    quota.observe(_info(1), status=200, ticket=earlier)
+    assert quota.latest is not None
+    assert quota.latest.remaining == 1
+
+
+@pytest.fixture
+def quota() -> QuotaTracker:
+    """Return the quota tracker of the transport."""
+    return QuotaTracker()
+
+
+@pytest.fixture
+async def transport(
+    aioclient_mock: AiohttpClientMocker, quota: QuotaTracker
+) -> AsyncGenerator[Transport]:
+    """Return a transport with a fresh token of home 1000002."""
+    access, refresh = entry_tokens(HOME_B)
+    session = aioclient_mock.create_session(asyncio.get_running_loop())
+    fresh = TokenSet(
+        access_token=access,
+        refresh_token=refresh,
+        expires_at=datetime.now(UTC) + timedelta(minutes=10),
+    )
+    yield Transport(session, TokenManager(session, MemoryTokenStore(fresh)), quota)
+    await session.close()
+
+
+async def test_late_success_over_http_keeps_a_closed_gate(
+    mock_tado: TadoCloudMock, transport: Transport, quota: QuotaTracker
+) -> None:
+    """Through the transport, a slow 2xx sent before a 429 leaves the gate closed."""
+    rooms = f"{HOPS_API_URL}/homes/{HOME_B}/rooms"
+    state = f"{MY_API_URL}/homes/{HOME_B}/state"
+    release = mock_tado.hold("GET", rooms)
+    mock_tado.fail("GET", state, status=429)
+
+    slow = asyncio.create_task(transport.request("GET", rooms))
+    await asyncio.sleep(0)
+    with pytest.raises(TadoXRateLimitError):
+        await transport.request("GET", state)
+    blocked_until = quota.blocked_until
+    release.set()
+    await slow
+
+    assert quota.blocked_until == blocked_until
+    assert quota.latest is not None
+    assert quota.latest.remaining == 0
+    with pytest.raises(TadoXRateLimitError) as err:
+        await transport.request("GET", rooms, priority=Priority.COMMAND)
+    assert err.value.local
+
+
+def test_known_hold_end(freezer: FrozenDateTimeFactory) -> None:
+    """A hold has a known end only when it waits for a reset tado sent."""
+    quota = QuotaTracker()
+    assert quota.known_hold_end(NOW) is None
+
+    quota.observe(_info(500), status=200)
+    assert quota.known_hold_end(NOW) is None
+
+    quota.observe(_info(500, reset_in=60), status=200)
+    assert quota.known_hold_end(NOW) is None
+
+    quota.observe(_info(QuotaTracker.POLL_FLOOR, reset_in=600), status=200)
+    assert quota.known_hold_end(NOW) == NOW + timedelta(seconds=600)
+
+    quota.observe(_info(0, reset_in=7082), status=429)
+    assert quota.known_hold_end(NOW) == NOW + timedelta(seconds=7112)
+
+    freezer.tick(timedelta(seconds=7112))
+    quota.observe(None, status=429)
+    assert quota.blocked_until is not None
+    assert quota.known_hold_end(datetime.now(UTC)) is None

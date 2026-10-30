@@ -1,6 +1,7 @@
 """Tests for the coordinators: cadence, quota holds, failures and optimistic patches."""
 
 from collections.abc import Callable
+import copy
 from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any
@@ -37,13 +38,30 @@ from custom_components.tado_x.runtime import (
     RoomsSnapshot,
     TadoXRuntimeData,
 )
+from homeassistant.components.button.const import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
+from homeassistant.components.climate.const import (
+    ATTR_HVAC_ACTION,
+    ATTR_HVAC_MODE,
+    DOMAIN as CLIMATE_DOMAIN,
+    SERVICE_SET_HVAC_MODE,
+    SERVICE_SET_TEMPERATURE,
+    HVACAction,
+    HVACMode,
+)
+from homeassistant.components.number.const import (
+    ATTR_VALUE,
+    DOMAIN as NUMBER_DOMAIN,
+    SERVICE_SET_VALUE,
+)
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from tests.tado_mock import HOME_B, TadoCloudMock
+from tests.test_climate import climate_id, entity_id, state_of
 from tests.test_init import make_entry, setup_entry
 
 START = "2026-10-30T10:00:00+00:00"
@@ -239,12 +257,12 @@ async def test_error_after_a_quota_hold_ends_the_hold(
     assert _status(data) is ApiStatus.OK
 
 
-async def test_quota_hold_longer_than_max_stale(
+async def test_quota_hold_without_reset_longer_than_max_stale(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Room values older than 6 hours are not served; the rooms go unavailable."""
+    """Without a reset from tado, room values older than 6 hours go unavailable."""
     data = await _setup(hass, freezer)
-    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=8))
+    mock_tado.set_quota(remaining=0)
     await _tick(hass, freezer, 45)
     assert data.rooms.stale_since is not None
 
@@ -256,6 +274,48 @@ async def test_quota_hold_longer_than_max_stale(
     assert error.translation_key == "quota_exhausted"
     assert data.home.last_update_success
     assert data.monitor.status is ApiStatus.RATE_LIMITED
+
+
+async def test_quota_hold_with_reset_serves_until_the_reset(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A hold that ends at a reset tado sent serves the values until then, past 6 h."""
+    data = await _setup(hass, freezer)
+    before = data.rooms.data
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=8))
+    await _tick(hass, freezer, 45)
+
+    await _tick(hass, freezer, 6 * 3600)
+    await _run(hass, freezer, 23, step=300)
+
+    assert data.rooms.last_update_success
+    assert data.rooms.data == before
+    assert data.monitor.status is ApiStatus.RATE_LIMITED
+
+    await _run(hass, freezer, 2, step=300)
+
+    assert data.rooms.last_update_success
+    assert _stale_since(data.rooms) is None
+    assert _status(data) is ApiStatus.OK
+
+
+async def test_hold_does_not_revive_values_older_than_max_stale(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Room values already older than 6 h when a hold begins stay unavailable."""
+    data = await _setup(hass, freezer)
+    mock_tado.fail("GET", ROOMS, status=503)
+    await _tick(hass, freezer, 6 * 3600 + 60)
+    assert not data.rooms.last_update_success
+    mock_tado.clear_failures()
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=8))
+
+    await _run(hass, freezer, 3)
+
+    assert not data.rooms.last_update_success
+    error = data.rooms.last_exception
+    assert isinstance(error, UpdateFailed)
+    assert error.translation_key == "quota_exhausted"
 
 
 async def test_network_error_makes_data_unavailable(
@@ -530,7 +590,7 @@ async def test_optimistic_patch_survives_a_stale_read(
         await rooms.async_request_refresh()
         await _tick(hass, freezer, 5)
 
-    rooms.async_apply_optimistic(turn_off)
+    rooms.async_apply_optimistic({1: turn_off})
     assert _room_power(data, 1) is Power.OFF
     mock_tado.clear_calls()
 
@@ -546,7 +606,7 @@ async def test_optimistic_patch_survives_a_stale_read(
     assert len(mock_tado.calls("GET", ROOMS)) == 3
     assert _room_power(data, 1) is Power.ON
 
-    rooms.async_apply_optimistic(turn_off, ttl=timedelta(seconds=60))
+    rooms.async_apply_optimistic({1: turn_off}, ttl=timedelta(seconds=60))
     freezer.tick(timedelta(seconds=16))
     await _poll(freezer, rooms)
 
@@ -561,7 +621,7 @@ async def test_optimistic_patch_needs_data(
     entry = data.rooms.config_entry
     rooms = RoomsCoordinator(hass, entry, data.api, data.monitor, None)
 
-    rooms.async_apply_optimistic(lambda snapshot: snapshot)
+    rooms.async_apply_optimistic({1: lambda snapshot: snapshot})
 
     assert rooms.data is None
 
@@ -715,3 +775,257 @@ async def test_monitor_listeners(
     assert len(calls) == seen
     assert data.monitor.calls_24h() == len(mock_tado.calls())
     assert data.monitor.reset_time is None
+
+
+@pytest.mark.parametrize("writes", [False, True], ids=["idle", "offset_every_10_min"])
+async def test_optimistic_writes_keep_the_poll_cadence(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    writes: bool,
+) -> None:
+    """Writes that show at once do not postpone the next poll of their coordinator."""
+    await _setup(hass, freezer)
+    offset = er.async_get(hass).async_get_entity_id(
+        NUMBER_DOMAIN, DOMAIN, "VA0000000101_offset"
+    )
+    assert offset is not None
+    mock_tado.clear_calls()
+
+    for minute in range(4 * 60):
+        await _tick(hass, freezer, 60)
+        if writes and minute % 10 == 0:
+            await hass.services.async_call(
+                NUMBER_DOMAIN,
+                SERVICE_SET_VALUE,
+                {ATTR_ENTITY_ID: offset, ATTR_VALUE: (minute % 20) / 10},
+                blocking=True,
+            )
+
+    assert _count(mock_tado, TOPOLOGY) == 16
+    assert _count(mock_tado, RUNNING_TIMES) == 4
+
+
+async def _climate(
+    hass: HomeAssistant, service: str, room_id: int, **data: Any
+) -> None:
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: climate_id(hass, room_id), **data},
+        blocking=True,
+    )
+
+
+async def _press(hass: HomeAssistant, key: str) -> None:
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: entity_id(hass, BUTTON_DOMAIN, f"{HOME_B}_{key}")},
+        blocking=True,
+    )
+
+
+def _modes(hass: HomeAssistant) -> dict[int, str]:
+    return {
+        room_id: state_of(hass, climate_id(hass, room_id)).state
+        for room_id in range(1, 7)
+    }
+
+
+@pytest.mark.parametrize(
+    ("first", "data"),
+    [
+        (SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: 24}),
+        (SERVICE_SET_HVAC_MODE, {ATTR_HVAC_MODE: HVACMode.OFF}),
+    ],
+    ids=["heat", "off"],
+)
+async def test_resume_replaces_an_earlier_write_of_the_room(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    first: str,
+    data: dict[str, Any],
+) -> None:
+    """Auto right after a manual write shows the schedule tado runs again."""
+    await _setup(hass, freezer)
+
+    await _climate(hass, first, 1, **data)
+    await _climate(hass, SERVICE_SET_HVAC_MODE, 1, hvac_mode=HVACMode.AUTO)
+    await _tick(hass, freezer, 5)
+
+    state = state_of(hass, climate_id(hass, 1))
+    assert state.state == HVACMode.AUTO
+    assert state.attributes[ATTR_TEMPERATURE] == 21.0
+    assert state.attributes[ATTR_HVAC_ACTION] != HVACAction.OFF
+
+
+async def test_resume_schedules_replaces_disable_all(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Resume schedules right after disable all shows every room on its schedule."""
+    await _setup(hass, freezer)
+
+    await _press(hass, "disable_all")
+    await _press(hass, "resume_schedules")
+
+    assert set(_modes(hass).values()) == {HVACMode.AUTO}
+
+    await _tick(hass, freezer, 5)
+
+    assert set(_modes(hass).values()) == {HVACMode.AUTO}
+    assert state_of(hass, climate_id(hass, 1)).attributes[ATTR_TEMPERATURE] == 21.0
+
+
+async def test_room_write_after_disable_all_keeps_the_other_rooms_off(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A write to one room supersedes disable all for that room only."""
+    await _setup(hass, freezer)
+    home = mock_tado.home(HOME_B)
+    before = copy.deepcopy(home.rooms)
+
+    await _press(hass, "disable_all")
+    await _climate(hass, SERVICE_SET_TEMPERATURE, 1, temperature=23)
+    home.rooms = before
+    await _tick(hass, freezer, 5)
+
+    modes = _modes(hass)
+    assert modes.pop(1) == HVACMode.HEAT
+    assert state_of(hass, climate_id(hass, 1)).attributes[ATTR_TEMPERATURE] == 23.0
+    assert set(modes.values()) == {HVACMode.OFF}
+
+
+async def _until_polled(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_tado: TadoCloudMock,
+    path: str,
+    limit: int,
+) -> int:
+    """Tick in 15 s steps until path was read; return the seconds it took."""
+    for elapsed in range(15, limit + 1, 15):
+        await _tick(hass, freezer, 15)
+        if _count(mock_tado, path):
+            return elapsed
+    raise AssertionError(f"{path} was not read within {limit} s")
+
+
+async def test_recovery_from_conserving_rearms_every_coordinator(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Once a poll sees the quota refilled, home and devices poll at their plan again."""
+    data = await _setup(hass, freezer)
+    mock_tado.set_quota(remaining=900)
+    await _run(hass, freezer, 40)
+    assert data.monitor.mode is PlanMode.CONSERVING
+    assert data.devices.update_interval == timedelta(hours=24)
+    mock_tado.set_quota(remaining=19000)
+    mock_tado.clear_calls()
+
+    await _until_polled(hass, freezer, mock_tado, ROOMS, 3600)
+    assert _mode(data) is PlanMode.OK
+    mock_tado.clear_calls()
+
+    assert await _until_polled(hass, freezer, mock_tado, STATE, 300) <= 300
+    assert _count(mock_tado, TOPOLOGY) == 1
+    await _run(hass, freezer, 20)
+    assert _count(mock_tado, ROOMS) >= 20
+    assert _count(mock_tado, TOPOLOGY) == 2
+
+
+async def test_known_reset_ends_conserving_on_time(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """At a reset time tado sent, polling returns to the plan without waiting an hour."""
+    data = await _setup(hass, freezer)
+    mock_tado.set_quota(remaining=900, reset_in=timedelta(minutes=30))
+    await _tick(hass, freezer, 45)
+    await _tick(hass, freezer, 30 * 60 - 45 - 60)
+    assert data.monitor.mode is PlanMode.CONSERVING
+    mock_tado.clear_calls()
+
+    took = await _until_polled(hass, freezer, mock_tado, ROOMS, 3600)
+
+    assert took <= 60 + 60
+    assert _mode(data) is PlanMode.OK
+    assert data.rooms.update_interval == timedelta(seconds=45)
+
+
+async def test_required_read_that_closes_the_gate_keeps_its_data(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When the required read uses up the quota, the optional reads stay local."""
+    data = await _setup(hass, freezer)
+    topology = mock_tado.home(HOME_B).topology
+    topology["rooms"][0]["devices"][0]["batteryState"] = "LOW"
+    mock_tado.fail(
+        "GET",
+        TOPOLOGY,
+        status=200,
+        body=topology,
+        headers={"ratelimit": '"perday";r=0;t=3600'},
+        times=1,
+    )
+    mock_tado.clear_calls()
+
+    freezer.tick(timedelta(hours=1))
+    await data.devices.async_refresh()
+
+    assert [call.path for call in mock_tado.calls("GET")] == [TOPOLOGY]
+    assert data.devices.last_update_success
+    assert data.devices.data.topology.devices["VA0000000101"].battery == "LOW"
+    assert data.devices.data.running_times is not None
+    assert _mode(data) is PlanMode.BLOCKED
+    assert "Reading running_times" not in caplog.text
+
+
+@pytest.mark.parametrize("generation", [None, "LINE_Y"], ids=["missing", "new"])
+async def test_unknown_home_generation_warns_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+    generation: str | None,
+) -> None:
+    """A home without a known generation loads as tado X and is logged once."""
+    info = mock_tado.home(HOME_B).info
+    if generation is None:
+        del info["generation"]
+    else:
+        info["generation"] = generation
+
+    data = await _setup(hass, freezer)
+    await _tick(hass, freezer, 86400)
+
+    assert data.rooms.config_entry.state is ConfigEntryState.LOADED
+    assert _count(mock_tado, HOME_INFO) == 2
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.tado_x"
+        and record.levelno == logging.WARNING
+        and "no known generation" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+
+
+async def test_home_details_of_the_previous_generation_fail_setup(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    issue_registry: ir.IssueRegistry,
+) -> None:
+    """Home details of the previous generation refuse the home even when hops answers."""
+    mock_tado.home(HOME_B).info["generation"] = "PRE_LINE_X"
+    freezer.move_to(START)
+    entry = make_entry()
+
+    await setup_entry(hass, entry)
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert issue_registry.async_get_issue(DOMAIN, f"not_tado_x_home_{entry.entry_id}")

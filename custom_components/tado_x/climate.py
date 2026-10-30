@@ -72,6 +72,11 @@ DESCRIPTION = ClimateEntityDescription(key="climate", translation_key=DOMAIN)
 type RoomPatch = Callable[[RoomsSnapshot], RoomsSnapshot]
 
 
+def control_target(room_id: int) -> tuple[str, int]:
+    """Return the optimistic patch target of the setting and manual control of a room."""
+    return ("control", room_id)
+
+
 def _manual_patch(
     room_id: int, setting: Setting, termination: Termination
 ) -> RoomPatch:
@@ -100,7 +105,7 @@ def _manual_patch(
     return patch
 
 
-def _resume_patch(room_id: int) -> RoomPatch:
+def resume_patch(room_id: int) -> RoomPatch:
     """Return a patch that shows the schedule until the server reports it."""
 
     def patch(snapshot: RoomsSnapshot) -> RoomsSnapshot:
@@ -287,7 +292,11 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
             self._room_id, setting, termination
         )
         self.coordinator.async_apply_optimistic(
-            _manual_patch(self._room_id, setting, termination)
+            {
+                control_target(self._room_id): _manual_patch(
+                    self._room_id, setting, termination
+                )
+            }
         )
         await self.coordinator.async_request_refresh()
 
@@ -309,7 +318,9 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
     @handle_tado_errors
     async def _async_resume(self) -> None:
         await self.coordinator.api.async_resume_schedule(self._room_id)
-        self.coordinator.async_apply_optimistic(_resume_patch(self._room_id))
+        self.coordinator.async_apply_optimistic(
+            {control_target(self._room_id): resume_patch(self._room_id)}
+        )
         await self.coordinator.async_request_refresh()
 
     @override

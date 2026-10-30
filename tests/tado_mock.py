@@ -48,6 +48,15 @@ type Matcher = str | re.Pattern[str]
 type Result = tuple[int, Any]
 
 _TADO_URL = re.compile(r"^https://[a-z-]+\.tado\.com/")
+_WEEKDAYS = (
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+)
 _HOME_NAMES = {HOME_A: "Haus A", HOME_B: "Haus B", HOME_C: "Haus C"}
 
 
@@ -149,6 +158,24 @@ class FakeHome:
     def room(self, room_id: int) -> dict[str, Any] | None:
         """Return the live state of a room."""
         return next((room for room in self.rooms if room["id"] == room_id), None)
+
+    def scheduled_setting(self, room_id: int, now: datetime) -> dict[str, Any] | None:
+        """Return the setting the schedule of a room gives at a time."""
+        if (schedule := self.schedules.get(room_id)) is None:
+            return None
+        local = now.astimezone(dt_util.get_time_zone(self.info["dateTimeZone"]))
+        day, clock = _WEEKDAYS[local.weekday()], local.strftime("%H:%M")
+        for block in schedule["schedule"]:
+            if block["dayType"] == day and block["start"] <= clock < block["end"]:
+                setting: dict[str, Any] = copy.deepcopy(block["setting"])
+                return setting
+        return None
+
+    def resume_schedule(self, room: dict[str, Any], now: datetime) -> None:
+        """End the manual control of a room; it runs its schedule again."""
+        room["manualControlTermination"] = None
+        if (setting := self.scheduled_setting(room["id"], now)) is not None:
+            room["setting"] = setting
 
     def topology_room(self, room_id: int) -> dict[str, Any] | None:
         """Return the topology entry of a room."""
@@ -641,7 +668,7 @@ class TadoCloudMock:
     def _delete_manual(self, home: FakeHome, room_id: str) -> Result:
         if (room := home.room(int(room_id))) is None:
             return HTTPStatus.NOT_FOUND, _errors("not.found", "Room not found")
-        room["manualControlTermination"] = None
+        home.resume_schedule(room, self._clock())
         return HTTPStatus.NO_CONTENT, None
 
     def _post_open_window(self, home: FakeHome, room_id: str, body: Any) -> Result:
@@ -703,7 +730,7 @@ class TadoCloudMock:
                     "projectedExpiry": None,
                 }
             elif action == "resumeSchedule":
-                room["manualControlTermination"] = None
+                home.resume_schedule(room, self._clock())
                 room["boostMode"] = None
             elif action == "boost":
                 room["boostMode"] = {

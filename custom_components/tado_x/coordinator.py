@@ -2,7 +2,7 @@
 
 from abc import abstractmethod
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Hashable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, tzinfo
 from functools import partial
@@ -48,6 +48,7 @@ from .runtime import (
 )
 
 REFRESH_COOLDOWN: Final = 5.0
+_MIN_DELAY: Final = timedelta(seconds=1)
 
 type Fetcher = Callable[[], Awaitable[Any]]
 
@@ -118,25 +119,31 @@ class _Patch[S]:
 
 
 class _PendingPatches[S]:
-    """Optimistic patches that are re-applied until the server agrees."""
+    """Optimistic patches by target, re-applied until the server agrees.
+
+    A target names what a patch writes, such as the setting of one room. A
+    patch replaces the pending patch of its target, so a later command wins
+    even when it changes less, as a resume does after a manual target.
+    """
 
     def __init__(self) -> None:
-        self._patches: list[_Patch[S]] = []
+        self._patches: dict[Hashable, _Patch[S]] = {}
 
-    def add(self, patch: Callable[[S], S], expires: datetime) -> None:
-        self._patches.append(_Patch(patch, expires))
+    def add(self, target: Hashable, patch: Callable[[S], S], expires: datetime) -> None:
+        self._patches.pop(target, None)
+        self._patches[target] = _Patch(patch, expires)
 
     def apply(self, data: S, now: datetime) -> S:
         """Apply the live patches; drop expired ones and those the data shows."""
-        kept: list[_Patch[S]] = []
-        for patch in self._patches:
+        kept: dict[Hashable, _Patch[S]] = {}
+        for target, patch in self._patches.items():
             if now >= patch.expires:
                 continue
             patched = patch.apply(data)
             if patched == data:
                 continue
             data = patched
-            kept.append(patch)
+            kept[target] = patch
         self._patches = kept
         return data
 
@@ -144,8 +151,9 @@ class _PendingPatches[S]:
 class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     """Coordinator with per-endpoint periods, stale serving and optimistic patches.
 
-    During a quota hold the last snapshot is served for up to MAX_STALE;
-    network, server and parse errors make the entities unavailable as usual.
+    During a quota hold the last snapshot is served until the reset tado
+    sent, or for up to MAX_STALE without one; network, server and parse
+    errors make the entities unavailable as usual.
     """
 
     config_entry: TadoXConfigEntry
@@ -187,6 +195,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         self._pending: _PendingPatches[S] = _PendingPatches()
         self._failing: set[str] = set()
         self._refresh_requested = False
+        self._refreshed_at: datetime | None = None
         self._seed_data: S | None = None
         self._seed_at: datetime | None = None
         if seed is not None and (seeded := self._parse_seed(seed)) is not None:
@@ -247,17 +256,53 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     @callback
     def _async_refresh_finished(self) -> None:
         """Let the quota monitor re-plan and update the status after every poll."""
+        self._refreshed_at = dt_util.utcnow()
         self._monitor.async_on_poll(self)
 
     @callback
+    def async_set_interval(self, interval: timedelta) -> None:
+        """Use a new update interval; a shorter one brings the pending refresh forward.
+
+        Home Assistant arms the next refresh only when a refresh ends, so a
+        coordinator would otherwise wait out the long interval of an old plan.
+        """
+        previous = self.update_interval
+        self.update_interval = interval
+        if (
+            previous is None
+            or interval >= previous
+            or self._refreshed_at is None
+            or self._unsub_refresh is None
+        ):
+            return
+        delay = max(self._refreshed_at + interval - dt_util.utcnow(), _MIN_DELAY)
+        # _schedule_refresh arms the timer one update_interval from now.
+        self.update_interval = delay
+        self._schedule_refresh()
+        self.update_interval = interval
+
+    @callback
     def async_apply_optimistic(
-        self, patch: Callable[[S], S], *, ttl: timedelta = timedelta(seconds=60)
+        self,
+        patches: Mapping[Hashable, Callable[[S], S]],
+        *,
+        ttl: timedelta = timedelta(seconds=60),
     ) -> None:
-        """Apply a patch now and re-apply it to fetched data until it agrees or ttl passes."""
+        """Apply patches by target now; re-apply each until the data agrees or ttl passes.
+
+        A patch replaces the pending patch of the same target. The poll timer
+        keeps running: async_set_updated_data would restart it, so writes more
+        often than the interval would stop the polling.
+        """
         if self.data is None:
             return
-        self._pending.add(patch, dt_util.utcnow() + ttl)
-        self.async_set_updated_data(patch(self.data))
+        expires = dt_util.utcnow() + ttl
+        data = self.data
+        for target, patch in patches.items():
+            self._pending.add(target, patch, expires)
+            data = patch(data)
+        self.data = data
+        self.async_update_listeners()
 
     def _serve_stale(self, err: TadoXRateLimitError, now: datetime) -> S:
         """Serve the last snapshot during a quota hold, while it is recent enough."""
@@ -265,7 +310,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         data: S | None = self._seed_data if setup else self.data
         at = self._seed_at if setup else self.last_live_update
         reset = err.reset_at or self._monitor.reset_time
-        if data is None or at is None or now - at > self.MAX_STALE:
+        if data is None or at is None or not self._servable(at, now):
             raise _quota_failed(reset, now, setup=setup) from err
         if self.stale_since is None:
             self.stale_since = now
@@ -273,32 +318,43 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         self.last_live_update = at
         return data
 
+    def _servable(self, at: datetime, now: datetime) -> bool:
+        """Return whether data read at a time may be served during the hold.
+
+        A hold that ends at a reset tado sent keeps serving what was within
+        MAX_STALE when the hold began; otherwise MAX_STALE counts from now.
+        """
+        if now - at <= self.MAX_STALE:
+            return True
+        began = self.stale_since or now
+        return (
+            self._monitor.known_hold_end(now) is not None
+            and began - at <= self.MAX_STALE
+        )
+
     async def _async_gather(
         self, due: frozenset[str], fetchers: Mapping[str, Fetcher]
     ) -> tuple[dict[str, Any], dict[str, TadoXError]]:
-        """Run the due fetchers at once; return the values and the optional failures.
+        """Run the due fetchers; return the values and the optional failures.
 
+        The required endpoints go first and the optional ones together after
+        them, so a used-up quota costs one request, not one per endpoint.
         A quota error wins over an auth error, which wins over "not a tado X
         home", then over a failed required endpoint. A failed optional
-        endpoint does not fail the tick.
+        endpoint does not fail the tick, nor does one the quota gate refused
+        after the required endpoints were read.
         """
         keys = [key for key in fetchers if key in due]
-        results = await asyncio.gather(
-            *(fetchers[key]() for key in keys), return_exceptions=True
-        )
-        outcome = dict(zip(keys, results, strict=True))
-        errors = {
-            key: result
-            for key, result in outcome.items()
-            if isinstance(result, BaseException)
-        }
-        for kind in (TadoXRateLimitError, TadoXAuthError, TadoXHomeNotXError):
-            for error in errors.values():
-                if isinstance(error, kind):
-                    raise error
-        for key, error in errors.items():
-            if key in self.REQUIRED or not isinstance(error, TadoXError):
-                raise error
+        outcome: dict[str, Any] = {}
+        for batch in (
+            [key for key in keys if key in self.REQUIRED],
+            [key for key in keys if key not in self.REQUIRED],
+        ):
+            results = await asyncio.gather(
+                *(fetchers[key]() for key in batch), return_exceptions=True
+            )
+            outcome.update(zip(batch, results, strict=True))
+            self._raise_first(outcome)
         values: dict[str, Any] = {}
         failures: dict[str, TadoXError] = {}
         for key, result in outcome.items():
@@ -310,12 +366,39 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
                 self._note_success(key)
         return values, failures
 
+    def _raise_first(self, outcome: Mapping[str, Any]) -> None:
+        """Raise the error that fails the tick, if any, by precedence."""
+        errors = {
+            key: result
+            for key, result in outcome.items()
+            if isinstance(result, BaseException) and not self._refused(key, result)
+        }
+        for kind in (TadoXRateLimitError, TadoXAuthError, TadoXHomeNotXError):
+            for error in errors.values():
+                if isinstance(error, kind):
+                    raise error
+        for key, error in errors.items():
+            if key in self.REQUIRED or not isinstance(error, TadoXError):
+                raise error
+
+    def _refused(self, key: str, err: BaseException) -> bool:
+        """Return True for an optional read the quota gate refused."""
+        return (
+            key not in self.REQUIRED
+            and isinstance(err, TadoXRateLimitError)
+            and err.local
+        )
+
     def _expected_failure(self, key: str, err: TadoXError) -> bool:
         """Return True for a failure that is an answer, not a problem."""
         return False
 
     def _note_failure(self, key: str, err: TadoXError) -> None:
-        if self._expected_failure(key, err) or key in self._failing:
+        if (
+            self._refused(key, err)
+            or self._expected_failure(key, err)
+            or key in self._failing
+        ):
             return
         self._failing.add(key)
         LOGGER.warning(
@@ -441,6 +524,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         my.tado.com homes/{id}.
         """
         self._client = client
+        self._generation_warned = False
         super().__init__(hass, entry, api, monitor, seed)
         if self._seed_data is not None:
             monitor.async_note_devices(self._seed_data)
@@ -512,6 +596,13 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         info = await self._client.async_get_home_info(home_id)
         if info.generation is HomeGeneration.PRE_LINE_X:
             raise TadoXHomeNotXError(home_id)
+        if info.generation is HomeGeneration.UNKNOWN and not self._generation_warned:
+            self._generation_warned = True
+            LOGGER.warning(
+                "tado reports no known generation for %s; it is used as a tado X "
+                "home because the tado X API serves it",
+                self.config_entry.title,
+            )
         return info
 
     @override

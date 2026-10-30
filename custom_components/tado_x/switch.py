@@ -132,7 +132,11 @@ class TadoXChildLockSwitch(_TadoXSwitch[DevicesCoordinator]):
         serial = self._serial
         await self.coordinator.api.async_update_device(serial, child_lock=on)
         self.coordinator.async_apply_optimistic(
-            lambda snapshot: snapshot.with_device(serial, child_lock=on)
+            {
+                ("child_lock", serial): lambda snapshot: snapshot.with_device(
+                    serial, child_lock=on
+                )
+            }
         )
 
 
@@ -172,7 +176,9 @@ class TadoXOpenWindowSwitch(_TadoXSwitch[RoomsCoordinator]):
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="open_window_not_detected"
             ) from err
-        self.coordinator.async_apply_optimistic(_open_window_patch(self._room_id, on))
+        self.coordinator.async_apply_optimistic(
+            {("open_window", self._room_id): _open_window_patch(self._room_id, on)}
+        )
         await self.coordinator.async_request_refresh()
 
 
@@ -208,5 +214,9 @@ class TadoXAutoAdaptationSwitch(_TadoXSwitch[DevicesCoordinator]):
     async def _async_set(self, on: bool) -> None:
         await self.coordinator.api.async_set_flow_temperature(auto_adaptation=on)
         self.coordinator.async_apply_optimistic(
-            lambda snapshot: snapshot.with_flow_temperature(auto_adaptation=on)
+            {
+                "auto_adaptation": lambda snapshot: snapshot.with_flow_temperature(
+                    auto_adaptation=on
+                )
+            }
         )

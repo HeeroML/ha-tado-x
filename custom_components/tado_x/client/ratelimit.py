@@ -182,6 +182,10 @@ class QuotaTracker:
     sent. Below POLL_FLOOR remaining calls, polls are refused and commands
     still pass; without a known reset one poll per 15 minutes re-reads the
     quota, so polling cannot stop for good.
+
+    Every sent request gets a ticket. While the gate is closed, a response to
+    a request sent before it closed changes nothing: tado answered it before
+    the quota ran out.
     """
 
     POLL_FLOOR: Final = 20
@@ -198,12 +202,13 @@ class QuotaTracker:
         self.blocked_until = None
         self.calls = CallCounter()
         self._backoff_step = 0
+        self._closures = 0
         self._listeners: list[Callable[[], None]] = []
 
     def check(self, priority: Priority) -> None:
         """Raise TadoXRateLimitError(local=True) when the gate refuses the request."""
         now = self._clock()
-        if self.blocked_until is not None and now < self.blocked_until:
+        if self._closed(now):
             raise TadoXRateLimitError(self.latest, self.blocked_until, local=True)
         info = self.latest
         if (
@@ -213,13 +218,42 @@ class QuotaTracker:
         ):
             raise TadoXRateLimitError(info, info.reset_at, local=True)
 
+    def known_hold_end(self, now: datetime) -> datetime | None:
+        """Return when refused polls go out again, if that is a reset tado sent.
+
+        None while polls pass, without t=, and for a backoff after a 429
+        without t= that ends after the last reset tado sent.
+        """
+        info = self.latest
+        if info is None or (reset := info.reset_at) is None:
+            return None
+        blocked = self.blocked_until
+        if blocked is not None and now < blocked:
+            return blocked if blocked <= reset + _GATE_GRACE else None
+        return reset if self._below_floor(info, now) else None
+
     def _below_floor(self, info: RateLimitInfo, now: datetime) -> bool:
         if info.remaining is None or info.remaining > self.POLL_FLOOR:
             return False
         return now < (info.reset_at or info.observed_at + _FLOOR_RECHECK)
 
-    def observe(self, info: RateLimitInfo | None, *, status: int) -> None:
-        """Take the headers and the status of a response into account."""
+    def _closed(self, now: datetime) -> bool:
+        return self.blocked_until is not None and now < self.blocked_until
+
+    def observe(
+        self, info: RateLimitInfo | None, *, status: int, ticket: int | None = None
+    ) -> None:
+        """Take the headers and the status of a response into account.
+
+        ticket is what record_call() returned for the request; None stands
+        for a request sent after the gate last closed.
+        """
+        if (
+            ticket is not None
+            and ticket < self._closures
+            and self._closed(self._clock())
+        ):
+            return
         if info is not None:
             self.latest = self._merged(info)
         success = HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES
@@ -228,10 +262,14 @@ class QuotaTracker:
         if status == HTTPStatus.TOO_MANY_REQUESTS:
             self._close_after_429(info)
         elif info is not None and info.remaining == 0 and info.reset_at is not None:
-            self.blocked_until = info.reset_at + _GATE_GRACE
+            self._close(info.reset_at + _GATE_GRACE)
         elif success:
             self.blocked_until = None
         self._notify()
+
+    def _close(self, until: datetime) -> None:
+        self.blocked_until = until
+        self._closures += 1
 
     def _merged(self, info: RateLimitInfo) -> RateLimitInfo:
         """Keep the last known limit and window when a response lacks the policy."""
@@ -244,18 +282,22 @@ class QuotaTracker:
 
     def _close_after_429(self, info: RateLimitInfo | None) -> None:
         if info is not None and info.reset_at is not None:
-            self.blocked_until = info.reset_at + _GATE_GRACE
+            self._close(info.reset_at + _GATE_GRACE)
             return
         now = self._clock()
-        if self.blocked_until is not None and now < self.blocked_until:
+        if self._closed(now):
             return
         step = min(self._backoff_step, len(self.BACKOFF_429) - 1)
-        self.blocked_until = now + timedelta(seconds=self.BACKOFF_429[step])
+        self._close(now + timedelta(seconds=self.BACKOFF_429[step]))
         self._backoff_step += 1
 
-    def record_call(self) -> None:
-        """Count one sent request; listeners run when its response is observed."""
+    def record_call(self) -> int:
+        """Count one sent request and return the ticket to observe its response with.
+
+        Listeners run when the response is observed.
+        """
         self.calls.record(self._clock())
+        return self._closures
 
     def add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         """Call cb after every observed response and restore; return a remover."""

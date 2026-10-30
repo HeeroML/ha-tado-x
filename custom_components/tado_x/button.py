@@ -1,5 +1,6 @@
 """Button platform: quick actions and identify."""
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Final, override
 
@@ -17,6 +18,7 @@ from .client import (
     Setting,
     TerminationType,
 )
+from .climate import RoomPatch, control_target, resume_patch
 from .coordinator import DevicesCoordinator, RoomsCoordinator
 from .devices import device_identifier, home_identifier
 from .entity import TadoXEntity, async_add_dynamic_entities, handle_tado_errors
@@ -60,15 +62,26 @@ IDENTIFY_DESCRIPTION = ButtonEntityDescription(
 )
 
 
-def _all_off(snapshot: RoomsSnapshot) -> RoomsSnapshot:
-    """Show every room off until ended, as the allOff quick action leaves it."""
-    for room_id, room in snapshot.rooms.items():
+def _off_patch(room_id: int) -> RoomPatch:
+    """Return a patch that shows a room off until ended, as allOff leaves it."""
+
+    def patch(snapshot: RoomsSnapshot) -> RoomsSnapshot:
+        if (room := snapshot.rooms.get(room_id)) is None:
+            return snapshot
         manual = room.manual_control
-        if room.setting != OFF or manual is None or manual.type is not MANUAL:
-            snapshot = snapshot.with_room(
-                room_id, setting=OFF, manual_control=ActiveOverride(type=MANUAL)
-            )
-    return snapshot
+        if room.setting == OFF and manual is not None and manual.type is MANUAL:
+            return snapshot
+        return snapshot.with_room(
+            room_id, setting=OFF, manual_control=ActiveOverride(type=MANUAL)
+        )
+
+    return patch
+
+
+ROOM_PATCHES: Final[Mapping[QuickAction, Callable[[int], RoomPatch]]] = {
+    QuickAction.ALL_OFF: _off_patch,
+    QuickAction.RESUME_SCHEDULE: resume_patch,
+}
 
 
 async def async_setup_entry(
@@ -118,8 +131,13 @@ class TadoXQuickActionButton(TadoXEntity[RoomsCoordinator], ButtonEntity):
     @handle_tado_errors
     async def _async_run(self, action: QuickAction) -> None:
         await self.coordinator.api.async_quick_action(action)
-        if action is QuickAction.ALL_OFF:
-            self.coordinator.async_apply_optimistic(_all_off)
+        if (room_patch := ROOM_PATCHES.get(action)) is not None:
+            self.coordinator.async_apply_optimistic(
+                {
+                    control_target(room_id): room_patch(room_id)
+                    for room_id in self.coordinator.data.rooms
+                }
+            )
         await self.coordinator.async_request_refresh()
 
 

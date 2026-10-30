@@ -175,6 +175,7 @@ def plan() -> PollPlan:
         (_info(1001), MAX_FACTOR, PlanMode.THROTTLED),
         (_info(1000), MAX_FACTOR, PlanMode.CONSERVING),
         (_info(1800, reset_in=0), 1.0, PlanMode.OK),
+        (_info(900, reset_in=0), 1.0, PlanMode.OK),
     ],
     ids=[
         "no_headers",
@@ -185,6 +186,7 @@ def plan() -> PollPlan:
         "capped",
         "reserve",
         "reset_passed",
+        "reserve_until_a_passed_reset",
     ],
 )
 def test_throttle_factor(

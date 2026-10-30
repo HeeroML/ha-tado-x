@@ -152,18 +152,21 @@ def throttle_factor(
 
     The plan's calls until the quota resets are compared with this entry's
     share of the quota left above the reserve. Without a known reset the
-    whole day is assumed.
+    whole day is assumed; once a known reset has passed, the quota counts
+    as refilled.
     """
     if blocked:
         return 1.0, PlanMode.BLOCKED
     if info is None or info.remaining is None:
         return 1.0, PlanMode.OK
+    reset_at = info.reset_at
+    if reset_at is not None and reset_at <= now:
+        return 1.0, PlanMode.OK
     if info.limit is not None:
         reserve = min(reserve, math.floor(0.1 * info.limit))
     if info.remaining <= reserve:
         return MAX_FACTOR, PlanMode.CONSERVING
-    reset_at = info.reset_at
-    seconds = _DAY if reset_at is None else max((reset_at - now).total_seconds(), 0)
+    seconds = _DAY if reset_at is None else (reset_at - now).total_seconds()
     need = plan.calls_per_day * seconds / _DAY
     allowed = (info.remaining - reserve) / max(entries_on_account, 1)
     factor = min(max(need / allowed, 1.0), MAX_FACTOR)

@@ -55,7 +55,9 @@ async def async_set_presence(entry: TadoXConfigEntry, setting: PresenceSetting) 
         raise_for_tado_error(err, entry)
     except TadoXError as err:
         raise_for_tado_error(err, entry)
-    data.home.async_apply_optimistic(lambda snapshot: snapshot.with_presence(setting))
+    data.home.async_apply_optimistic(
+        {"presence": lambda snapshot: snapshot.with_presence(setting)}
+    )
 
 
 async def async_set_room_default(
@@ -68,7 +70,11 @@ async def async_set_room_default(
     except TadoXError as err:
         raise_for_tado_error(err, entry)
     data.devices.async_apply_optimistic(
-        lambda snapshot: snapshot.with_room_default(room_id, termination)
+        {
+            ("room_default", room_id): lambda snapshot: snapshot.with_room_default(
+                room_id, termination
+            )
+        }
     )
 
 
