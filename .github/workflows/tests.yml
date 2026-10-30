@@ -2,38 +2,121 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, "rewrite/**"]
   pull_request:
+  schedule:
+    # Weekly pytest-next run against the newest Home Assistant.
+    - cron: "41 4 * * 1"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+
+env:
+  PYTHON_VERSION: "3.14"
+  # Files the design requires at 100 % line coverage.
+  FULL_COVERAGE: >-
+    custom_components/tado_x/client/auth.py
+    custom_components/tado_x/client/ratelimit.py
+    custom_components/tado_x/client/http.py
+    custom_components/tado_x/budget.py
+    custom_components/tado_x/termination.py
+    custom_components/tado_x/migration.py
+    custom_components/tado_x/config_flow.py
 
 jobs:
   lint:
     name: ruff + mypy
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ${{ github.workflow }}-lint-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: requirements_test.txt
       - run: pip install -r requirements_test.txt
       - run: ruff check .
       - run: ruff format --check .
+      # Named explicitly so the probe is linted even while pyproject excludes it.
+      - run: ruff check scripts/live_probe.py
+      - run: ruff format --check scripts/live_probe.py
       - run: mypy
+      - name: translations/en.json matches strings.json
+        run: python scripts/gen_translations.py --check
+      - name: Untranslated keys (informational)
+        run: python scripts/gen_translations.py --report
 
   pytest:
     name: pytest (Python 3.14)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ${{ github.workflow }}-pytest-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: requirements_test.txt
       - run: pip install -r requirements_test.txt
-      - run: pytest --cov=custom_components.tado_x --cov-report=term-missing --cov-fail-under=95
+      - name: pytest with at least 95 % line and branch coverage
+        run: >-
+          pytest
+          --cov=custom_components.tado_x
+          --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=95
+      - name: 100 % line coverage of the core files
+        run: |
+          coverage json --quiet -o coverage.json
+          python - <<'EOF'
+          import json
+          import os
+          import sys
+
+          with open("coverage.json", encoding="utf-8") as handle:
+              files = json.load(handle)["files"]
+          failed = False
+          for name in os.environ["FULL_COVERAGE"].split():
+              data = files.get(name)
+              if data is None:
+                  print(f"{name}: not measured")
+                  failed = True
+                  continue
+              summary = data["summary"]
+              missing = data["missing_lines"]
+              print(
+                  f"{name}: {summary['covered_lines']}/{summary['num_statements']} lines"
+                  + (f", not covered: {missing}" if missing else "")
+              )
+              failed = failed or bool(missing)
+          sys.exit(1 if failed else 0)
+          EOF
+
+  pytest-next:
+    name: pytest against the newest Home Assistant
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    concurrency:
+      group: ${{ github.workflow }}-pytest-next-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements_test.txt
+      - run: pip install --upgrade --pre pytest-homeassistant-custom-component
+      - run: python -c "from homeassistant.const import __version__; print('Home Assistant', __version__)"
+      - run: pytest -W "error::DeprecationWarning:custom_components.tado_x"
