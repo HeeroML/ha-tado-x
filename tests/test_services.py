@@ -1,19 +1,33 @@
 """Tests for the tado X services (#51, #60, #64, #69, #92)."""
 
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
 import probatio
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+import yaml
 
+from custom_components.tado_x import services as services_module
+from custom_components.tado_x.client import tariff_cents
 from custom_components.tado_x.const import DOMAIN, OPT_HOLIDAY_MODE
 from custom_components.tado_x.devices import (
     device_identifier,
     home_identifier,
     mobile_identifier,
     room_identifier,
+)
+from custom_components.tado_x.services import (
+    ADD_METER_READING_SCHEMA,
+    GET_DAY_REPORT_SCHEMA,
+    HOME_SCHEMA,
+    SET_CLIMATE_TIMER_SCHEMA,
+    SET_EIQ_TARIFF_SCHEMA,
+    SET_HOLIDAY_MODE_SCHEMA,
+    SET_SCHEDULE_SCHEMA,
+    SET_TEMPERATURE_OFFSET_SCHEMA,
 )
 from homeassistant.config_entries import SOURCE_REAUTH
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
@@ -30,6 +44,7 @@ from tests.test_climate import (
     ROOMS,
     bodies,
     climate_id,
+    entity_id,
     manual_path,
     setup,
     state_of,
@@ -78,6 +93,13 @@ async def call(
         return {}
     assert isinstance(result, dict)
     return result
+
+
+def _services() -> dict[str, Any]:
+    services: dict[str, Any] = yaml.safe_load(
+        (Path(services_module.__file__).parent / "services.yaml").read_text("utf-8")
+    )
+    return services
 
 
 def device_id(
@@ -664,6 +686,37 @@ async def test_add_meter_reading_error(
 
 
 @pytest.mark.parametrize(
+    ("service", "data", "path"),
+    [
+        ("add_meter_reading", {"reading": 1}, METER),
+        (
+            "set_eiq_tariff",
+            {"tariff": 1, "unit": "m3", "start_date": "2026-11-01"},
+            TARIFFS,
+        ),
+    ],
+)
+async def test_energy_iq_refusal_in_a_2xx_is_an_error(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    service: str,
+    data: dict[str, Any],
+    path: str,
+) -> None:
+    """A 2xx that carries only a message is a refusal, not a success."""
+    await setup(hass, freezer)
+    reason = "Reading must be greater than previous reading"
+    mock_tado.fail("POST", path, status=200, body={"message": reason})
+
+    with pytest.raises(HomeAssistantError) as raised:
+        await call(hass, service, data)
+
+    assert raised.value.translation_key == "request_rejected"
+    assert raised.value.translation_placeholders == {"status": "200", "title": reason}
+
+
+@pytest.mark.parametrize(
     ("data", "body"),
     [
         (
@@ -700,6 +753,51 @@ async def test_set_eiq_tariff(
     await call(hass, "set_eiq_tariff", data)
 
     assert bodies(mock_tado, "POST", TARIFFS) == [body]
+
+
+async def test_set_eiq_tariff_starts_today_at_the_home(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Without a start date the tariff starts today at the home, as in 1.8."""
+    await setup(hass, freezer)
+    freezer.move_to(NIGHT)
+
+    await call(hass, "set_eiq_tariff", {"tariff": 0.12, "unit": "kWh"})
+
+    assert bodies(mock_tado, "POST", TARIFFS) == [
+        {"tariffInCents": 12, "unit": "kWh", "startDate": "2026-10-31"}
+    ]
+
+
+def test_tariff_selector_steps_in_cents() -> None:
+    """The tariff field offers no finer step than the cent tado stores."""
+    tariff = _services()["set_eiq_tariff"]["fields"]["tariff"]
+    assert tariff_cents(tariff["selector"]["number"]["step"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("service", "schema"),
+    [
+        ("set_climate_timer", SET_CLIMATE_TIMER_SCHEMA),
+        ("set_schedule", SET_SCHEDULE_SCHEMA),
+        ("get_day_report", GET_DAY_REPORT_SCHEMA),
+        ("set_temperature_offset", SET_TEMPERATURE_OFFSET_SCHEMA),
+        ("add_meter_reading", ADD_METER_READING_SCHEMA),
+        ("set_eiq_tariff", SET_EIQ_TARIFF_SCHEMA),
+        ("get_holiday_mode", HOME_SCHEMA),
+        ("set_holiday_mode", SET_HOLIDAY_MODE_SCHEMA),
+    ],
+)
+def test_services_yaml_marks_the_required_fields(
+    service: str, schema: probatio.Schema | dict[Any, Any]
+) -> None:
+    """A field is required in the UI exactly when the schema requires it."""
+    keys = schema.schema if isinstance(schema, probatio.Schema) else schema
+    fields = _services()[service].get("fields", {})
+
+    assert {name for name, field in fields.items() if field.get("required")} == {
+        str(key) for key in keys if isinstance(key, probatio.Required)
+    }
 
 
 async def test_set_eiq_tariff_error(
@@ -808,6 +906,53 @@ async def test_turn_off_holiday_mode_keeps_the_period(
     await call(hass, "set_holiday_mode", {"enabled": False})
 
     assert entry.runtime_data.devices.data.holiday_mode == holiday
+
+
+@pytest.mark.parametrize(
+    ("data", "shown"),
+    [
+        (
+            {
+                "enabled": True,
+                "start": "2026-10-30T09:00:00+00:00",
+                "end": "2026-11-02T18:00:00+00:00",
+            },
+            "on",
+        ),
+        ({"enabled": True}, "on"),
+        (
+            {
+                "enabled": True,
+                "start": "2026-12-20T09:00:00+00:00",
+                "end": "2027-01-02T18:00:00+00:00",
+            },
+            "off",
+        ),
+        ({"enabled": True, "end": "2026-10-30T09:00:00+00:00"}, "off"),
+    ],
+    ids=["period_now", "no_period", "period_later", "period_over"],
+)
+async def test_set_holiday_mode_shows_at_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    data: dict[str, Any],
+    shown: str,
+) -> None:
+    """The holiday sensor shows the written mode at once, without a holiday read."""
+    await setup(hass, freezer, **{OPT_HOLIDAY_MODE: True})
+    sensor = entity_id(hass, "binary_sensor", f"{HOME_B}_holiday_mode")
+    assert state_of(hass, sensor).state == "off"
+    mock_tado.clear_calls()
+
+    await call(hass, "set_holiday_mode", data)
+
+    assert state_of(hass, sensor).state == shown
+    assert len(mock_tado.calls("GET", HOLIDAY)) == 1
+
+    await call(hass, "set_holiday_mode", {"enabled": False})
+
+    assert state_of(hass, sensor).state == "off"
 
 
 async def test_set_holiday_mode_without_the_feature(

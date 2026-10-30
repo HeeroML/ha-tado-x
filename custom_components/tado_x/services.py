@@ -151,7 +151,7 @@ SET_EIQ_TARIFF_SCHEMA: Final = HOME_SCHEMA.extend(
         probatio.Required(ATTR_UNIT): probatio.All(
             str, probatio.Lower, probatio.In(TARIFF_UNITS)
         ),
-        probatio.Required(ATTR_START_DATE): cv.date,
+        probatio.Optional(ATTR_START_DATE): cv.date,
         probatio.Optional(ATTR_END_DATE): cv.date,
     }
 )
@@ -307,13 +307,18 @@ async def _async_add_meter_reading(call: ServiceCall) -> None:
 
 
 async def _async_set_eiq_tariff(call: ServiceCall) -> None:
-    """Add an Energy IQ tariff in whole cents, rounded half up."""
+    """Add an Energy IQ tariff in whole cents, rounded half up.
+
+    The start date defaults to today at the home, as in 1.8.
+    """
     entry = _energy_iq_entry(call)
+    data = entry.runtime_data
+    start = call.data.get(ATTR_START_DATE) or home_today(data.devices.data.home_info)
     try:
-        await entry.runtime_data.api.async_add_tariff(
+        await data.api.async_add_tariff(
             cents=tariff_cents(call.data[ATTR_TARIFF]),
             unit=TARIFF_UNITS[call.data[ATTR_UNIT]],
-            start=call.data[ATTR_START_DATE],
+            start=start,
             end=call.data.get(ATTR_END_DATE),
         )
     except TadoXError as err:
@@ -349,18 +354,30 @@ async def _async_get_holiday_mode(call: ServiceCall) -> ServiceResponse:
 
 
 def _holiday_patch(
-    enabled: bool, start: dt.datetime | None, end: dt.datetime | None
+    enabled: bool,
+    start: dt.datetime | None,
+    end: dt.datetime | None,
+    now: dt.datetime,
 ) -> Callable[[DevicesSnapshot], DevicesSnapshot]:
-    """Return a patch that shows the written holiday mode until tado reports it."""
+    """Return a patch that shows the written holiday mode until tado reports it.
+
+    The holiday sensor shows whether the mode is active, so the patch derives
+    that from the period instead of waiting for the next holiday mode read.
+    """
 
     def patch(snapshot: DevicesSnapshot) -> DevicesSnapshot:
         if (current := snapshot.holiday_mode) is None:
             return snapshot
+        begins = start or current.start
+        ends = end or current.end
         changed = replace(
             current,
             enabled=enabled,
-            start=start or current.start,
-            end=end or current.end,
+            active=enabled
+            and (begins is None or begins <= now)
+            and (ends is None or now < ends),
+            start=begins,
+            end=ends,
         )
         return (
             snapshot if changed == current else replace(snapshot, holiday_mode=changed)
@@ -383,7 +400,7 @@ async def _async_set_holiday_mode(call: ServiceCall) -> None:
     except TadoXError as err:
         _raise_holiday_error(err, entry)
     data.devices.async_apply_optimistic(
-        {"holiday_mode": _holiday_patch(enabled, start, end)}
+        {"holiday_mode": _holiday_patch(enabled, start, end, dt_util.utcnow())}
     )
 
 

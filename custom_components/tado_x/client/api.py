@@ -3,6 +3,7 @@
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
+from functools import partial
 from typing import Any
 
 from aiohttp import ClientSession
@@ -73,16 +74,21 @@ class TadoXHome:
         """Return the id of the home every call goes to."""
         return self._home_id
 
-    async def _poll(
-        self, url: URL, key: str | None, params: Mapping[str, str] | None = None
-    ) -> Any:
-        """Read a polled endpoint; a key hands the raw payload to the cache."""
-        return await self._transport.request(
-            "GET",
-            url,
-            params=params,
-            cache=None if key is None else (self._home_id, key),
-        )
+    async def _poll[T](
+        self,
+        url: URL,
+        key: str,
+        parse: Callable[[Any], T],
+        params: Mapping[str, str] | None = None,
+        *,
+        cached: bool = True,
+    ) -> T:
+        """Read and parse a polled endpoint; only a parsed payload reaches the cache."""
+        raw = await self._transport.request("GET", url, params=params, endpoint=key)
+        value = parse(raw)
+        if cached:
+            self._transport.publish(self._home_id, key, raw)
+        return value
 
     async def _read(self, url: URL, params: Mapping[str, str] | None = None) -> Any:
         """Read on demand, with command priority at the quota gate."""
@@ -98,56 +104,60 @@ class TadoXHome:
 
     async def async_get_rooms(self) -> dict[int, RoomState]:
         """Poll the live state of every room (hops rooms)."""
-        return RoomState.list_from_api(await self._poll(self._hops / "rooms", "rooms"))
+        return await self._poll(self._hops / "rooms", "rooms", RoomState.list_from_api)
 
     async def async_get_topology(self) -> Topology:
         """Poll rooms and devices (hops roomsAndDevices)."""
-        return Topology.from_api(
-            await self._poll(self._hops / "roomsAndDevices", "topology")
+        return await self._poll(
+            self._hops / "roomsAndDevices", "topology", Topology.from_api
         )
 
     async def async_get_home_state(self) -> HomeState:
         """Poll the presence of the home (my state)."""
-        return HomeState.from_api(await self._poll(self._my / "state", "home_state"))
+        return await self._poll(self._my / "state", "home_state", HomeState.from_api)
 
     async def async_get_weather(self) -> Weather:
         """Poll the weather at the home (my weather)."""
-        return Weather.from_api(await self._poll(self._my / "weather", "weather"))
+        return await self._poll(self._my / "weather", "weather", Weather.from_api)
 
     async def async_get_air_comfort(self) -> AirComfort:
         """Poll the air comfort of the rooms (hops airComfort)."""
-        return AirComfort.from_api(
-            await self._poll(self._hops / "airComfort", "air_comfort")
+        return await self._poll(
+            self._hops / "airComfort", "air_comfort", AirComfort.from_api
         )
 
     async def async_get_mobile_devices(self) -> dict[int, MobileDevice]:
         """Poll the phones of the home (my mobileDevices); never cached."""
-        return MobileDevice.list_from_api(
-            await self._poll(self._my / "mobileDevices", None)
+        return await self._poll(
+            self._my / "mobileDevices",
+            "mobile_devices",
+            MobileDevice.list_from_api,
+            cached=False,
         )
 
     async def async_get_running_times(self, day: date) -> RunningTimes:
         """Poll the heating running times of one day (minder runningTimes)."""
-        raw = await self._poll(
+        return await self._poll(
             self._minder / "runningTimes",
             "running_times",
+            partial(RunningTimes.from_api, day=day),
             {"from": day.isoformat(), "to": day.isoformat()},
         )
-        return RunningTimes.from_api(raw, day=day)
 
     async def async_get_flow_temperature(self) -> FlowTemperature:
         """Poll the flow temperature settings; 404 raises TadoXNotFoundError."""
-        return FlowTemperature.from_api(
-            await self._poll(
-                self._hops / "settings" / "flowTemperatureOptimization",
-                "flow_temperature",
-            )
+        return await self._poll(
+            self._hops / "settings" / "flowTemperatureOptimization",
+            "flow_temperature",
+            FlowTemperature.from_api,
         )
 
     async def async_get_holiday_mode(self) -> HolidayMode:
         """Poll the holiday mode (hops settings/holidayMode)."""
-        return HolidayMode.from_api(
-            await self._poll(self._hops / "settings" / "holidayMode", "holiday_mode")
+        return await self._poll(
+            self._hops / "settings" / "holidayMode",
+            "holiday_mode",
+            HolidayMode.from_api,
         )
 
     async def async_get_room(self, room_id: int) -> RoomState:
@@ -348,11 +358,11 @@ class TadoXClient:
     async def async_get_home_info(self, home_id: int) -> HomeInfo:
         """Read the details of a home (my homes/{id})."""
         raw = await self._transport.request(
-            "GET",
-            URL(MY_API_URL) / "homes" / str(home_id),
-            cache=(home_id, "home_info"),
+            "GET", URL(MY_API_URL) / "homes" / str(home_id), endpoint="home_info"
         )
-        return HomeInfo.from_api(raw)
+        info = HomeInfo.from_api(raw)
+        self._transport.publish(home_id, "home_info", HomeInfo.cache_payload(raw))
+        return info
 
     async def async_list_homes(self, account: Account | None = None) -> list[HomeInfo]:
         """Read the details of every home of the account, one call per home.

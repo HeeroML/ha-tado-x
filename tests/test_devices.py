@@ -1,7 +1,9 @@
 """Tests for the device registry and dynamic entities."""
 
 from collections.abc import Iterable
+import copy
 from datetime import timedelta
+import logging
 from typing import Any, override
 
 from freezegun.api import FrozenDateTimeFactory
@@ -25,8 +27,13 @@ from custom_components.tado_x.entity import (
     TadoXStatusEntity,
     async_add_dynamic_entities,
 )
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import area_registry as ar, device_registry as dr
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+)
 from homeassistant.helpers.device_registry import DeviceEntry, DeviceEntryType
 from homeassistant.helpers.entity import Entity, EntityDescription
 from tests.tado_mock import HOME_B, TadoCloudMock
@@ -240,13 +247,117 @@ async def test_new_and_removed_devices_follow_live_topology(
     assert _device(device_registry, config_entry, home_identifier(HOME_B))
 
 
+async def test_unreadable_topology_items_remove_nothing(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    device_registry: dr.DeviceRegistry,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A device or room the parser skips keeps its device, entities and settings."""
+    await setup_entry(hass, config_entry)
+    valve = _device(device_registry, config_entry, device_identifier("VA0000000101"))
+    device_registry.async_update_device(valve.id, name_by_user="Fenster links")
+    devices = len(
+        dr.async_entries_for_config_entry(device_registry, config_entry.entry_id)
+    )
+    entities = len(
+        er.async_entries_for_config_entry(entity_registry, config_entry.entry_id)
+    )
+    topology = mock_tado.home(HOME_B).topology
+    del topology["rooms"][0]["devices"][0]["type"]
+    del topology["rooms"][1]["roomName"]
+
+    await _tick(hass, freezer, 900)
+    await _tick(hass, freezer, 900)
+
+    assert config_entry.runtime_data.devices.last_update_success
+    assert not config_entry.runtime_data.devices.data.topology.complete
+    assert (
+        len(dr.async_entries_for_config_entry(device_registry, config_entry.entry_id))
+        == devices
+    )
+    assert (
+        len(er.async_entries_for_config_entry(entity_registry, config_entry.entry_id))
+        == entities
+    )
+    valve = _device(device_registry, config_entry, device_identifier("VA0000000101"))
+    assert valve.name_by_user == "Fenster links"
+    assert _device(device_registry, config_entry, room_identifier(HOME_B, 2))
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+        and "malformed topology" in record.getMessage()
+    ]
+    assert len(warnings) == 2
+
+
+async def test_entities_return_with_their_device(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A room or device that drops out of a live read gets its entities back."""
+    await setup_entry(hass, config_entry)
+    _add_room(mock_tado, 7, "VA0000000107")
+    live_rooms = mock_tado.home(HOME_B).rooms
+    live_rooms.append({**copy.deepcopy(live_rooms[0]), "id": 7, "name": "Gaestezimmer"})
+    await _tick(hass, freezer, 900)
+    entities = {
+        ("climate", f"{HOME_B}_7_climate"),
+        ("binary_sensor", "VA0000000107_connectivity"),
+        ("switch", "VA0000000101_child_lock"),
+    }
+    entity_ids = {
+        unique_id: entity_registry.async_get_entity_id(domain, DOMAIN, unique_id)
+        for domain, unique_id in entities
+    }
+    boost = ("binary_sensor", DOMAIN, f"{HOME_B}_7_boost")
+    assert entity_registry.async_get_entity_id(*boost)
+    for unique_id, entity_id in entity_ids.items():
+        state = hass.states.get(str(entity_id))
+        assert state is not None, unique_id
+        assert state.state != STATE_UNAVAILABLE, unique_id
+
+    topology = mock_tado.home(HOME_B).topology
+    room = topology["rooms"].pop()
+    valve = topology["rooms"][0]["devices"].pop(0)
+    await _tick(hass, freezer, 900)
+
+    for domain, unique_id in entities:
+        assert entity_registry.async_get_entity_id(domain, DOMAIN, unique_id) is None
+    assert entity_registry.async_get_entity_id(*boost) is None
+
+    topology["rooms"].append(room)
+    topology["rooms"][0]["devices"].insert(0, valve)
+    await _tick(hass, freezer, 900)
+
+    for unique_id, entity_id in entity_ids.items():
+        state = hass.states.get(str(entity_id))
+        assert state is not None, unique_id
+        assert state.state != STATE_UNAVAILABLE, unique_id
+    boost_id = entity_registry.async_get_entity_id(*boost)
+    assert boost_id is not None
+    boost_entry = entity_registry.async_get(boost_id)
+    assert boost_entry is not None
+    assert boost_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+
+
 async def test_phones_are_registered_and_removed(
     hass: HomeAssistant,
     mock_tado: TadoCloudMock,
     device_registry: dr.DeviceRegistry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Phones are devices of the home while the phone feature is on."""
+    """Phones are devices of the home while the phone feature is on.
+
+    A phone that returns gets its tracker and at-home sensor back.
+    """
     entry = make_entry()
     entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
@@ -262,13 +373,22 @@ async def test_phones_are_registered_and_removed(
     assert phone.sw_version == "15"
     assert phone.via_device_id == home.id
 
-    mock_tado.home(HOME_B).mobile_devices.pop()
+    phones = mock_tado.home(HOME_B).mobile_devices
+    tablet = phones.pop()
     await _tick(hass, freezer, 300)
 
     assert not device_registry.async_get_device_by_identifier(
         mobile_identifier(5000003), entry.entry_id
     )
     assert _device(device_registry, entry, mobile_identifier(5000002))
+    assert hass.states.get("device_tracker.tablet") is None
+
+    phones.append(tablet)
+    await _tick(hass, freezer, 300)
+
+    assert _device(device_registry, entry, mobile_identifier(5000003))
+    assert hass.states.get("device_tracker.tablet") is not None
+    assert hass.states.get("binary_sensor.tablet_at_home") is not None
 
 
 async def test_phones_stay_when_the_feature_is_off(

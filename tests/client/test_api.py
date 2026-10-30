@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClien
 from custom_components.tado_x.client import (
     DayType,
     HomeGeneration,
+    HomeInfo,
     MemoryTokenStore,
     Power,
     PresenceSetting,
@@ -27,6 +28,7 @@ from custom_components.tado_x.client import (
     TadoXHome,
     TadoXHomeNotXError,
     TadoXNotFoundError,
+    TadoXParseError,
     TadoXRateLimitError,
     TadoXServerError,
     TariffUnit,
@@ -582,6 +584,58 @@ async def test_account_and_home_info(
     assert [(home_id, key) for home_id, key, _, _ in observed] == [
         (HOME_B, "home_info")
     ]
+
+
+async def test_home_info_cache_leaves_out_personal_data(
+    mock_tado: TadoCloudMock, client: TadoXClient, observed: Observed
+) -> None:
+    """Only the keys HomeInfo reads are cached; contact details and address are not."""
+    info = await client.async_get_home_info(HOME_B)
+
+    [(_, _, raw, _)] = observed
+    assert set(raw) == {
+        "id",
+        "name",
+        "generation",
+        "dateTimeZone",
+        "temperatureUnit",
+        "supportsFlowTemperatureOptimization",
+        "isAirComfortEligible",
+        "isEnergyIqEligible",
+    }
+    assert HomeInfo.from_api(raw) == info
+
+
+@pytest.mark.parametrize(
+    ("read", "path"),
+    [
+        (lambda client: client.home(HOME_B).async_get_rooms(), "/homes/1000002/rooms"),
+        (
+            lambda client: client.home(HOME_B).async_get_topology(),
+            "/homes/1000002/roomsAndDevices",
+        ),
+        (
+            lambda client: client.home(HOME_B).async_get_home_state(),
+            "/api/v2/homes/1000002/state",
+        ),
+        (lambda client: client.async_get_home_info(HOME_B), "/api/v2/homes/1000002"),
+    ],
+    ids=["rooms", "topology", "home_state", "home_info"],
+)
+async def test_unparsable_payload_is_not_cached(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    observed: Observed,
+    read: Callable[[TadoXClient], Awaitable[object]],
+    path: str,
+) -> None:
+    """A 2xx the parser refuses never reaches the cache observer."""
+    mock_tado.fail("GET", path, status=200, body={"message": "try again later"})
+
+    with pytest.raises(TadoXParseError):
+        await read(client)
+
+    assert observed == []
 
 
 async def test_list_homes(mock_tado: TadoCloudMock, client: TadoXClient) -> None:

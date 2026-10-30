@@ -14,7 +14,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.tado_x.cache import SAVE_DELAY, SnapshotCache
-from custom_components.tado_x.client import RoomState
+from custom_components.tado_x.client import HomeInfo, RoomState
 from custom_components.tado_x.const import DOMAIN
 from custom_components.tado_x.coordinator import home_today
 from custom_components.tado_x.runtime import FeatureStatus, RoomsSnapshot
@@ -345,6 +345,60 @@ async def test_live_data_replaces_the_cache(
     assert data.rooms.data.rooms[1].name == "Wohnzimmer"
     assert data.rooms.stale_since is None
     assert data.rooms.last_live_update == dt_util.utcnow()
+
+
+async def test_malformed_payload_keeps_the_last_good_cache(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A 2xx the parser refuses never replaces the payload a restart starts from."""
+    entry = make_entry()
+    await _start(hass, freezer, entry)
+    data = entry.runtime_data
+    last_good = data.cache.payload("rooms")
+    assert last_good is not None
+    mock_tado.fail(
+        "GET",
+        f"/homes/{HOME_B}/rooms",
+        status=200,
+        body={"message": "temporarily unavailable"},
+        times=1,
+    )
+
+    await _tick(hass, freezer, data.rooms.update_interval.total_seconds())
+
+    assert not data.rooms.last_update_success
+    assert data.cache.payload("rooms") == last_good
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=2))
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.rooms.data == RoomsSnapshot(
+        rooms=RoomState.list_from_api(load_fixture("rooms.json"))
+    )
+
+
+async def test_home_info_cache_holds_only_what_is_parsed(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The owner's contact details, address and location never reach the Store."""
+    entry = make_entry()
+    await _start(hass, freezer, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    stored = hass_storage[_key(entry)]["data"]["payloads"]["home_info"]["raw"]
+    for key in ("contactDetails", "address", "geolocation", "dateCreated", "skills"):
+        assert key not in stored
+    assert "user@example.invalid" not in str(hass_storage[_key(entry)])
+    assert HomeInfo.from_api(stored) == HomeInfo.from_api(mock_tado.home(HOME_B).info)
 
 
 async def test_call_counter_survives_a_restart(

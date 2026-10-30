@@ -594,11 +594,11 @@
           "name": "End date"
         },
         "start_date": {
-          "description": "First day of the tariff.",
+          "description": "First day of the tariff. Defaults to today in the time zone of the home.",
           "name": "Start date"
         },
         "tariff": {
-          "description": "Price per unit, for example 0.85 for 0.85 per cubic meter.",
+          "description": "Price per unit, for example 0.85 for 0.85 per cubic meter. tado stores whole cents, so the price is rounded half up to two decimals.",
           "name": "Tariff"
         },
         "unit": {

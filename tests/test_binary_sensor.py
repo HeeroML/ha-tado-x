@@ -176,13 +176,34 @@ async def test_phones_at_home(
     await setup_entry(hass, config_entry, mobile_devices=True)
 
     assert state_of(hass, "binary_sensor.phone_at_home") == STATE_ON
-    assert state_of(hass, "binary_sensor.phone_2_at_home") == STATE_OFF
+    assert state_of(hass, "binary_sensor.phone_2_at_home") == STATE_UNKNOWN
     assert state_of(hass, "binary_sensor.tablet_at_home") == STATE_UNKNOWN
 
     phones.append({**phones[0], "id": 5000004, "name": "Watch"})
     await tick(hass, freezer, 300)
 
     assert state_of(hass, "binary_sensor.watch_at_home") == STATE_ON
+
+
+async def test_stale_phone_location_is_unknown(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An outdated location is unknown, like the tracker shows it, until it is fresh."""
+    phone = mock_tado.home(HOME_B).mobile_devices[1]
+    assert phone["location"] == {**phone["location"], "stale": True, "atHome": False}
+    await setup_entry(hass, config_entry, mobile_devices=True)
+
+    assert state_of(hass, "binary_sensor.phone_2_at_home") == STATE_UNKNOWN
+    assert state_of(hass, "device_tracker.phone_2") == STATE_UNKNOWN
+
+    phone["location"]["stale"] = False
+    await tick(hass, freezer, 300)
+
+    assert state_of(hass, "binary_sensor.phone_2_at_home") == STATE_OFF
+    assert state_of(hass, "device_tracker.phone_2") == "not_home"
 
 
 async def test_optional_sensors_follow_the_options(

@@ -12,7 +12,7 @@ from aiohttp import ClientError, ClientSession, ClientTimeout
 from yarl import URL
 
 from .auth import TokenManager
-from .const import CONNECT_TIMEOUT, HOPS_API_URL, REQUEST_TIMEOUT
+from .const import CONNECT_TIMEOUT, ENERGY_IQ_API_URL, HOPS_API_URL, REQUEST_TIMEOUT
 from .errors import (
     TadoXAuthError,
     TadoXConnectionError,
@@ -31,6 +31,7 @@ from .ratelimit import Priority, QuotaTracker, parse_rate_limit
 _LOGGER = logging.getLogger(__package__)
 
 _HOPS_HOST: Final = URL(HOPS_API_URL).host
+_ENERGY_IQ_HOST: Final = URL(ENERGY_IQ_API_URL).host
 _NOT_X_TITLE: Final = "Timezone of home"
 
 type PayloadObserver = Callable[[int, str, Any, datetime], None]
@@ -73,12 +74,22 @@ def _not_x_home_id(url: URL, title: str | None) -> int | None:
     return None
 
 
+def _is_energy_iq_refusal(url: URL, data: Any) -> bool:
+    """Return True for an Energy IQ 2xx that carries a message and no id (API §5.2)."""
+    return (
+        url.host == _ENERGY_IQ_HOST
+        and isinstance(data, dict)
+        and "message" in data
+        and "id" not in data
+    )
+
+
 class Transport:
     """Send authenticated requests and map every outcome to the error taxonomy.
 
     The quota gate is checked first, rate limit headers are observed before
     any status handling, a 401 is retried once with a refreshed token, and
-    any 2xx is a success.
+    any 2xx is a success, except an Energy IQ refusal.
     """
 
     def __init__(
@@ -102,6 +113,15 @@ class Transport:
         """Set the callback that receives (home_id, key, raw, at) of cached reads."""
         self._observer = cb
 
+    def publish(self, home_id: int, key: str, raw: Any) -> None:
+        """Hand the raw payload of a cached read to the observer.
+
+        Callers publish only after the endpoint parser accepted the payload,
+        so a malformed answer never replaces what a restart starts from.
+        """
+        if self._observer is not None:
+            self._observer(home_id, key, raw, self._clock())
+
     async def request(
         self,
         method: str,
@@ -110,9 +130,12 @@ class Transport:
         json: Any = None,
         params: Mapping[str, str] | None = None,
         priority: Priority = Priority.POLL,
-        cache: tuple[int, str] | None = None,
+        endpoint: str | None = None,
     ) -> Any:
-        """Send one request and return the parsed JSON body, or None if empty."""
+        """Send one request and return the parsed JSON body, or None if empty.
+
+        endpoint names the payload in a parse error; the URL path is the default.
+        """
         target = URL(url)
         self._quota.check(priority)
         token = await self._tokens.async_get_access_token()
@@ -124,9 +147,12 @@ class Transport:
                 raise TadoXAuthError("unauthorized_after_refresh")
         if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
             raise self._error(method, target, status, raw)
-        data = _decode(raw, cache[1] if cache else target.path)
-        if cache is not None and data is not None and self._observer is not None:
-            self._observer(cache[0], cache[1], data, self._clock())
+        data = _decode(raw, endpoint or target.path)
+        if _is_energy_iq_refusal(target, data):
+            message = data["message"]
+            raise TadoXRequestError(
+                status, None, message if isinstance(message, str) else None
+            )
         return data
 
     async def _send(

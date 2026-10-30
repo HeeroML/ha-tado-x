@@ -170,9 +170,13 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
 
 @callback
 def _async_remove_stale(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
-    """Remove devices tado stopped reporting, judged on live data only."""
+    """Remove devices tado stopped reporting, judged on live, complete data only."""
     data = entry.runtime_data
-    devices_live = data.devices.last_update_success and data.devices.stale_since is None
+    devices_live = (
+        data.devices.last_update_success
+        and data.devices.stale_since is None
+        and data.devices.data.topology.complete
+    )
     phones_live = (
         data.monitor.enabled("mobile_devices")
         and data.home.last_update_success

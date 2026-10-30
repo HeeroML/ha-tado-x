@@ -2,8 +2,8 @@
 
 ``from_api`` is the only code that reads raw payload keys. A bad required key
 raises TadoXParseError, an optional key that is missing or has the wrong type
-becomes None, and a malformed item of a list is skipped so that one bad room
-does not fail a whole poll. Datetimes are aware UTC.
+becomes None, and a malformed item of a list is skipped, with one warning per
+kind, so that one bad room does not fail a whole poll. Datetimes are aware UTC.
 """
 
 from collections.abc import Callable, Iterable, Mapping
@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 import logging
-from typing import Any, Self
+import re
+from typing import Any, Final, Self
 
 from yarl import URL
 
@@ -43,6 +44,9 @@ from .enums import (
 from .errors import TadoXParseError
 
 _LOGGER = logging.getLogger(__package__)
+
+_INDEX: Final = re.compile(r"\[\d+\]")
+_warned_skips: set[tuple[str, str]] = set()
 
 _MINUTES_PER_DAY = 1440
 _DEFAULT_FLOW_MINIMUM = 20
@@ -194,19 +198,33 @@ def _require_list(raw: object, endpoint: str) -> list[object]:
     return raw
 
 
+def _log_skip(err: TadoXParseError) -> None:
+    """Log a skipped item; the first of each endpoint and path is a warning."""
+    kind = (err.endpoint, _INDEX.sub("[]", err.path))
+    level = logging.DEBUG if kind in _warned_skips else logging.WARNING
+    _warned_skips.add(kind)
+    _LOGGER.log(level, "Skipping a malformed %s item: %s", err.endpoint, err)
+
+
 def _parse_items[T](
     items: Iterable[object],
     parse: Callable[[_Reader], T],
     endpoint: str,
     path: str,
+    skipped: list[str] | None = None,
 ) -> list[T]:
-    """Parse list items, skipping the malformed ones."""
+    """Parse list items, skipping the malformed ones.
+
+    The path of every skipped item is appended to skipped, if given.
+    """
     parsed: list[T] = []
     for index, item in enumerate(items):
         try:
             parsed.append(parse(_Reader(item, endpoint, f"{path}[{index}]")))
         except TadoXParseError as err:
-            _LOGGER.debug("Skipping a malformed %s item: %s", endpoint, err)
+            _log_skip(err)
+            if skipped is not None:
+                skipped.append(err.path)
     return parsed
 
 
@@ -476,32 +494,47 @@ class RoomTopology:
     devices: tuple[Device, ...] = ()
 
 
-def _room_topology(reader: _Reader) -> RoomTopology:
+def _devices(
+    reader: _Reader, key: str, room_id: int | None, skipped: list[str]
+) -> tuple[Device, ...]:
+    """Parse a device list of roomsAndDevices; a missing list counts as skipped."""
+    path = f"{reader.path}.{key}"
+    items = reader.data.get(key)
+    if not isinstance(items, list):
+        _log_skip(TadoXParseError("topology", path))
+        skipped.append(path)
+        return ()
+    return tuple(
+        _parse_items(
+            items, lambda item: _device(item, room_id), "topology", path, skipped
+        )
+    )
+
+
+def _room_topology(reader: _Reader, skipped: list[str]) -> RoomTopology:
     room_id = reader.req_int("roomId")
-    path = f"{reader.path}.devices"
     return RoomTopology(
         id=room_id,
         name=reader.req_str("roomName"),
         manual_termination_default=Termination.from_api(
             reader.data.get("deviceManualControlTermination")
         ),
-        devices=tuple(
-            _parse_items(
-                reader.opt_items("devices"),
-                lambda item: _device(item, room_id),
-                "topology",
-                path,
-            )
-        ),
+        devices=_devices(reader, "devices", room_id, skipped),
     )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Topology:
-    """Rooms and devices of a home (hops GET roomsAndDevices)."""
+    """Rooms and devices of a home (hops GET roomsAndDevices).
+
+    complete is False when a room or device was skipped as malformed or a
+    device list was missing: such a topology cannot tell a removed device
+    from one that could not be read.
+    """
 
     rooms: Mapping[int, RoomTopology]
     other_devices: tuple[Device, ...] = ()
+    complete: bool = True
 
     @property
     def devices(self) -> Mapping[str, Device]:
@@ -530,19 +563,19 @@ class Topology:
     def from_api(cls, raw: object) -> Self:
         """Parse GET roomsAndDevices."""
         reader = _Reader(raw, "topology")
+        skipped: list[str] = []
         rooms = _parse_items(
-            reader.items("rooms"), _room_topology, "topology", "$.rooms"
+            reader.items("rooms"),
+            lambda item: _room_topology(item, skipped),
+            "topology",
+            "$.rooms",
+            skipped,
         )
+        other_devices = _devices(reader, "otherDevices", None, skipped)
         return cls(
             rooms={room.id: room for room in rooms},
-            other_devices=tuple(
-                _parse_items(
-                    reader.opt_items("otherDevices"),
-                    lambda item: _device(item, None),
-                    "topology",
-                    "$.otherDevices",
-                )
-            ),
+            other_devices=other_devices,
+            complete=not skipped,
         )
 
 
@@ -572,6 +605,19 @@ class Account:
             "$.homes",
         )
         return cls(user_id=reader.req_str("id"), homes=tuple(homes))
+
+
+# The keys HomeInfo.from_api reads; only these of a home's details are cached.
+_HOME_INFO_KEYS: Final = (
+    "id",
+    "name",
+    "generation",
+    "dateTimeZone",
+    "temperatureUnit",
+    "supportsFlowTemperatureOptimization",
+    "isAirComfortEligible",
+    "isEnergyIqEligible",
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -609,6 +655,15 @@ class HomeInfo:
             air_comfort_eligible=reader.opt_bool("isAirComfortEligible"),
             energy_iq_eligible=reader.opt_bool("isEnergyIqEligible"),
         )
+
+    @staticmethod
+    def cache_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
+        """Return the part of GET homes/{id} that from_api reads.
+
+        The owner's contact details, postal address and location are left out,
+        so they never reach the cache on disk.
+        """
+        return {key: raw[key] for key in _HOME_INFO_KEYS if key in raw}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
