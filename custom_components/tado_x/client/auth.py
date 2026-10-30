@@ -127,9 +127,10 @@ class TokenManager:
     The refresh request and the persisting of its rotation run in one task the
     manager owns, so cancelling a caller never loses a rotation tado already
     made. A rotated refresh token is persisted before the new access token is
-    used, unless another writer stored tokens meanwhile; those win. Transient
-    refresh failures back off and never count as auth failures; an auth
-    failure is sticky until the entry reloads.
+    used, unless another writer stored tokens after the refresh began; those
+    win over its rotation and over its rejection. Transient refresh failures
+    back off and never count as auth failures; an auth failure is sticky
+    until the entry reloads.
     """
 
     BACKOFF: Final = (5, 15, 60, 300)
@@ -213,21 +214,21 @@ class TokenManager:
             raise TadoXAuthError(self._auth_error.reason)
 
     def _adopt_persisted(self) -> TokenSet:
-        """Return the current tokens, taking those another writer stored."""
-        self._stored_elsewhere()
-        if self._tokens is None:
-            raise self._fail(TadoXAuthError("no_tokens"))
-        return self._tokens
-
-    def _stored_elsewhere(self) -> TokenSet | None:
-        """Adopt and return tokens stored since this manager last read or wrote them.
+        """Return the current tokens, taking those another writer stored.
 
         Another writer is a reload, a reauth or a reconfigure. Comparing with
         the last persisted tokens, not the current ones, keeps a rotation whose
         save failed.
         """
+        self._stored_since(self._persisted)
+        if self._tokens is None:
+            raise self._fail(TadoXAuthError("no_tokens"))
+        return self._tokens
+
+    def _stored_since(self, seen: TokenSet | None) -> TokenSet | None:
+        """Adopt and return the stored tokens if another writer replaced seen."""
         stored = self._store.load()
-        if stored is None or stored == self._persisted:
+        if stored is None or stored == seen:
             return None
         self._persisted = self._tokens = stored
         return stored
@@ -240,7 +241,7 @@ class TokenManager:
         if task is None or task.done():
             if self._closed:
                 raise TadoXConnectionError("the tado client is closed")
-            task = self._create_task(self._async_rotate(tokens))
+            task = self._create_task(self._async_rotate(tokens, self._persisted))
             task.add_done_callback(_retrieve_outcome)
             self._refresh_task = task
         # Unlike shield(), wait() neither cancels the task with the caller nor
@@ -252,20 +253,26 @@ class TokenManager:
             return self._fallback(tokens, err, force=force)
         return new.access_token
 
-    async def _async_rotate(self, tokens: TokenSet) -> TokenSet:
-        """Refresh the grant and persist the rotation, whether or not anyone waits."""
+    async def _async_rotate(self, tokens: TokenSet, seen: TokenSet | None) -> TokenSet:
+        """Refresh the grant and persist the rotation, whether or not anyone waits.
+
+        seen is the persisted tokens this manager knew when it decided to
+        refresh. A caller may adopt newer tokens while the request runs, so
+        comparing with the live _persisted would miss that the answer is
+        outdated.
+        """
         try:
             new = await self._post_refresh(tokens)
         except (TadoXTransientError, TadoXParseError) as err:
             self._note_failure(err)
             raise
         except TadoXAuthError as err:
-            if (stored := self._stored_elsewhere()) is not None:
+            if (stored := self._stored_since(seen)) is not None:
                 # Another writer rotated the grant while this request ran.
                 return await self._async_use(stored)
             self._fail(err)
             raise
-        if (stored := self._stored_elsewhere()) is not None:
+        if (stored := self._stored_since(seen)) is not None:
             # A reauth or reconfigure stored a new login while this request ran.
             return await self._async_use(stored)
         try:
@@ -285,7 +292,7 @@ class TokenManager:
         """Return tokens another writer stored, refreshed first if they are stale."""
         if stored.is_fresh(self._clock()):
             return stored
-        return await self._async_rotate(stored)
+        return await self._async_rotate(stored, stored)
 
     async def _post_refresh(self, tokens: TokenSet) -> TokenSet:
         sent_at = self._clock()
