@@ -1,6 +1,7 @@
 """Unit tests of scripts/live_probe.py; nothing here touches the network."""
 
 from datetime import UTC, date, datetime
+import http.client
 import importlib.util
 import json
 from pathlib import Path
@@ -730,3 +731,136 @@ def test_quota_exhaustion_stops_the_run(
     report = json.loads(out.read_text(encoding="utf-8"))
     assert report["findings"]["status_429_seen"] is True
     assert report["requests"][-1]["headers"] == {"ratelimit": '"perday";r=0;t=7082'}
+
+
+def _run_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, http: Any
+) -> tuple[Any, Path, Path, Path]:
+    monkeypatch.setattr(probe, "_http", http)
+    monkeypatch.setattr(probe.time, "sleep", lambda _seconds: None)
+    out, raw, tokens = (
+        tmp_path / "report.json",
+        tmp_path / "raw.json",
+        tmp_path / "tokens.json",
+    )
+    args = ["--yes", "--out", str(out), "--keep-raw", str(raw)]
+    code = probe.main([*args, "--token-file", str(tokens)])
+    return code, out, raw, tokens
+
+
+def test_interrupt_writes_what_was_collected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ctrl-C in the r-delta phase still writes the report and the reminder."""
+    fake = FakeTado()
+
+    def interrupted(method: str, url: str, **kwargs: Any) -> Any:
+        # The first runningTimes read is the home read, the second the r-delta run.
+        if "runningTimes" in url and any("runningTimes" in u for _, u in fake.requests):
+            raise KeyboardInterrupt
+        return fake(method, url, **kwargs)
+
+    code, out, raw, tokens = _run_with(tmp_path, monkeypatch, interrupted)
+    assert code == 130
+    printed = capsys.readouterr().out
+    assert "Interrupted." in printed
+    assert f"Delete {tokens}" in printed
+    labels = [
+        r["label"] for r in json.loads(out.read_text(encoding="utf-8"))["requests"]
+    ]
+    assert labels[-1] == "r-delta me"
+    assert "hops schedule" in labels
+    assert "Bad" in raw.read_text(encoding="utf-8")
+    assert tokens.is_file()
+
+
+def test_unexpected_error_writes_what_was_collected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An error the probe does not expect ends the run with code 1 and all outputs."""
+    fake = FakeTado()
+
+    def broken(method: str, url: str, **kwargs: Any) -> Any:
+        if url.endswith("/airComfort"):
+            raise RuntimeError("socket closed")
+        return fake(method, url, **kwargs)
+
+    code, out, raw, tokens = _run_with(tmp_path, monkeypatch, broken)
+    assert code == 1
+    printed = capsys.readouterr().out
+    assert "RuntimeError: socket closed" in printed
+    assert f"Delete {tokens}" in printed
+    labels = [
+        r["label"] for r in json.loads(out.read_text(encoding="utf-8"))["requests"]
+    ]
+    assert "hops roomsAndDevices" in labels
+    assert raw.is_file()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        http.client.RemoteDisconnected("Remote end closed connection"),
+        http.client.IncompleteRead(b"{"),
+        ConnectionResetError("reset by peer"),
+    ],
+)
+def test_broken_connection_is_a_probe_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """A connection that breaks mid-response stops the run like a network error."""
+
+    def urlopen(*_args: Any, **_kwargs: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
+    with pytest.raises(probe.ProbeError, match=r"cannot reach my\.tado\.com"):
+        probe._http("GET", f"{probe.MY}/me")  # noqa: SLF001
+
+
+ODD_PAYLOADS = [
+    "Bad Gateway",
+    5,
+    ["text", 5, None],
+    {"rooms": "x", "otherDevices": ["x"], "runningTimes": ["x"], "homes": ["x"]},
+    {"rooms": [{"devices": ["x"]}, "x"], "runningTimes": [{"zones": ["x"]}, "x"]},
+]
+
+
+@pytest.mark.parametrize("payload", ODD_PAYLOADS)
+def test_outputs_survive_unexpected_shapes(payload: Any) -> None:
+    """Findings, report and fixtures are built whatever shape tado sent."""
+    reads = [*probe.HOME_READS, *probe.ROOM_READS, probe.DAY_REPORT]
+    params = {"home": 815, "room": 7, "day": "2026-10-30"}
+    exchanges = [
+        _exchange("me", f"{probe.MY}/me", payload, kind="user", fixture="me.json"),
+        _exchange("my home", probe.MY_HOME, payload, kind="home", home=815),
+        *(
+            _exchange(label, template, payload, kind=kind, fixture=fixture, **params)
+            for label, template, kind, fixture in reads
+        ),
+    ]
+    findings = probe.compute_findings(exchanges, login={}, deltas={})
+    assert probe.build_report(exchanges, findings, 815)["findings"] == findings
+    assert "rooms.json" in probe.build_fixtures(exchanges, 815)
+
+
+def test_rooms_of_an_unexpected_shape_are_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rooms answer that is not a list ends no run; the room reads are skipped."""
+    fake = FakeTado()
+
+    def odd_rooms(method: str, url: str, **kwargs: Any) -> Any:
+        response = fake(method, url, **kwargs)
+        if url.endswith("/homes/815/rooms"):
+            return probe.Response(200, response.headers, {"errors": []})
+        return response
+
+    code, out, _raw, _tokens = _run_with(tmp_path, monkeypatch, odd_rooms)
+    assert code == 0
+    labels = [
+        r["label"] for r in json.loads(out.read_text(encoding="utf-8"))["requests"]
+    ]
+    assert "hops schedule" not in labels
+    assert "r-delta login" in labels

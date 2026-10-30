@@ -25,6 +25,7 @@ import argparse
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+import http.client
 import json
 import os
 from pathlib import Path
@@ -242,7 +243,7 @@ def _http(
             status, raw_headers, raw = resp.status, resp.headers, resp.read()
     except urllib.error.HTTPError as err:
         status, raw_headers, raw = err.code, err.headers, err.read()
-    except (urllib.error.URLError, TimeoutError) as err:
+    except (OSError, http.client.HTTPException) as err:
         host = urllib.parse.urlsplit(url).netloc
         raise ProbeError(f"cannot reach {host}: {err}") from err
     text = raw.decode("utf-8", "replace")
@@ -356,12 +357,11 @@ class Anonymizer:
 
     def learn_topology(self, topology: object) -> None:
         """Record type and room of every device of a roomsAndDevices payload."""
-        if not isinstance(topology, Mapping):
-            return
-        for room in topology.get("rooms") or []:
-            for device in room.get("devices") or []:
+        topology = _mapping(topology)
+        for room in _mappings(topology.get("rooms")):
+            for device in _mappings(room.get("devices")):
                 self._learn_device(device, room.get("roomId"))
-        for device in topology.get("otherDevices") or []:
+        for device in _mappings(topology.get("otherDevices")):
             self._learn_device(device, None)
 
     def _learn_device(self, device: Mapping[str, Any], room_id: object) -> None:
@@ -488,6 +488,23 @@ def _payload(exchanges: Iterable[Exchange], label: str) -> Any:
     return next(iter(_payloads(exchanges, label)), None)
 
 
+def _mapping(value: Any) -> Mapping[str, Any]:
+    """Return a payload that is an object, else an empty one."""
+    return value if isinstance(value, Mapping) else {}
+
+
+def _mappings(value: Any) -> list[Mapping[str, Any]]:
+    """Return the objects of a payload that is a list; anything else has none."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def room_ids(rooms: Any) -> list[Any]:
+    """Return the room ids of a hops rooms payload of any shape."""
+    return [room["id"] for room in _mappings(rooms) if room.get("id") is not None]
+
+
 def _status(exchanges: Iterable[Exchange], label: str) -> int | None:
     return next((ex.status for ex in exchanges if ex.label == label), None)
 
@@ -510,11 +527,11 @@ def _topology_findings(topology: Any) -> dict[str, Any]:
             "battery_values_seen": [],
             "device_fields_by_type": {},
         }
-    rooms = topology.get("rooms") or []
-    defaults = [room.get("deviceManualControlTermination") or {} for room in rooms]
+    rooms = _mappings(topology.get("rooms"))
+    defaults = [_mapping(room.get("deviceManualControlTermination")) for room in rooms]
     devices = [
-        *(device for room in rooms for device in room.get("devices") or []),
-        *(topology.get("otherDevices") or []),
+        *(device for room in rooms for device in _mappings(room.get("devices"))),
+        *_mappings(topology.get("otherDevices")),
     ]
     fields: dict[str, dict[str, bool]] = {}
     for device in devices:
@@ -550,12 +567,12 @@ def _minder_ids_equal_room_ids(running_times: Any, rooms: Any) -> bool | None:
         return None
     zone_ids = {
         zone.get("id")
-        for period in running_times.get("runningTimes") or []
-        for zone in period.get("zones") or []
+        for period in _mappings(running_times.get("runningTimes"))
+        for zone in _mappings(period.get("zones"))
     }
     if not zone_ids:
         return None
-    return zone_ids <= {room.get("id") for room in rooms}
+    return zone_ids <= set(room_ids(rooms))
 
 
 def _ratelimit_findings(exchanges: Iterable[Exchange]) -> dict[str, Any]:
@@ -584,15 +601,11 @@ def compute_findings(
     block holds no personal data.
     """
     rooms = _payload(exchanges, "hops rooms")
-    homes = _payloads(exchanges, "my home")
+    homes = _mappings(_payloads(exchanges, "my home"))
     probed = next((home for home in homes if home.get("generation") == "LINE_X"), {})
-    hops_home = _payload(exchanges, "hops home") or {}
+    hops_home = _mapping(_payload(exchanges, "hops home"))
     holiday = _payload(exchanges, "hops holidayMode")
-    room_states = [
-        room
-        for room in [*(rooms or []), *_payloads(exchanges, "hops room")]
-        if isinstance(room, Mapping)
-    ]
+    room_states = _mappings([*_mappings(rooms), *_payloads(exchanges, "hops room")])
     return {
         **login,
         **_ratelimit_findings(exchanges),
@@ -629,7 +642,7 @@ def compute_findings(
         "meter_readings_shape": _shape(
             _payload(exchanges, "eiq meterReadings"), "readings"
         ),
-        "dhw_capable": (_payload(exchanges, "hops domesticHotWater") or {}).get(
+        "dhw_capable": _mapping(_payload(exchanges, "hops domesticHotWater")).get(
             "isDomesticHotWaterCapable"
         ),
     }
@@ -832,7 +845,7 @@ def probe_home(probe: Probe, home: int, *, max_rooms: int, history: bool) -> Non
     day = home_today(time_zone, datetime.now(UTC)).isoformat()
     for label, template, kind, fixture in HOME_READS:
         probe.get(label, template, kind=kind, fixture=fixture, home=home, day=day)
-    rooms = [room["id"] for room in _payload(probe.exchanges, "hops rooms") or []]
+    rooms = room_ids(_payload(probe.exchanges, "hops rooms"))
     room_reads = (*ROOM_READS, DAY_REPORT) if history else ROOM_READS
     for index, room in enumerate(rooms[:max_rooms]):
         for label, template, kind, fixture in room_reads:
@@ -885,8 +898,8 @@ def _prepare(
     anonymizer.token("home", home)
     for exchange in exchanges:
         anonymizer.token("home", exchange.params.get("home"))
-    for room in _payload(exchanges, "hops rooms") or []:
-        anonymizer.token("room", room.get("id"))
+    for room in room_ids(_payload(exchanges, "hops rooms")):
+        anonymizer.token("room", room)
     anonymizer.learn_topology(_payload(exchanges, "hops roomsAndDevices"))
 
 
@@ -982,7 +995,11 @@ def write_outputs(
 
 
 def run(args: argparse.Namespace) -> int:
-    """Run the probe and write its results; return the exit code."""
+    """Run the probe and write what it collected, also when it stops early.
+
+    Return 0 after a full run, 2 after a 429, 130 after Ctrl-C and 1 after
+    any other stop.
+    """
     if not _confirm(args):
         print("Nothing sent.")
         return 1
@@ -1002,14 +1019,23 @@ def run(args: argparse.Namespace) -> int:
     except ProbeError as err:
         print(f"\nStopped early: {err}")
         code = 1
-    findings = compute_findings(
-        probe.exchanges, login=probe.login_findings, deltas=deltas
-    )
-    write_outputs(args, probe.exchanges, findings, home)
-    if args.token_file is not None:
-        print(
-            f"Delete {args.token_file} when you are done; it signs in to your tado account."
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        code = 130
+    except Exception as err:  # noqa: BLE001 - the requests already sent are reported
+        print(f"\nStopped by an unexpected error: {type(err).__name__}: {err}")
+        code = 1
+    try:
+        findings = compute_findings(
+            probe.exchanges, login=probe.login_findings, deltas=deltas
         )
+        write_outputs(args, probe.exchanges, findings, home)
+    finally:
+        if args.token_file is not None:
+            print(
+                f"Delete {args.token_file} when you are done; "
+                "it signs in to your tado account."
+            )
     return code
 
 
