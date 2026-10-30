@@ -1,7 +1,7 @@
 """Tests for the single-flight token refresh of the tado X client."""
 
 import asyncio
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any, override
@@ -119,19 +119,36 @@ async def test_stale_token_is_refreshed_and_persisted(
 
 
 async def test_failed_persistence_keeps_the_rotation(
-    mock_tado: TadoCloudMock, session: ClientSession, caplog: pytest.LogCaptureFixture
+    mock_tado: TadoCloudMock,
+    session: ClientSession,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When storing fails the rotated tokens are still used, and it is logged."""
+    """A failed save keeps the rotation for the next refresh, whose save stores it."""
+    saved: list[TokenSet] = []
 
-    def broken_save(tokens: TokenSet) -> None:
-        raise OSError("disk full")
+    def save_fails_once(tokens: TokenSet) -> None:
+        saved.append(tokens)
+        if len(saved) == 1:
+            raise OSError("disk full")
 
-    manager = TokenManager(session, RecordingStore(_tokens(0), broken_save))
+    store = RecordingStore(_tokens(0), save_fails_once)
+    manager = TokenManager(session, store)
 
     assert await manager.async_get_access_token() == "fake-access-token-0001"
     assert await manager.async_get_access_token() == "fake-access-token-0001"
     assert len(_refreshes(mock_tado)) == 1
+    freezer.tick(timedelta(minutes=10))
+    assert await manager.async_get_access_token() == "fake-access-token-0002"
+
+    assert [call.body["refresh_token"] for call in _refreshes(mock_tado)] == [
+        REFRESH_B,
+        "fake-refresh-token-0001",
+    ]
     assert not manager.auth_failed
+    stored = store.load()
+    assert stored is not None
+    assert stored.refresh_token == "fake-refresh-token-0002"
     [record] = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert record.getMessage() == "Storing the rotated tado tokens failed"
     assert "fake-refresh-token-0001" not in caplog.text
@@ -243,6 +260,39 @@ async def test_invalid_grant_after_rotation_elsewhere(
     assert not manager.auth_failed
 
 
+@pytest.mark.parametrize(
+    ("stored_expires_in", "expected", "posts"),
+    [(600, ACCESS_C, 1), (0, "fake-access-token-0002", 2)],
+)
+async def test_tokens_stored_during_a_refresh_win(
+    mock_tado: TadoCloudMock,
+    session: ClientSession,
+    stored_expires_in: float,
+    expected: str,
+    posts: int,
+) -> None:
+    """A login stored while a refresh runs is kept; the refresh result is dropped."""
+    store = MemoryTokenStore(_tokens(0))
+    manager = TokenManager(session, store)
+    release = mock_tado.hold("POST", TOKEN_URL)
+    task = asyncio.create_task(manager.async_get_access_token())
+    await _until(lambda: len(_refreshes(mock_tado)) == 1)
+
+    await store.async_save(_tokens(stored_expires_in, ACCESS_C, REFRESH_C))
+    release.set()
+
+    assert await task == expected
+    stored = store.load()
+    assert stored is not None
+    assert stored.access_token == expected
+    assert len(_refreshes(mock_tado)) == posts
+    assert _refreshes(mock_tado)[-1].body["refresh_token"] == (
+        REFRESH_B if posts == 1 else REFRESH_C
+    )
+    assert await manager.async_get_access_token() == expected
+    assert len(_refreshes(mock_tado)) == posts
+
+
 async def test_second_invalid_grant_is_sticky(
     mock_tado: TadoCloudMock, session: ClientSession
 ) -> None:
@@ -343,7 +393,12 @@ async def test_backoff_suppresses_refreshes(
 
     mock_tado.clear_failures()
     assert await manager.async_get_access_token() == "fake-access-token-0001"
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    # asyncio's debug mode also warns about the steps the frozen clock jumped.
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and r.name == "custom_components.tado_x.client"
+    ]
     assert len(warnings) == 1
 
     mock_tado.fail("POST", TOKEN_URL, status=503)
@@ -416,7 +471,7 @@ async def test_missing_tokens_are_an_auth_failure(
 
 
 async def test_close_waits_for_the_running_refresh(
-    mock_tado: TadoCloudMock, session: ClientSession
+    mock_tado: TadoCloudMock, session: ClientSession, freezer: FrozenDateTimeFactory
 ) -> None:
     """Closing waits until the rotation is stored, then refuses new refreshes."""
     store = MemoryTokenStore(_tokens(0))
@@ -435,11 +490,131 @@ async def test_close_waits_for_the_running_refresh(
     stored = store.load()
     assert stored is not None
     assert stored.refresh_token == "fake-refresh-token-0001"
+    assert await waiter == "fake-access-token-0001"
+    assert await manager.async_get_access_token() == "fake-access-token-0001"
     with pytest.raises(TadoXConnectionError):
-        await waiter
+        await manager.async_handle_unauthorized("fake-access-token-0001")
+    freezer.tick(timedelta(minutes=10))
     with pytest.raises(TadoXTransientError):
         await manager.async_get_access_token()
     assert len(_refreshes(mock_tado)) == 1
+
+
+async def test_cancelled_caller_leaves_the_refresh_running(
+    mock_tado: TadoCloudMock, session: ClientSession
+) -> None:
+    """Cancelling the caller neither aborts the POST nor loses the rotation."""
+    store = MemoryTokenStore(_tokens(0))
+    manager = TokenManager(session, store)
+    release = mock_tado.hold("POST", TOKEN_URL)
+    caller = asyncio.create_task(manager.async_get_access_token())
+    await _until(lambda: len(_refreshes(mock_tado)) == 1)
+
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    waiter = asyncio.create_task(manager.async_get_access_token())
+    await asyncio.sleep(0)
+    release.set()
+
+    assert await waiter == "fake-access-token-0001"
+    assert len(_refreshes(mock_tado)) == 1
+    stored = store.load()
+    assert stored is not None
+    assert stored.refresh_token == "fake-refresh-token-0001"
+
+
+async def test_close_waits_for_a_refresh_whose_caller_was_cancelled(
+    mock_tado: TadoCloudMock, session: ClientSession
+) -> None:
+    """A poll cancelled by an unload does not stop close from waiting for its refresh."""
+    store = MemoryTokenStore(_tokens(0))
+    manager = TokenManager(session, store)
+    release = mock_tado.hold("POST", TOKEN_URL)
+    caller = asyncio.create_task(manager.async_get_access_token())
+    await _until(lambda: len(_refreshes(mock_tado)) == 1)
+
+    caller.cancel()
+    close = asyncio.create_task(manager.async_close())
+    await _until(caller.done)
+    await asyncio.sleep(0)
+    assert not close.done()
+    release.set()
+    await close
+
+    stored = store.load()
+    assert stored is not None
+    assert stored.refresh_token == "fake-refresh-token-0001"
+    assert REFRESH_B not in mock_tado.valid_refresh_tokens
+
+
+async def test_failed_refresh_of_a_cancelled_caller_is_kept(
+    mock_tado: TadoCloudMock, session: ClientSession
+) -> None:
+    """An invalid_grant nobody waited for still makes the auth failure sticky."""
+    mock_tado.valid_refresh_tokens.discard(REFRESH_B)
+    manager = TokenManager(session, MemoryTokenStore(_tokens(0)))
+    release = mock_tado.hold("POST", TOKEN_URL)
+    caller = asyncio.create_task(manager.async_get_access_token())
+    await _until(lambda: len(_refreshes(mock_tado)) == 1)
+
+    caller.cancel()
+    await _until(caller.done)
+    release.set()
+    await manager.async_close()
+
+    assert manager.auth_failed
+    with pytest.raises(TadoXAuthError):
+        await manager.async_get_access_token()
+    assert len(_refreshes(mock_tado)) == 1
+
+
+async def test_refresh_runs_in_the_injected_task(
+    mock_tado: TadoCloudMock, session: ClientSession
+) -> None:
+    """The refresh runs in a task of the given factory, so the host can track it."""
+    created: list[asyncio.Task[TokenSet]] = []
+
+    def create_task(coro: Coroutine[Any, Any, TokenSet]) -> asyncio.Task[TokenSet]:
+        task = asyncio.create_task(coro)
+        created.append(task)
+        return task
+
+    manager = TokenManager(
+        session, MemoryTokenStore(_tokens(0)), create_task=create_task
+    )
+
+    assert await manager.async_get_access_token() == "fake-access-token-0001"
+    [task] = created
+    assert task.done()
+    assert task.result().access_token == "fake-access-token-0001"
+
+
+async def test_refresh_task_cancelled_by_the_host(
+    mock_tado: TadoCloudMock, session: ClientSession
+) -> None:
+    """A refresh task the host cancels ends its callers; the next call starts anew."""
+    created: list[asyncio.Task[TokenSet]] = []
+
+    def create_task(coro: Coroutine[Any, Any, TokenSet]) -> asyncio.Task[TokenSet]:
+        created.append(asyncio.create_task(coro))
+        return created[-1]
+
+    manager = TokenManager(
+        session, MemoryTokenStore(_tokens(0)), create_task=create_task
+    )
+    release = mock_tado.hold("POST", TOKEN_URL)
+    caller = asyncio.create_task(manager.async_get_access_token())
+    await _until(lambda: len(_refreshes(mock_tado)) == 1)
+
+    created[0].cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    release.set()
+
+    assert await manager.async_get_access_token() == "fake-access-token-0001"
+    assert len(created) == 2
+    assert not manager.auth_failed
 
 
 async def test_close_gives_up_waiting(

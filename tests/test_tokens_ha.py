@@ -7,12 +7,16 @@ from typing import Any
 from aiohttp import ClientConnectionError
 from freezegun.api import FrozenDateTimeFactory
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.tado_x.const import (
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_TOKEN_EXPIRY,
+    CONF_USER_ID,
 )
 from custom_components.tado_x.token_store import (
     EXPIRED,
@@ -20,9 +24,10 @@ from custom_components.tado_x.token_store import (
     parse_expiry,
 )
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
-from homeassistant.core import HomeAssistant
-from tests.tado_mock import TadoCloudMock
-from tests.test_init import make_entry, setup_entry
+from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.util import dt as dt_util
+from tests.tado_mock import HOME_C, TadoCloudMock, entry_tokens
+from tests.test_init import make_entry, setup_entry, state
 
 TOKEN_PATH = "/oauth2/token"
 EXPIRED_ISO = "2026-01-01T00:00:00+00:00"
@@ -88,31 +93,109 @@ async def test_naive_expiry_of_1_8_refreshes_once(
     assert datetime.fromisoformat(entry.data[CONF_TOKEN_EXPIRY]).tzinfo is not None
 
 
-async def test_reload_during_refresh_uses_the_rotated_token(
+async def _start_scheduled_refresh(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> asyncio.Event:
+    """Let the poll timers fire with a stale token; hold the refresh they send."""
+    release = mock_tado.hold("POST", TOKEN_PATH)
+    freezer.tick(timedelta(minutes=10))
+    async_fire_time_changed(hass)
+    await _until(lambda: mock_tado.calls("POST", TOKEN_PATH))
+    return release
+
+
+async def _spin(rounds: int = 100) -> None:
+    """Let the event loop run for a while without a condition to wait for."""
+    for _ in range(rounds):
+        await asyncio.sleep(0)
+
+
+async def test_reload_during_a_scheduled_refresh_keeps_the_rotation(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A reload waits for an in-flight refresh and then reuses its tokens."""
+    """A reload waits for the refresh a poll started, then reuses its tokens."""
     entry = make_entry()
     await setup_entry(hass, entry)
-    freezer.tick(timedelta(minutes=10))
-    release = mock_tado.hold("POST", TOKEN_PATH)
-    refresh = hass.async_create_task(entry.runtime_data.rooms.async_refresh())
-    await _until(lambda: mock_tado.calls("POST", TOKEN_PATH))
+    release = await _start_scheduled_refresh(hass, mock_tado, freezer)
 
     reload = hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
     await _until(lambda: entry.state is ConfigEntryState.UNLOAD_IN_PROGRESS)
+    await _spin()
+    assert entry.state is ConfigEntryState.UNLOAD_IN_PROGRESS
     release.set()
-    await refresh
     assert await reload
     await hass.async_block_till_done()
 
-    assert entry.state is ConfigEntryState.LOADED
-    posts = mock_tado.calls("POST", TOKEN_PATH)
-    assert len(posts) == 1
+    assert state(entry) is ConfigEntryState.LOADED
+    assert len(mock_tado.calls("POST", TOKEN_PATH)) == 1
+    assert entry.data[CONF_REFRESH_TOKEN] == "fake-refresh-token-0001"
     rotated = entry.data[CONF_ACCESS_TOKEN]
     assert rotated == "fake-access-token-0001"
     last_reads = mock_tado.calls("GET", "/homes/1000002/rooms")[-1]
     assert _bearer(last_reads) == rotated
+    assert not list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
+
+
+async def test_stop_during_a_scheduled_refresh_keeps_the_rotation(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    hass_storage: dict[str, Any],
+) -> None:
+    """Stopping Home Assistant waits for the refresh and writes the rotation to disk."""
+    entry = make_entry()
+    await setup_entry(hass, entry)
+    release = await _start_scheduled_refresh(hass, mock_tado, freezer)
+
+    stop = asyncio.create_task(hass.async_stop())
+    await _spin()
+    assert hass.state is CoreState.running
+    release.set()
+    await stop
+
+    assert entry.data[CONF_REFRESH_TOKEN] == "fake-refresh-token-0001"
+    [stored] = [
+        stored
+        for stored in hass_storage["core.config_entries"]["data"]["entries"]
+        if stored["entry_id"] == entry.entry_id
+    ]
+    assert stored["data"][CONF_REFRESH_TOKEN] == "fake-refresh-token-0001"
+    assert len(mock_tado.calls("POST", TOKEN_PATH)) == 1
+
+
+async def test_login_stored_during_a_refresh_survives_it(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Tokens a reconfigure stores while a poll refreshes the old grant are kept."""
+    entry = make_entry()
+    await setup_entry(hass, entry)
+    release = await _start_scheduled_refresh(hass, mock_tado, freezer)
+    access, refresh = entry_tokens(HOME_C)
+
+    # What async_update_reload_and_abort writes when the other account signed in;
+    # the answer to the refresh of the old grant arrives before the reload.
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_USER_ID: "00000000-0000-4000-8000-000000000002",
+            CONF_ACCESS_TOKEN: access,
+            CONF_REFRESH_TOKEN: refresh,
+            CONF_TOKEN_EXPIRY: (dt_util.utcnow() + timedelta(minutes=10)).isoformat(),
+        },
+    )
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert entry.data[CONF_REFRESH_TOKEN] == refresh
+    assert entry.data[CONF_ACCESS_TOKEN] == access
+
+    hass.config_entries.async_schedule_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.data[CONF_REFRESH_TOKEN] == refresh
+    last_reads = mock_tado.calls("GET", "/homes/1000002/rooms")[-1]
+    assert _bearer(last_reads) == access
 
 
 async def test_network_error_during_refresh_is_transient(

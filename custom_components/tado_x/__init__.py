@@ -1,7 +1,11 @@
 """The tado X integration."""
 
+import asyncio
+from collections.abc import Coroutine
+from typing import Any
+
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HassJob, HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceEntry
@@ -9,7 +13,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from .cache import SnapshotCache
-from .client import QuotaTracker, TadoXClient, TadoXError, TokenManager
+from .client import QuotaTracker, TadoXClient, TadoXError, TokenManager, TokenSet
 from .const import CONF_HOME_ID, CONF_USER_ID, DOMAIN, LOGGER
 from .coordinator import DevicesCoordinator, HomeCoordinator, RoomsCoordinator
 from .devices import async_is_current_device, async_setup_device_registry
@@ -68,11 +72,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
         # A persisted closed gate makes setup retries during a quota hold free.
         quota.restore(seed.quota)
         quota.calls.restore(seed.calls, dt_util.utcnow())
+
+    def create_refresh_task(
+        coro: Coroutine[Any, Any, TokenSet],
+    ) -> asyncio.Task[TokenSet]:
+        # An entry task is awaited, not cancelled, when the entry unloads.
+        return entry.async_create_task(hass, coro, "tado_x token refresh")
+
     tokens = TokenManager(
-        session, ConfigEntryTokenStore(hass, entry), clock=dt_util.utcnow
+        session,
+        ConfigEntryTokenStore(hass, entry),
+        clock=dt_util.utcnow,
+        create_task=create_refresh_task,
     )
     client = TadoXClient(session, tokens, quota, clock=dt_util.utcnow)
     entry.async_on_unload(client.async_close)
+    # Shutdown jobs run before Home Assistant cancels the polls, and the
+    # rotation they persist is written to disk in the final write stage.
+    entry.async_on_unload(
+        hass.async_add_shutdown_job(HassJob(client.async_close, "tado_x close"))
+    )
     client.set_payload_observer(cache.record)
     api = client.home(home_id)
     monitor = QuotaMonitor(hass, entry, quota, cache)
@@ -109,7 +128,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> bool:
-    """Unload a config entry and write its cache for the last time."""
+    """Unload a config entry and write its cache for the last time.
+
+    The client closes first, so a token refresh a poll started is persisted
+    before Home Assistant cancels the polls.
+    """
+    await entry.runtime_data.client.async_close()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         await entry.runtime_data.cache.async_close()
