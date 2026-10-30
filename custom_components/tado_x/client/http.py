@@ -12,7 +12,7 @@ from aiohttp import ClientError, ClientSession, ClientTimeout
 from yarl import URL
 
 from .auth import TokenManager
-from .const import CONNECT_TIMEOUT, HOPS_API_URL, REQUEST_TIMEOUT
+from .const import CONNECT_TIMEOUT, ENERGY_IQ_API_URL, HOPS_API_URL, REQUEST_TIMEOUT
 from .errors import (
     TadoXAuthError,
     TadoXConnectionError,
@@ -31,6 +31,7 @@ from .ratelimit import Priority, QuotaTracker, parse_rate_limit
 _LOGGER = logging.getLogger(__package__)
 
 _HOPS_HOST: Final = URL(HOPS_API_URL).host
+_ENERGY_IQ_HOST: Final = URL(ENERGY_IQ_API_URL).host
 _NOT_X_TITLE: Final = "Timezone of home"
 
 type PayloadObserver = Callable[[int, str, Any, datetime], None]
@@ -73,12 +74,22 @@ def _not_x_home_id(url: URL, title: str | None) -> int | None:
     return None
 
 
+def _is_energy_iq_refusal(url: URL, data: Any) -> bool:
+    """Return True for an Energy IQ 2xx that carries a message and no id (API §5.2)."""
+    return (
+        url.host == _ENERGY_IQ_HOST
+        and isinstance(data, dict)
+        and "message" in data
+        and "id" not in data
+    )
+
+
 class Transport:
     """Send authenticated requests and map every outcome to the error taxonomy.
 
     The quota gate is checked first, rate limit headers are observed before
     any status handling, a 401 is retried once with a refreshed token, and
-    any 2xx is a success.
+    any 2xx is a success, except an Energy IQ refusal.
     """
 
     def __init__(
@@ -136,7 +147,13 @@ class Transport:
                 raise TadoXAuthError("unauthorized_after_refresh")
         if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
             raise self._error(method, target, status, raw)
-        return _decode(raw, endpoint or target.path)
+        data = _decode(raw, endpoint or target.path)
+        if _is_energy_iq_refusal(target, data):
+            message = data["message"]
+            raise TadoXRequestError(
+                status, None, message if isinstance(message, str) else None
+            )
+        return data
 
     async def _send(
         self,

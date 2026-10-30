@@ -29,7 +29,12 @@ from custom_components.tado_x.client import (
     TokenSet,
     Transport,
 )
-from custom_components.tado_x.client.const import HOPS_API_URL, MY_API_URL, TOKEN_URL
+from custom_components.tado_x.client.const import (
+    ENERGY_IQ_API_URL,
+    HOPS_API_URL,
+    MY_API_URL,
+    TOKEN_URL,
+)
 from tests.tado_mock import HOME_A, HOME_B, TadoCloudMock, entry_tokens
 
 ACCESS_B, REFRESH_B = entry_tokens(HOME_B)
@@ -388,3 +393,55 @@ async def test_publish(
     transport.set_payload_observer(None)
     transport.publish(HOME_B, "rooms", [])
     assert len(observed) == 1
+
+
+async def test_energy_iq_refusal_in_a_2xx(
+    mock_tado: TadoCloudMock, transport: Transport
+) -> None:
+    """Energy IQ may refuse with a 2xx that carries a message and no id (API §5.2)."""
+    url = f"{ENERGY_IQ_API_URL}/homes/{HOME_B}/meterReadings"
+    body = {"date": "2026-10-30", "reading": 1}
+    reason = "Reading must be greater than previous reading"
+    mock_tado.fail("POST", url, status=200, body={"message": reason}, times=1)
+
+    with pytest.raises(TadoXRequestError) as err:
+        await transport.request("POST", url, json=body, priority=Priority.COMMAND)
+
+    assert (err.value.status, err.value.code, err.value.title) == (200, None, reason)
+    stored = await transport.request("POST", url, json=body, priority=Priority.COMMAND)
+    assert stored["reading"] == 1
+
+
+@pytest.mark.parametrize("message", [None, 5])
+async def test_energy_iq_refusal_without_text(
+    mock_tado: TadoCloudMock, transport: Transport, message: object
+) -> None:
+    """A refusal whose message is not text still fails, without a title."""
+    url = f"{ENERGY_IQ_API_URL}/homes/{HOME_B}/tariffs"
+    mock_tado.fail("POST", url, status=201, body={"message": message})
+
+    with pytest.raises(TadoXRequestError) as err:
+        await transport.request("POST", url, json={}, priority=Priority.COMMAND)
+
+    assert (err.value.status, err.value.title) == (201, None)
+
+
+@pytest.mark.parametrize(
+    ("url", "body"),
+    [
+        (
+            f"{ENERGY_IQ_API_URL}/homes/{HOME_B}/tariffs",
+            {"id": "00000000-0000-4000-9000-000000000001", "message": "stored"},
+        ),
+        (f"{ENERGY_IQ_API_URL}/homes/{HOME_B}/tariffs", [{"message": "a list"}]),
+        (ROOMS_B, {"message": "not Energy IQ"}),
+    ],
+    ids=["with_id", "list", "other_host"],
+)
+async def test_messages_that_are_no_refusal(
+    mock_tado: TadoCloudMock, transport: Transport, url: str, body: Any
+) -> None:
+    """An answer with an id, a list or another host's message is plain data."""
+    mock_tado.fail("*", url, status=200, body=body)
+
+    assert await transport.request("POST", url, priority=Priority.COMMAND) == body
