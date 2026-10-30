@@ -50,7 +50,7 @@ Facts that drive the token design:
 - **Rotation:** every refresh revokes the old refresh token and returns a new one (tado help article). Two refreshes with the same token: the second gets 400 `invalid_grant` / `refresh_token_not_found`. Hence one refresh at a time, and new tokens are stored before they are used.
 - **Lifetime:** a refresh token is valid for up to 30 days or until used.
 - **`missing_client_id`:** `verification_uri_complete` from tado has been seen without `client_id`, and opening it gives `invalid_request` / `missing_client_id` (upstream #76). The integration always builds the link from `verification_uri` with `user_code` and `client_id`.
-- **Classification:** no response, a timeout, 429 or 5xx from the login server are transient. 400 `invalid_grant` / `invalid_client` / `invalid_request`, 401 and 403 are authentication failures.
+- **Classification:** no response, a timeout, 429 or 5xx from the login server are transient. A 4xx whose body carries the OAuth error `invalid_grant`, `invalid_client`, `unauthorized_client` or `invalid_request` is an authentication failure; any other 4xx (no OAuth error, for example a proxy or CDN page) is transient.
 - Separate device-flow grants (the core tado integration, this integration, the probe) have separate refresh chains. Standard OAuth behaviour; no tado source states it.
 
 ## my.tado.com
@@ -152,7 +152,7 @@ Documented for upstream PRs #53 and #74; the integration does not use these.
 | Request | Notes |
 |---|---|
 | `GET minder/homes/{h}/runningTimes?from=D&to=D` | `{runningTimes: [{runningTimeInSeconds, zones: [{id, runningTimeInSeconds}]}], summary: {...}}`. Whether `zones[].id` equals the hops room id is **single-source** (upstream). D is today in the home's time zone |
-| `POST eiq/homes/{h}/meterReadings` | `{"date": "YYYY-MM-DD", "reading": 12345}`; errors may come back as a 2xx with a `message` field (single-source) |
+| `POST eiq/homes/{h}/meterReadings` | `{"date": "YYYY-MM-DD", "reading": 12345}`; errors may come back as a 2xx with a `message` field and no `id` (single-source); the integration reports such an answer, for meter readings and tariffs, as a rejected request |
 | `POST eiq/homes/{h}/tariffs` | `{"tariffInCents": 29, "unit": "m3" or "kWh", "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD"}`. The integration sends whole cents, rounded half up |
 | `GET eiq/homes/{h}/tariffs` | a list or `{tariffs: [...]}` depending on the source; parse both |
 

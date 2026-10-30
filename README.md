@@ -38,7 +38,7 @@ Homes of the previous tado generation (V3+ and older) are not supported here. Us
 
 Fixed upstream issues:
 
-- **Token handling** (#36, #75, #79, #80): one refresh at a time per home, including after a 401. A rotated refresh token is written to the config entry immediately, before it is used; Home Assistant flushes it to disk about 1 s later. Only a crash or power cut within that second loses it, and you then sign in again. A network error, timeout, 429 or 5xx during a refresh is retried with backoff and never starts a reauthentication. Only answers such as `invalid_grant` do.
+- **Token handling** (#36, #75, #79, #80): one refresh at a time per home, including after a 401. A rotated refresh token is written to the config entry immediately, before it is used; Home Assistant flushes it to disk about 1 s later. Only a crash or power cut within that second loses it, and you then sign in again. A network error, timeout, 429 or 5xx during a refresh is retried with backoff and never starts a reauthentication. Only an OAuth rejection of the sign-in (`invalid_grant`, `invalid_client`, `unauthorized_client`, `invalid_request`) does; any other answer of the login server, such as an error page of a proxy or CDN, is retried with backoff like a 5xx. A refresh that is running when the entry reloads or Home Assistant stops is finished and saved first (up to 10 s).
 - **Sign-in link** (#76): the device-code link always carries `client_id`, so tado no longer answers `missing_client_id`.
 - **Config flow error 500 on Python 3.14** (#73): every error path aborts cleanly, HA's shared HTTP session is used, and the flow is also tested through HA's HTTP view. The original 500 was never reproduced, so please report a traceback if you still see one.
 - **"Timezone of home not found"** (#40): only tado X (`LINE_X`) homes are offered. Older homes are listed as skipped, and an existing entry for a non-X home gets a repair issue.
@@ -218,6 +218,7 @@ The plan assumes a whole day is ahead. The integration also compares what it sti
 - If not, all periods are stretched by the same factor, up to 30 times (`throttled`). Example at 18:00 with 1,800 calls left and a reserve of 1,000: if tado reported the reset 6 h away, nothing changes. If tado sent no reset time, the integration assumes 24 h, and rooms slow down to about 145 s.
 - When the remaining calls drop to the reserve, rooms poll hourly, optional data pauses, and commands still go through (`conserving`). After 10 minutes in this mode a repair issue appears.
 - At 20 remaining calls or fewer, polling stops and only commands are sent.
+- As soon as a poll sees the quota refilled, or at the reset time tado sent, all data returns to its normal period.
 
 If more than one tado X entry uses the same tado account, the remaining calls are split between them.
 
@@ -225,7 +226,7 @@ If more than one tado X entry uses the same tado account, the remaining calls ar
 
 When tado answers 429, or reports 0 remaining calls with a reset time, the integration sends no requests until that time plus 30 s. During the hold it:
 
-- keeps showing the last known values, for at most 6 h for rooms, 12 h for home data and 48 h for devices, after which the entities become unavailable;
+- keeps showing the last known values until the reset when tado sent a reset time; without one, for at most 6 h for rooms, 12 h for home data and 48 h for devices, after which the entities become unavailable;
 - sets `api_status` to `rate_limited` and the reset sensor to the reset time;
 - raises the repair issue "tado API quota used up";
 - fails commands with a message that names the reset time.
@@ -421,8 +422,10 @@ action: tado_x.set_eiq_tariff
 data:
   tariff: 0.29
   unit: kwh  # or m3
-  start_date: "2026-10-01"
+  start_date: "2026-10-01"  # optional; defaults to today in the home's time zone
 ```
+
+If Energy IQ refuses a reading or a tariff, the action fails with tado's message instead of reporting success.
 
 ### `tado_x.get_holiday_mode` and `tado_x.set_holiday_mode` (experimental)
 
@@ -434,7 +437,7 @@ data:
   end: "2027-01-02 18:00:00"
 ```
 
-The set action reads the current holiday settings, changes only `enabled`, the start and the end, and writes everything else back unchanged. If the read fails, nothing is written. `get_holiday_mode` returns `enabled`, `active`, `start` and `end`. The endpoint shape comes from one reverse-engineered source, and the feature needs Auto-Assist.
+The set action reads the current holiday settings, changes only `enabled`, the start and the end, and writes everything else back unchanged. If the read fails, nothing is written. The holiday mode binary sensor shows the new state at once; tado's own value replaces it at the next holiday mode read. `get_holiday_mode` returns `enabled`, `active`, `start` and `end`. The endpoint shape comes from one reverse-engineered source, and the feature needs Auto-Assist.
 
 ## Automation examples
 
@@ -495,9 +498,9 @@ The entity ids are examples; look up yours under **Settings → Entities**.
 - Three coordinators poll tado. The rooms coordinator is the fast one. The home coordinator reads presence, weather, air comfort and phones. The devices coordinator reads rooms and devices, home info, heating time, flow temperature and holiday mode.
 - Each endpoint has its own period from [the plan](#the-plan). Unchanged data writes no new state.
 - Commands are sent at once and have priority over polling. The UI shows the new value right away.
-- After room commands, one verification read follows 5 s later, however many commands you sent in that time. If tado still reports the old value for a moment, the new value is kept for up to 60 s.
-- Rooms, devices and phones that appear later get their entities on the next poll.
-- Devices missing from a live read are removed from Home Assistant. A read from the cache never removes anything.
+- After room commands, one verification read follows 5 s later, however many commands you sent in that time. If tado still reports the old value for a moment, the new value is kept for up to 60 s; a later command to the same room or setting replaces it.
+- Rooms, devices and phones that appear later, or come back after they were removed, get their entities on the next poll.
+- Devices missing from a live read are removed from Home Assistant. A read from the cache never removes anything, and neither does a live read in which tado sent a room or device the integration could not read (it logs a warning instead).
 
 ## Live API probe
 
@@ -543,7 +546,7 @@ Tokens, codes, user id, e-mail, address and coordinates are removed. Serial numb
 
 At no log level do the logs contain tokens, device or user codes, the sign-in link, the `Authorization` header, login responses or your e-mail. A test enforces this.
 
-The cache in `.storage/tado_x.<entry_id>` holds the last raw payloads (never phone data) and the quota state. It is deleted with the entry.
+The cache in `.storage/tado_x.<entry_id>` holds the last raw payloads that passed validation and the quota state. It never holds phone data, and of the home details it keeps only the fields the integration reads, not the owner's name, e-mail, phone number, address or location. It is deleted with the entry.
 
 To log every request (method, host, path, status and remaining calls):
 
@@ -576,11 +579,10 @@ When you report a bug, attach the diagnostics and, if you can, a debug log. Both
 ## Known limitations and risks
 
 - **Not yet verified against a live home.** The tests simulate the tado cloud from the shapes in [docs/API.md](docs/API.md). Some behaviour rests on a single source and may fail on a real home: writing the room's termination setting (select and timer number), the identify button, holiday mode, the meter reading and tariff responses, and whether heating time ids match room ids. Each of these fails with a translated error instead of breaking the integration, and the [probe](#live-api-probe) checks most of them without writing anything.
-- **A quota hold serves old data.** During a hold, values can be up to 6 h old for rooms (12 h for home data, 48 h for devices) while entities stay available. Automations that must not act on old values can check `api_status` and "Data updated".
+- **A quota hold serves old data.** During a hold that ends at a reset time from tado, values are kept until that reset, which can be most of a day away; without a reset time they can be up to 6 h old for rooms (12 h for home data, 48 h for devices). Entities stay available meanwhile. Automations that must not act on old values can check `api_status` and "Data updated".
 - **The reset time is often unknown.** tado documents `t=` only for a used-up quota. Without it, the reset sensor is `unknown` and throttling assumes a whole day is still ahead.
 - **Login calls.** It is unknown whether token refreshes at login.tado.com count against the quota. The plan leaves room for them.
 - **Power loss right after a token rotation.** Home Assistant writes the config entry about 1 s after a change. If the power fails in that second, the new refresh token is lost and you have to sign in again. Home Assistant's own OAuth helper has the same exposure.
-- **A device that disappears and comes back** while the entry stays loaded is registered again, but its entities return only after the entry is reloaded.
 - **Presence is home-wide.** The climate presets and the presence select change the whole home, as in the tado app. The tado X API has no per-room boost; boost is a whole-home quick action.
 - **Legacy keys.** The v1.8 settings stay in the config entry so that a rollback works. They show up, redacted, in diagnostics. A future major version will remove them.
 - **French and Italian are partial.** Missing strings fall back to English. German is complete.
@@ -593,7 +595,7 @@ When you report a bug, attach the diagnostics and, if you can, a debug log. Both
 2. In HACS, open Tado X, choose **Redownload** and pick `v1.8.11` if this repository lists it. Otherwise remove this repository in HACS (only the files go; the config entry stays), install `exabird/ha-tado-x` and download v1.8.11.
 3. Restart Home Assistant. Do not delete the integration entry.
 
-v1.8.11 then uses the stored tokens, so you do not sign in again, and it uses your old interval and toggles. Entities that only 1.9 creates stay in the entity registry as unavailable; remove them by hand if you do not upgrade again. Upgrading again later works and runs no second migration.
+v1.8.11 then uses the stored tokens, so you do not sign in again, and it uses your old interval and toggles. Entities that only 1.9 creates stay in the entity registry as unavailable; remove them by hand if you do not upgrade again. Upgrading again later works and runs no second migration. If you saved the v1.8.11 options dialog in between, which empties the 1.9 options, 1.9 derives them again at the next start from the settings v1.8.11 saved.
 
 ## Removal
 

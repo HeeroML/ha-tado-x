@@ -9,7 +9,6 @@ Plans for the HeeroML fork after 1.9.0. Items are ordered by priority. Nothing h
 
 ## Next
 
-- **Devices that come back.** A device that drops out of a live topology and returns while the entry stays loaded gets its device back but its entities only after a reload. The fix forgets a unique id only once its entity registry entry is gone; it touches every platform and needs an HTTP-level test.
 - **Shared room and device entity bases** in `entity.py`, to remove repetition across the platforms and bring `climate.py` and `button.py` back within their size budgets.
 - **French and Italian translations** for the strings added in 1.9 (missing strings fall back to English). Contributions from native speakers are welcome.
 - **Spec follow-up:** document `TadoXHome.async_read_holiday_mode()` (a command-priority read used by the holiday mode actions) in the architecture notes.
