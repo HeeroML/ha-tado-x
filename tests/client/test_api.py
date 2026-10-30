@@ -637,9 +637,12 @@ async def test_non_x_home(mock_tado: TadoCloudMock, client: TadoXClient) -> None
     assert err.value.home_id == HOME_A
 
 
-async def test_close(mock_tado: TadoCloudMock, client: TadoXClient) -> None:
-    """A closed client refuses further requests."""
+async def test_close(
+    mock_tado: TadoCloudMock, client: TadoXClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """A closed client refuses requests that need a token refresh."""
     await client.async_close()
+    freezer.tick(timedelta(minutes=10))
     with pytest.raises(TadoXConnectionError):
         await client.async_get_account()
     assert mock_tado.calls() == []

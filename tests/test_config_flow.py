@@ -584,21 +584,41 @@ async def test_reconfigure_without_the_home(
     assert dict(config_entry.data) == data
 
 
-@pytest.mark.parametrize("unique_id", [None, "1000009"], ids=["none", "other"])
 async def test_reconfigure_unique_id_mismatch(
-    hass: HomeAssistant,
-    mock_tado: TadoCloudMock,
-    config_entry: MockConfigEntry,
-    unique_id: str | None,
+    hass: HomeAssistant, mock_tado: TadoCloudMock, config_entry: MockConfigEntry
 ) -> None:
     """An entry whose unique_id is not its home cannot be reconfigured."""
     config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(config_entry, unique_id=unique_id)
+    hass.config_entries.async_update_entry(config_entry, unique_id="1000009")
 
     result = await config_entry.start_reconfigure_flow(hass)
 
     _abort(result, "unique_id_mismatch")
     assert mock_tado.calls() == []
+
+
+async def test_reconfigure_an_entry_without_unique_id(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    config_entry: MockConfigEntry,
+) -> None:
+    """A duplicate migrated from 1.8 has no unique_id; its home id is checked instead."""
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(config_entry, unique_id=None)
+    mock_tado.user_id = OTHER_USER_ID
+
+    result = await config_entry.start_reconfigure_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_confirm"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    result = await _sign_in(hass, freezer, result["flow_id"])
+    _abort(result, "reconfigure_successful")
+    assert config_entry.data[CONF_USER_ID] == OTHER_USER_ID
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert config_entry.unique_id == str(HOME_B)
 
 
 def test_options_schema_serializes() -> None:

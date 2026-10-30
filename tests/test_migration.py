@@ -34,7 +34,7 @@ from custom_components.tado_x.migration import (
     async_migrate_entry,
     migrate_v1_1,
 )
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
@@ -304,6 +304,101 @@ async def test_migration_is_idempotent_after_rollback(
 
     assert legacy_v1_entry.minor_version == 2
     assert legacy_v1_entry.options == options
+
+
+async def test_options_emptied_by_1_8_are_derived_again(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, legacy_v1_entry: MockConfigEntry
+) -> None:
+    """A 1.8.11 options save after a rollback empties the options; setup derives them."""
+    legacy_v1_entry.add_to_hass(hass)
+    assert await legacy_v1_entry.async_migrate(hass)
+    # 1.8.11's options flow writes its settings into data and returns data={}.
+    hass.config_entries.async_update_entry(
+        legacy_v1_entry,
+        data={**legacy_v1_entry.data, LEGACY_SCAN_INTERVAL: 2700},
+        options={},
+    )
+
+    assert await hass.config_entries.async_setup(legacy_v1_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert legacy_v1_entry.state is ConfigEntryState.LOADED
+    assert legacy_v1_entry.minor_version == 2
+    assert legacy_v1_entry.options == {
+        **DEFAULT_OPTIONS,
+        **dict.fromkeys(FEATURES, True),
+        OPT_DAILY_CALL_BUDGET: 1100,
+    }
+
+
+async def test_duplicate_takes_the_unique_id_once_the_other_entry_is_gone(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    legacy_v1_entry: MockConfigEntry,
+    issue_registry: ir.IssueRegistry,
+) -> None:
+    """After the user removed the other entry, the duplicate owns its home."""
+    second = MockConfigEntry(
+        domain=DOMAIN,
+        title="Haus B (2)",
+        version=1,
+        minor_version=1,
+        data=dict(legacy_v1_entry.data),
+    )
+    legacy_v1_entry.add_to_hass(hass)
+    second.add_to_hass(hass)
+    assert await legacy_v1_entry.async_migrate(hass)
+    assert await second.async_migrate(hass)
+    assert _issues(issue_registry, "duplicate_home") == [
+        f"duplicate_home_{second.entry_id}"
+    ]
+    await hass.config_entries.async_remove(legacy_v1_entry.entry_id)
+
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+
+    assert second.state is ConfigEntryState.LOADED
+    assert second.unique_id == str(HOME_B)
+    assert _issues(issue_registry, "duplicate_home") == []
+
+
+async def test_duplicate_is_reported_again_at_setup(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    issue_registry: ir.IssueRegistry,
+) -> None:
+    """While another entry owns the home, every setup reports the duplicate again."""
+    owner = MockConfigEntry(
+        domain=DOMAIN,
+        title="Haus B",
+        unique_id=str(HOME_B),
+        version=1,
+        minor_version=2,
+        data=dict(config_entry.data),
+        options=dict(DEFAULT_OPTIONS),
+        disabled_by=ConfigEntryDisabler.USER,
+    )
+    owner.add_to_hass(hass)
+    duplicate = MockConfigEntry(
+        domain=DOMAIN,
+        title="Haus B (2)",
+        unique_id=None,
+        version=1,
+        minor_version=2,
+        data=dict(config_entry.data),
+        options=dict(DEFAULT_OPTIONS),
+    )
+    duplicate.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(duplicate.entry_id)
+    await hass.async_block_till_done()
+
+    assert duplicate.state is ConfigEntryState.LOADED
+    assert duplicate.unique_id is None
+    assert _issues(issue_registry, "duplicate_home") == [
+        f"duplicate_home_{duplicate.entry_id}"
+    ]
 
 
 async def test_future_minor_version_is_accepted(hass: HomeAssistant) -> None:

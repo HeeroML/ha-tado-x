@@ -1,7 +1,8 @@
 """Config entry migration from 1.1 (v1.8.x) to 1.2.
 
 The migration is additive: legacy keys stay in the entry data, so a rollback
-to 1.8.11 still works.
+to 1.8.11 still works. Home Assistant migrates an entry only once, so the
+parts later changes can undo are checked again at every setup.
 """
 
 from collections.abc import Mapping
@@ -37,6 +38,7 @@ from .const import (
 from .issues import (
     async_create_breaking_changes_issue,
     async_create_duplicate_home_issue,
+    async_delete_duplicate_home_issue,
 )
 from .runtime import TadoXConfigEntry
 
@@ -147,6 +149,25 @@ def _async_unique_id(
         return unique_id
     async_create_duplicate_home_issue(hass, entry)
     return entry.unique_id
+
+
+@callback
+def async_finish_migration(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
+    """Redo the parts of the migration that later changes undid.
+
+    Saving the options dialog of 1.8.11 after a rollback empties the options,
+    and a duplicate entry may own its home once the user removed the other
+    entry. The duplicate issue is not persistent, so it is reported again.
+    """
+    if OPT_DAILY_CALL_BUDGET not in entry.options:
+        options = migrate_v1_1(entry.data, entry.options).options
+        hass.config_entries.async_update_entry(entry, options=options)
+        LOGGER.debug("Derived the emptied options of %s again", entry.title)
+    if entry.unique_id is None:
+        unique_id = _async_unique_id(hass, entry, str(entry.data[CONF_HOME_ID]))
+        if unique_id is not None:
+            hass.config_entries.async_update_entry(entry, unique_id=unique_id)
+            async_delete_duplicate_home_issue(hass, entry)
 
 
 async def _async_migrate_climate_unique_ids(

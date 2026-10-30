@@ -34,7 +34,7 @@ class TadoXConnectionError(TadoXTransientError):
 
 
 class TadoXServerError(TadoXTransientError):
-    """A 5xx from any host, or a 429 from login.tado.com."""
+    """A 5xx from any host, or from login.tado.com a 429 or a 4xx without an OAuth error."""
 
     def __init__(self, status: int) -> None:
         """Initialize with the HTTP status."""
