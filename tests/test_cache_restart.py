@@ -339,6 +339,74 @@ async def test_restart_late_in_a_known_hold_serves_the_cache(
     assert data.rooms.stale_since is None
 
 
+async def test_restart_with_a_hold_saved_without_its_start_keeps_the_caps(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A quota state saved by an earlier version lacks the hold start.
+
+    Without it the rooms read 7 h ago are past their cap, although the
+    persisted gate is still closed.
+    """
+    entry = make_entry()
+    now = datetime.fromisoformat(START)
+    quota = _hold_quota(now - timedelta(hours=6), now + timedelta(hours=2))
+    del quota["hold_began"]
+    hass_storage.update(_store(entry, at=now - timedelta(hours=7), quota=quota))
+
+    await _start(hass, freezer, entry)
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert entry.error_reason_translation_key == "setup_quota_exhausted"
+    assert mock_tado.calls() == []
+
+
+@pytest.mark.parametrize(
+    "reset_in",
+    [None, timedelta(hours=2), timedelta(hours=9)],
+    ids=["no_quota", "reset_passed", "reset_ahead"],
+)
+async def test_a_new_hold_does_not_revive_an_expired_cache(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    reset_in: timedelta | None,
+) -> None:
+    """A 429 without t= at startup refuses room values read 7 h earlier.
+
+    The quota reading saved with them is no hold, even when the reset it
+    announced is still ahead: the hold begins with the 429, when the rooms
+    are already past their 6 h cap.
+    """
+    read_at = datetime.fromisoformat(START) - timedelta(hours=7)
+    quota: dict[str, Any] = {}
+    if reset_in is not None:
+        tracker = QuotaTracker(clock=lambda: read_at)
+        tracker.observe(
+            RateLimitInfo(
+                limit=20000,
+                window=timedelta(days=1),
+                remaining=1000,
+                reset_in=reset_in,
+                observed_at=read_at,
+            ),
+            status=200,
+        )
+        quota = tracker.as_dict()
+    entry = make_entry()
+    hass_storage.update(_store(entry, at=read_at, quota=quota))
+    mock_tado.fail("GET", "/homes/1000002/roomsAndDevices", status=429, headers={})
+
+    await _start(hass, freezer, entry)
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert entry.error_reason_translation_key == "setup_quota_exhausted"
+    assert len(mock_tado.calls()) == 1
+
+
 async def test_unreadable_optional_slice_is_dropped(
     hass: HomeAssistant,
     hass_storage: dict[str, Any],

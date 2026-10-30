@@ -148,12 +148,10 @@ class QuotaMonitor:
     def known_hold_began(self, now: datetime) -> datetime | None:
         """Return when a quota hold with a known end began.
 
-        That is when tado's answer that announced it arrived. The quota state
-        is persisted, so the start outlasts a reload or a restart.
+        The quota tracker keeps the start of the hold in its persisted state,
+        so the start outlasts a reload or a restart.
         """
-        if (info := self.info) is None or self.known_hold_end(now) is None:
-            return None
-        return info.observed_at
+        return self._quota.known_hold_began(now)
 
     def calls_24h(self, now: datetime | None = None) -> int:
         """Return the requests this entry sent in the last 24 hours."""

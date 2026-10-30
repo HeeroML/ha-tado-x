@@ -308,8 +308,8 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     def _serve_stale(self, err: TadoXRateLimitError, now: datetime) -> S:
         """Serve the last snapshot during a quota hold, while it is recent enough.
 
-        A hold with a known end began when tado announced it, also for a
-        coordinator created by a reload or restart during the hold.
+        A coordinator created by a reload or restart during a hold with a
+        known end takes the start of that hold from the quota tracker.
         """
         setup = self.data is None
         data: S | None = self._seed_data if setup else self.data

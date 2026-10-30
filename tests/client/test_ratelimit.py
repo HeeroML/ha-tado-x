@@ -328,6 +328,7 @@ def test_as_dict_and_restore(freezer: FrozenDateTimeFactory) -> None:
         },
         "blocked_until": (NOW + timedelta(seconds=630)).isoformat(),
         "backoff_step": 1,
+        "hold_began": NOW.isoformat(),
     }
 
     restored = QuotaTracker()
@@ -340,6 +341,7 @@ def test_as_dict_and_restore(freezer: FrozenDateTimeFactory) -> None:
         "latest": None,
         "blocked_until": None,
         "backoff_step": 0,
+        "hold_began": None,
     }
 
 
@@ -347,8 +349,12 @@ def test_as_dict_and_restore(freezer: FrozenDateTimeFactory) -> None:
     "data",
     [
         {},
-        {"latest": "nope", "blocked_until": 5, "backoff_step": -1},
-        {"latest": {"observed_at": "yesterday"}, "blocked_until": "soon"},
+        {"latest": "nope", "blocked_until": 5, "backoff_step": -1, "hold_began": 5},
+        {
+            "latest": {"observed_at": "yesterday"},
+            "blocked_until": "soon",
+            "hold_began": "earlier",
+        },
         {"latest": {"remaining": 3}, "backoff_step": True},
     ],
 )
@@ -477,3 +483,112 @@ def test_known_hold_end(freezer: FrozenDateTimeFactory) -> None:
     quota.observe(None, status=429)
     assert quota.blocked_until is not None
     assert quota.known_hold_end(datetime.now(UTC)) is None
+
+
+def test_responses_during_a_hold_keep_its_start(freezer: FrozenDateTimeFactory) -> None:
+    """A hold begins with the response that starts it; later ones do not move it."""
+    quota = QuotaTracker()
+    quota.observe(_info(500), status=200)
+    assert quota.known_hold_began(NOW) is None
+
+    quota.observe(_info(QuotaTracker.POLL_FLOOR, reset_in=8 * 3600), status=200)
+    assert quota.known_hold_began(NOW) == NOW
+
+    freezer.tick(timedelta(hours=7))
+    now = datetime.now(UTC)
+    quota.observe(_info(QuotaTracker.POLL_FLOOR - 1, reset_in=3600), status=200)
+    assert quota.latest is not None
+    assert quota.latest.observed_at == now
+    assert quota.known_hold_began(now) == NOW
+
+    quota.observe(None, status=429)
+    assert quota.known_hold_end(now) == now + timedelta(minutes=15)
+    assert quota.known_hold_began(now) == NOW
+
+    quota.observe(_info(0, reset_in=3600), status=429)
+    assert quota.known_hold_began(now) == NOW
+
+    freezer.tick(timedelta(seconds=3630))
+    assert quota.known_hold_began(datetime.now(UTC)) is None
+
+
+def test_a_new_hold_gets_its_own_start(freezer: FrozenDateTimeFactory) -> None:
+    """A hold that ended, by time or by a recovered quota, lends no start."""
+    quota = QuotaTracker()
+    quota.observe(_info(0, reset_in=600), status=429)
+    assert quota.known_hold_began(NOW) == NOW
+
+    freezer.tick(timedelta(seconds=630))
+    later = datetime.now(UTC)
+    assert quota.known_hold_began(later) is None
+    quota.observe(_info(QuotaTracker.POLL_FLOOR, reset_in=3600), status=200)
+    assert quota.known_hold_began(later) == later
+
+    quota.observe(_info(500), status=200)
+    assert quota.known_hold_began(later) is None
+    assert quota.as_dict()["hold_began"] is None
+
+
+def test_a_hold_without_a_known_end_has_no_start(
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Without a reset from tado no start is kept, and losing the reset drops it."""
+    quota = QuotaTracker()
+    quota.observe(None, status=429)
+    assert quota.known_hold_began(NOW) is None
+
+    freezer.tick(timedelta(minutes=15))
+    now = datetime.now(UTC)
+    quota.observe(_info(QuotaTracker.POLL_FLOOR), status=200)
+    assert quota.known_hold_began(now) is None
+
+    quota.observe(_info(500, reset_in=60), status=200)
+    quota.observe(None, status=429)
+    assert quota.known_hold_end(now) is None
+    assert quota.known_hold_began(now) is None
+
+    freezer.tick(timedelta(minutes=15))
+    now = datetime.now(UTC)
+    quota.observe(_info(QuotaTracker.POLL_FLOOR, reset_in=3600), status=200)
+    assert quota.known_hold_began(now) == now
+    freezer.tick(timedelta(minutes=10))
+    quota.observe(_info(QuotaTracker.POLL_FLOOR - 1), status=200)
+    assert quota.known_hold_began(datetime.now(UTC)) is None
+    assert quota.as_dict()["hold_began"] is None
+
+
+def test_a_429_without_reset_does_not_borrow_an_older_reading(
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A 429 without t= after an old reading whose reset is still ahead starts its hold."""
+    quota = QuotaTracker()
+    quota.observe(_info(1000, reset_in=9 * 3600), status=200)
+    freezer.tick(timedelta(hours=7))
+    now = datetime.now(UTC)
+
+    quota.observe(None, status=429)
+
+    assert quota.known_hold_end(now) == now + timedelta(minutes=15)
+    assert quota.known_hold_began(now) == now
+
+
+def test_hold_start_is_persisted(freezer: FrozenDateTimeFactory) -> None:
+    """The start survives a restore; a state saved without it gives none."""
+    quota = QuotaTracker()
+    quota.observe(_info(QuotaTracker.POLL_FLOOR, reset_in=8 * 3600), status=200)
+    freezer.tick(timedelta(hours=7))
+    now = datetime.now(UTC)
+    quota.observe(_info(QuotaTracker.POLL_FLOOR - 1, reset_in=3600), status=200)
+    data = quota.as_dict()
+    assert data["hold_began"] == NOW.isoformat()
+
+    restored = QuotaTracker()
+    restored.restore(data)
+    assert restored.known_hold_began(now) == NOW
+
+    legacy = QuotaTracker()
+    legacy.restore({key: value for key, value in data.items() if key != "hold_began"})
+    assert legacy.known_hold_end(now) == NOW + timedelta(hours=8)
+    assert legacy.known_hold_began(now) is None
+    legacy.observe(_info(QuotaTracker.POLL_FLOOR - 2, reset_in=3600), status=200)
+    assert legacy.known_hold_began(now) is None

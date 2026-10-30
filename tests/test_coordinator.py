@@ -335,6 +335,54 @@ async def test_reload_during_a_known_hold_serves_until_the_reset(
     assert _status(reloaded) is ApiStatus.OK
 
 
+async def test_command_during_a_known_hold_keeps_its_start_across_a_reload(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A boost 7 h into an 8 h hold at the poll floor does not restart the hold.
+
+    Its answer is newer quota information inside the same hold, so a reload
+    still serves the room values read when the hold began until the reset.
+    """
+    data = await _setup(hass, freezer)
+    entry = data.rooms.config_entry
+    before = data.rooms.data
+    mock_tado.set_quota(remaining=20, reset_in=timedelta(hours=8))
+    await _tick(hass, freezer, 45)
+    await data.rooms.async_request_refresh()
+    await _tick(hass, freezer, 5)
+    began = data.rooms.stale_since
+    assert began is not None
+    await _tick(hass, freezer, 7 * 3600)
+
+    await _press(hass, "boost_all")
+    await _tick(hass, freezer, 5)
+
+    assert mock_tado.calls("POST", "/homes/1000002/quickActions/boost")
+    assert data.monitor.info is not None
+    assert data.monitor.info.observed_at > began + timedelta(hours=7)
+    assert data.rooms.stale_since == began
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    reloaded: TadoXRuntimeData = entry.runtime_data
+    assert reloaded.rooms.data == before
+    assert reloaded.rooms.stale_since == began
+    assert _status(reloaded) is ApiStatus.RATE_LIMITED
+
+    mock_tado.clear_calls()
+    await _run(hass, freezer, 11, step=300)  # until just before the reset
+
+    assert mock_tado.calls() == []
+    assert reloaded.rooms.last_update_success
+
+    await _run(hass, freezer, 2, step=300)
+
+    assert mock_tado.calls("GET", ROOMS)
+    assert _stale_since(reloaded.rooms) is None
+
+
 async def test_hold_does_not_revive_values_older_than_max_stale(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:

@@ -89,7 +89,8 @@ TadoXError
 - `r=0` with `t=`, or a 429 with `t=`, closes the gate until `t` plus 30 s. A 429 without `t=` closes it for 15, 30, 60, then 120 minutes; one request is let through after each step, and the first 2xx resets the backoff. A late answer to a request sent before the gate closed does not reopen it.
 - With 20 or fewer calls remaining, polls are refused and commands still pass (`Priority.COMMAND`).
 - The reset time is known only from `t=`; nothing is guessed.
-- The tracker's state is persisted, so a restart during a hold sends nothing.
+- A hold whose end tado sent starts with the response that began it. Later responses during the hold, such as the answer to a command, do not move that start; it is dropped when the hold ends or the quota recovers. A hold without a known end has no start.
+- The tracker's state, including that start, is persisted, so a restart during a hold sends nothing.
 
 ## Home Assistant layer
 
@@ -154,7 +155,7 @@ For a home with 6 rooms, the defaults give rooms every 45 s and 2,521 planned ca
 
 | Situation | Result |
 |---|---|
-| gate closed or 429, and the data is younger than the stale cap, or the hold ends at a reset from `t=` and the data was younger than the cap when the hold began (when tado's answer announced it; the persisted quota state keeps that time across reloads and restarts) | keep the data; entities stay available; `api_status` = `rate_limited`; repair issue; zero HTTP until the reset |
+| gate closed or 429, and the data is younger than the stale cap, or the hold ends at a reset from `t=` and the data was younger than the cap when the hold began (the start the quota tracker keeps and persists, so it holds across reloads and restarts; a quota state saved without it gives only the cap) | keep the data; entities stay available; `api_status` = `rate_limited`; repair issue; zero HTTP until the reset |
 | gate closed or 429, otherwise | `UpdateFailed`; entities unavailable |
 | first refresh, gate closed, no cache | `ConfigEntryNotReady`; HA's retries hit the persisted gate and send nothing |
 | network, 5xx or parse error | standard HA behaviour, never served from the cache |

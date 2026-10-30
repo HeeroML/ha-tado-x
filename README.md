@@ -231,7 +231,7 @@ When tado answers 429, or reports 0 remaining calls with a reset time, the integ
 - raises the repair issue "tado API quota used up";
 - fails commands with a message that names the reset time.
 
-The hold, the time tado announced it, and the last data are saved. A restart or a reload during a hold therefore sends no requests, still creates every entity from the cache, and keeps the last values until the reset tado sent, as if the integration had kept running. Polling resumes on its own after the reset. Network, server and parse errors are not holds: entities go unavailable as usual.
+The hold, the time it began, and the last data are saved. Calls during the hold, such as a boost, do not move that time. A restart or a reload during a hold therefore sends no requests, still creates every entity from the cache, and keeps the last values until the reset tado sent, as if the integration had kept running. Polling resumes on its own after the reset. Network, server and parse errors are not holds: entities go unavailable as usual.
 
 ### API sensors
 

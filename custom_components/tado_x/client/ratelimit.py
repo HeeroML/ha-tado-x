@@ -186,6 +186,9 @@ class QuotaTracker:
     Every sent request gets a ticket. While the gate is closed, a response to
     a request sent before it closed changes nothing: tado answered it before
     the quota ran out.
+
+    A hold with a known end begins with the response that starts it; later
+    responses during the hold do not move that start.
     """
 
     POLL_FLOOR: Final = 20
@@ -203,6 +206,7 @@ class QuotaTracker:
         self.calls = CallCounter()
         self._backoff_step = 0
         self._closures = 0
+        self._hold_began: datetime | None = None
         self._listeners: list[Callable[[], None]] = []
 
     def check(self, priority: Priority) -> None:
@@ -232,6 +236,14 @@ class QuotaTracker:
             return blocked if blocked <= reset + _GATE_GRACE else None
         return reset if self._below_floor(info, now) else None
 
+    def known_hold_began(self, now: datetime) -> datetime | None:
+        """Return when the hold that known_hold_end() ends began.
+
+        None without a known end, and after a restore of a state that lacks
+        the start.
+        """
+        return None if self.known_hold_end(now) is None else self._hold_began
+
     def _below_floor(self, info: RateLimitInfo, now: datetime) -> bool:
         if info.remaining is None or info.remaining > self.POLL_FLOOR:
             return False
@@ -248,23 +260,25 @@ class QuotaTracker:
         ticket is what record_call() returned for the request; None stands
         for a request sent after the gate last closed.
         """
-        if (
-            ticket is not None
-            and ticket < self._closures
-            and self._closed(self._clock())
-        ):
+        now = self._clock()
+        if ticket is not None and ticket < self._closures and self._closed(now):
             return
+        holding = self.known_hold_end(now) is not None
         if info is not None:
             self.latest = self._merged(info)
         success = HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES
         if success:
             self._backoff_step = 0
         if status == HTTPStatus.TOO_MANY_REQUESTS:
-            self._close_after_429(info)
+            self._close_after_429(info, now)
         elif info is not None and info.remaining == 0 and info.reset_at is not None:
             self._close(info.reset_at + _GATE_GRACE)
         elif success:
             self.blocked_until = None
+        if self.known_hold_end(now) is None:
+            self._hold_began = None
+        elif not holding:
+            self._hold_began = now
         self._notify()
 
     def _close(self, until: datetime) -> None:
@@ -280,11 +294,10 @@ class QuotaTracker:
             info, limit=previous.limit, window=info.window or previous.window
         )
 
-    def _close_after_429(self, info: RateLimitInfo | None) -> None:
+    def _close_after_429(self, info: RateLimitInfo | None, now: datetime) -> None:
         if info is not None and info.reset_at is not None:
             self._close(info.reset_at + _GATE_GRACE)
             return
-        now = self._clock()
         if self._closed(now):
             return
         step = min(self._backoff_step, len(self.BACKOFF_429) - 1)
@@ -314,7 +327,7 @@ class QuotaTracker:
             listener()
 
     def as_dict(self) -> dict[str, Any]:
-        """Return the persisted state: latest info, gate and backoff."""
+        """Return the persisted state: latest info, gate, backoff and hold start."""
         info = self.latest
         return {
             "latest": None
@@ -330,6 +343,9 @@ class QuotaTracker:
             if self.blocked_until is None
             else self.blocked_until.isoformat(),
             "backoff_step": self._backoff_step,
+            "hold_began": None
+            if self._hold_began is None
+            else self._hold_began.isoformat(),
         }
 
     def restore(self, data: Mapping[str, Any]) -> None:
@@ -337,4 +353,5 @@ class QuotaTracker:
         self.latest = _info_from_dict(data.get("latest"))
         self.blocked_until = _parse_time(data.get("blocked_until"))
         self._backoff_step = _opt_count(data.get("backoff_step")) or 0
+        self._hold_began = _parse_time(data.get("hold_began"))
         self._notify()
