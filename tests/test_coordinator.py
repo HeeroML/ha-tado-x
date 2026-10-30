@@ -37,10 +37,16 @@ from custom_components.tado_x.runtime import (
     RoomsSnapshot,
     TadoXRuntimeData,
 )
+from homeassistant.components.number import (
+    ATTR_VALUE,
+    DOMAIN as NUMBER_DOMAIN,
+    SERVICE_SET_VALUE,
+)
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from tests.tado_mock import HOME_B, TadoCloudMock
@@ -715,3 +721,32 @@ async def test_monitor_listeners(
     assert len(calls) == seen
     assert data.monitor.calls_24h() == len(mock_tado.calls())
     assert data.monitor.reset_time is None
+
+
+@pytest.mark.parametrize("writes", [False, True], ids=["idle", "offset_every_10_min"])
+async def test_optimistic_writes_keep_the_poll_cadence(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    writes: bool,
+) -> None:
+    """Writes that show at once do not postpone the next poll of their coordinator."""
+    await _setup(hass, freezer)
+    offset = er.async_get(hass).async_get_entity_id(
+        NUMBER_DOMAIN, DOMAIN, "VA0000000101_offset"
+    )
+    assert offset is not None
+    mock_tado.clear_calls()
+
+    for minute in range(4 * 60):
+        await _tick(hass, freezer, 60)
+        if writes and minute % 10 == 0:
+            await hass.services.async_call(
+                NUMBER_DOMAIN,
+                SERVICE_SET_VALUE,
+                {ATTR_ENTITY_ID: offset, ATTR_VALUE: (minute % 20) / 10},
+                blocking=True,
+            )
+
+    assert _count(mock_tado, TOPOLOGY) == 16
+    assert _count(mock_tado, RUNNING_TIMES) == 4

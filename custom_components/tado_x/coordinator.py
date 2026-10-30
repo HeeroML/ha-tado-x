@@ -253,11 +253,16 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     def async_apply_optimistic(
         self, patch: Callable[[S], S], *, ttl: timedelta = timedelta(seconds=60)
     ) -> None:
-        """Apply a patch now and re-apply it to fetched data until it agrees or ttl passes."""
+        """Apply a patch now and re-apply it to fetched data until it agrees or ttl passes.
+
+        The poll timer keeps running: async_set_updated_data would restart it,
+        so writes more often than the interval would stop the polling.
+        """
         if self.data is None:
             return
         self._pending.add(patch, dt_util.utcnow() + ttl)
-        self.async_set_updated_data(patch(self.data))
+        self.data = patch(self.data)
+        self.async_update_listeners()
 
     def _serve_stale(self, err: TadoXRateLimitError, now: datetime) -> S:
         """Serve the last snapshot during a quota hold, while it is recent enough."""
