@@ -1,7 +1,9 @@
 """Tests for restarts during a quota hold and the Store cache (#62)."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 import logging
+import re
 from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
@@ -25,6 +27,7 @@ from tests.tado_mock import HOME_B, HOME_C, TadoCloudMock, load_fixture
 from tests.test_init import make_entry, state
 
 START = "2026-10-30T10:00:00+00:00"
+_TADO_API = re.compile(r"^https://(hops|my|minder)\.tado\.com/")
 CACHED_AT = datetime(2026, 10, 30, 9, 30, tzinfo=UTC)
 PAYLOAD_FIXTURES = {
     "rooms": "rooms.json",
@@ -116,7 +119,15 @@ async def test_restart_during_quota_hold_serves_the_cache(
     entry = make_entry()
     hass_storage.update(_store(entry))
     mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=2))
+    answers = mock_tado.hold(None, _TADO_API)
 
+    async def answer_late() -> None:
+        # Every request sent meanwhile is in flight before the first 429 arrives.
+        for _ in range(50):
+            await asyncio.sleep(0)
+        answers.set()
+
+    hass.async_create_task(answer_late())
     await _start(hass, freezer, entry)
 
     assert entry.state is ConfigEntryState.LOADED
@@ -132,7 +143,8 @@ async def test_restart_during_quota_hold_serves_the_cache(
     assert data.devices.data.running_times is not None
     assert data.devices.data.flow_status is FeatureStatus.ABSENT
     assert issue_registry.async_get_issue(DOMAIN, f"quota_exhausted_{entry.entry_id}")
-    # The first 429 closes the gate: the rest of the startup stays local.
+    # The required endpoint goes first and its 429 closes the gate: the rest
+    # of the startup stays local.
     assert [call.url.path for call in mock_tado.calls()] == [
         "/homes/1000002/roomsAndDevices"
     ]

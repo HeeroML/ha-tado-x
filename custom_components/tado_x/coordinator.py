@@ -335,29 +335,26 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     async def _async_gather(
         self, due: frozenset[str], fetchers: Mapping[str, Fetcher]
     ) -> tuple[dict[str, Any], dict[str, TadoXError]]:
-        """Run the due fetchers at once; return the values and the optional failures.
+        """Run the due fetchers; return the values and the optional failures.
 
+        The required endpoints go first and the optional ones together after
+        them, so a used-up quota costs one request, not one per endpoint.
         A quota error wins over an auth error, which wins over "not a tado X
         home", then over a failed required endpoint. A failed optional
-        endpoint does not fail the tick.
+        endpoint does not fail the tick, nor does one the quota gate refused
+        after the required endpoints were read.
         """
         keys = [key for key in fetchers if key in due]
-        results = await asyncio.gather(
-            *(fetchers[key]() for key in keys), return_exceptions=True
-        )
-        outcome = dict(zip(keys, results, strict=True))
-        errors = {
-            key: result
-            for key, result in outcome.items()
-            if isinstance(result, BaseException)
-        }
-        for kind in (TadoXRateLimitError, TadoXAuthError, TadoXHomeNotXError):
-            for error in errors.values():
-                if isinstance(error, kind):
-                    raise error
-        for key, error in errors.items():
-            if key in self.REQUIRED or not isinstance(error, TadoXError):
-                raise error
+        outcome: dict[str, Any] = {}
+        for batch in (
+            [key for key in keys if key in self.REQUIRED],
+            [key for key in keys if key not in self.REQUIRED],
+        ):
+            results = await asyncio.gather(
+                *(fetchers[key]() for key in batch), return_exceptions=True
+            )
+            outcome.update(zip(batch, results, strict=True))
+            self._raise_first(outcome)
         values: dict[str, Any] = {}
         failures: dict[str, TadoXError] = {}
         for key, result in outcome.items():
@@ -369,12 +366,39 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
                 self._note_success(key)
         return values, failures
 
+    def _raise_first(self, outcome: Mapping[str, Any]) -> None:
+        """Raise the error that fails the tick, if any, by precedence."""
+        errors = {
+            key: result
+            for key, result in outcome.items()
+            if isinstance(result, BaseException) and not self._refused(key, result)
+        }
+        for kind in (TadoXRateLimitError, TadoXAuthError, TadoXHomeNotXError):
+            for error in errors.values():
+                if isinstance(error, kind):
+                    raise error
+        for key, error in errors.items():
+            if key in self.REQUIRED or not isinstance(error, TadoXError):
+                raise error
+
+    def _refused(self, key: str, err: BaseException) -> bool:
+        """Return True for an optional read the quota gate refused."""
+        return (
+            key not in self.REQUIRED
+            and isinstance(err, TadoXRateLimitError)
+            and err.local
+        )
+
     def _expected_failure(self, key: str, err: TadoXError) -> bool:
         """Return True for a failure that is an answer, not a problem."""
         return False
 
     def _note_failure(self, key: str, err: TadoXError) -> None:
-        if self._expected_failure(key, err) or key in self._failing:
+        if (
+            self._refused(key, err)
+            or self._expected_failure(key, err)
+            or key in self._failing
+        ):
             return
         self._failing.add(key)
         LOGGER.warning(

@@ -951,3 +951,34 @@ async def test_known_reset_ends_conserving_on_time(
     assert took <= 60 + 60
     assert _mode(data) is PlanMode.OK
     assert data.rooms.update_interval == timedelta(seconds=45)
+
+
+async def test_required_read_that_closes_the_gate_keeps_its_data(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When the required read uses up the quota, the optional reads stay local."""
+    data = await _setup(hass, freezer)
+    topology = mock_tado.home(HOME_B).topology
+    topology["rooms"][0]["devices"][0]["batteryState"] = "LOW"
+    mock_tado.fail(
+        "GET",
+        TOPOLOGY,
+        status=200,
+        body=topology,
+        headers={"ratelimit": '"perday";r=0;t=3600'},
+        times=1,
+    )
+    mock_tado.clear_calls()
+
+    freezer.tick(timedelta(hours=1))
+    await data.devices.async_refresh()
+
+    assert [call.path for call in mock_tado.calls("GET")] == [TOPOLOGY]
+    assert data.devices.last_update_success
+    assert data.devices.data.topology.devices["VA0000000101"].battery == "LOW"
+    assert data.devices.data.running_times is not None
+    assert _mode(data) is PlanMode.BLOCKED
+    assert "Reading running_times" not in caplog.text
