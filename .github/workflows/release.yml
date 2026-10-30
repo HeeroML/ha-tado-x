@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to check against the manifest (dry run; nothing is uploaded)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: tag matches the manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ${{ github.workflow }}-version-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check tag, manifest version and minimum Home Assistant
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          tag = os.environ["TAG"]
+          with open("custom_components/tado_x/manifest.json", encoding="utf-8") as handle:
+              version = json.load(handle)["version"]
+          with open("hacs.json", encoding="utf-8") as handle:
+              minimum = json.load(handle).get("homeassistant")
+          errors = []
+          if tag.removeprefix("v") != version:
+              errors.append(f"tag {tag} does not match manifest version {version}")
+          if minimum != "2026.10.0":
+              errors.append(f"hacs.json homeassistant is {minimum}, expected 2026.10.0")
+          for error in errors:
+              print(f"::error::{error}")
+          print(f"tag {tag}, version {version}, Home Assistant {minimum}")
+          sys.exit(1 if errors else 0)
+          PY
+
+  tests:
+    name: lint and tests
+    needs: version
+    uses: ./.github/workflows/tests.yml
+
+  zip:
+    name: tado_x.zip
+    needs: [version, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.workflow }}-zip-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build tado_x.zip from custom_components/tado_x
+        working-directory: custom_components/tado_x
+        run: |
+          zip -r -X "$GITHUB_WORKSPACE/tado_x.zip" . -x '*__pycache__*' '*.pyc'
+          unzip -l "$GITHUB_WORKSPACE/tado_x.zip"
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" tado_x.zip --clobber

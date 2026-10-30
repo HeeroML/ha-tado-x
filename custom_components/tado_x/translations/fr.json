@@ -1,0 +1,234 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Cette maison Tado est déjà configurée.",
+      "cannot_connect": "Impossible de se connecter à Tado. Veuillez vérifier votre connexion internet.",
+      "reauth_successful": "Ré-authentification réussie.",
+      "unknown": "Une erreur inconnue est survenue."
+    },
+    "step": {
+      "reauth_confirm": {
+        "title": "Ré-authentification Tado X"
+      },
+      "select_home": {
+        "data": {
+          "home_id": "Maison"
+        },
+        "title": "Sélectionner la maison"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "battery_low": {
+        "name": "Batterie faible"
+      },
+      "connectivity": {
+        "name": "Connectivité"
+      },
+      "heating": {
+        "name": "Chauffage"
+      },
+      "overlay_active": {
+        "name": "Contrôle manuel"
+      },
+      "window_open": {
+        "name": "Fenêtre ouverte"
+      }
+    },
+    "button": {
+      "boost_all": {
+        "name": "Booster tout"
+      },
+      "disable_all": {
+        "name": "Tout éteindre"
+      },
+      "resume_schedules": {
+        "name": "Reprendre les programmations"
+      }
+    },
+    "climate": {
+      "tado_x": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "auto": "Auto (Géofencing)",
+              "away": "Absent",
+              "home": "Maison"
+            }
+          }
+        }
+      }
+    },
+    "device_tracker": {
+      "phone": {
+        "state_attributes": {
+          "geofencing_enabled": {
+            "name": "Géofencing activé"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "air_freshness": {
+        "name": "Niveau d'humidité",
+        "state": {
+          "comfy": "Confortable",
+          "dry": "Sec",
+          "humid": "Humide"
+        }
+      },
+      "api_calls_today": {
+        "name": "Appels API aujourd'hui"
+      },
+      "api_quota_limit": {
+        "name": "Limite de quota API"
+      },
+      "api_quota_remaining": {
+        "name": "Quota API restant"
+      },
+      "api_reset_time": {
+        "name": "Heure de réinitialisation de l'API"
+      },
+      "api_usage_percentage": {
+        "name": "Utilisation de l'API"
+      },
+      "battery": {
+        "name": "Batterie",
+        "state": {
+          "depleted": "Épuisée",
+          "low": "Faible",
+          "normal": "Normale"
+        }
+      },
+      "comfort_level": {
+        "name": "Niveau de confort",
+        "state": {
+          "cold": "Froid",
+          "comfy": "Confortable",
+          "warm": "Chaud"
+        }
+      },
+      "device_temperature": {
+        "name": "Température de l'appareil"
+      },
+      "heating_power": {
+        "name": "Puissance de chauffe"
+      },
+      "heating_time_today": {
+        "name": "Temps de chauffe aujourd'hui"
+      },
+      "humidity": {
+        "name": "Humidité"
+      },
+      "outdoor_temperature": {
+        "name": "Température extérieure"
+      },
+      "solar_intensity": {
+        "name": "Intensité solaire"
+      },
+      "temperature": {
+        "name": "Température"
+      },
+      "weather_state": {
+        "name": "État météo",
+        "state": {
+          "cloudy": "Nuageux",
+          "cloudy_mostly": "Très nuageux",
+          "cloudy_partly": "Partiellement nuageux",
+          "drizzle": "Bruine",
+          "foggy": "Brouillard",
+          "night_clear": "Nuit claire",
+          "night_cloudy": "Nuit nuageuse",
+          "rain": "Pluie",
+          "snow": "Neige",
+          "sunny": "Ensoleillé",
+          "thunderstorms": "Orages",
+          "windy": "Venteux"
+        }
+      }
+    },
+    "switch": {
+      "child_lock": {
+        "name": "Sécurité enfant"
+      },
+      "open_window": {
+        "name": "Fenêtre ouverte"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Impossible de se connecter à Tado. Veuillez vérifier votre connexion internet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "sections": {
+          "features": {
+            "data": {
+              "air_comfort": "Activer les capteurs de confort thermique",
+              "mobile_devices": "Activer le suivi des appareils mobiles",
+              "running_times": "Activer les capteurs de temps de chauffe",
+              "weather": "Activer les capteurs météo"
+            }
+          }
+        },
+        "title": "Options Tado X"
+      }
+    }
+  },
+  "services": {
+    "add_meter_reading": {
+      "description": "Envoi d'un relevé de compteur à Tado Energy IQ",
+      "fields": {
+        "date": {
+          "description": "Date du relevé (format AAAA-MM-JJ, par défaut aujourd'hui)",
+          "name": "Date"
+        },
+        "reading": {
+          "description": "Valeur du relevé de compteur (entier)",
+          "name": "Relevé"
+        }
+      },
+      "name": "Ajouter un relevé de compteur"
+    },
+    "set_eiq_tariff": {
+      "description": "Définit un prix de l'énergie dans Tado Energy IQ pour le calcul des coûts",
+      "fields": {
+        "end_date": {
+          "description": "Date de fin du tarif (format AAAA-MM-JJ)",
+          "name": "Date de fin"
+        },
+        "start_date": {
+          "description": "Date de début du tarif (format AAAA-MM-JJ)",
+          "name": "Date de début"
+        },
+        "tariff": {
+          "description": "Prix par unité (ex: 0.85 pour 0,85 €/m³)",
+          "name": "Tarif"
+        },
+        "unit": {
+          "description": "Type d'unité d'énergie (m3 ou kWh)",
+          "name": "Unité"
+        }
+      },
+      "name": "Définir le prix de l'énergie"
+    },
+    "set_temperature_offset": {
+      "description": "Ajuste l'écart de température pour un appareil Tado X (vanne ou capteur) afin de calibrer les valeurs récupérées.",
+      "fields": {
+        "device_id": {
+          "description": "L'appareil Tado X à calibrer",
+          "name": "Appareil"
+        },
+        "offset": {
+          "description": "Écart de température en °C. Les valeurs positives augmentent la valeur, les valeurs négatives la diminuent.",
+          "name": "Écart de température"
+        }
+      },
+      "name": "Définir l'écart de température"
+    }
+  }
+}
