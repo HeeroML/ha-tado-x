@@ -607,6 +607,78 @@ async def test_failed_refresh_of_a_cancelled_caller_is_kept(
     assert len(_refreshes(mock_tado)) == 1
 
 
+@pytest.mark.parametrize(
+    ("old_grant_valid", "login_expires_in", "expected", "posts"),
+    [
+        (True, 600, ACCESS_C, 1),
+        (False, 600, ACCESS_C, 1),
+        (True, 0, "fake-access-token-0002", 2),
+        (False, 0, "fake-access-token-0001", 2),
+    ],
+    ids=["rotated", "rejected", "rotated_stale_login", "rejected_stale_login"],
+)
+async def test_login_adopted_during_a_cancelled_callers_refresh_wins(
+    mock_tado: TadoCloudMock,
+    session: ClientSession,
+    old_grant_valid: bool,
+    login_expires_in: float,
+    expected: str,
+    posts: int,
+) -> None:
+    """A login another caller adopted before the old refresh answers is kept.
+
+    Neither the rotation of the old grant nor its rejection may replace the
+    login or fail the auth; a stale login is refreshed instead.
+    """
+    store = MemoryTokenStore(_tokens(0))
+    manager = TokenManager(session, store)
+    if not old_grant_valid:
+        mock_tado.valid_refresh_tokens.discard(REFRESH_B)
+    release = mock_tado.hold("POST", TOKEN_URL)
+    caller = asyncio.create_task(manager.async_get_access_token())
+    await _until(lambda: len(_refreshes(mock_tado)) == 1)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+
+    login = _tokens(login_expires_in, ACCESS_C, REFRESH_C)
+    await store.async_save(login)
+    adopter = asyncio.create_task(manager.async_get_access_token())
+    await _until(lambda: manager.expires_at == login.expires_at)
+    release.set()
+
+    assert await adopter == expected
+    await manager.async_close()
+    assert not manager.auth_failed
+    stored = store.load()
+    assert stored is not None
+    assert stored.access_token == expected
+    assert len(_refreshes(mock_tado)) == posts
+    assert _refreshes(mock_tado)[-1].body["refresh_token"] == (
+        REFRESH_B if posts == 1 else REFRESH_C
+    )
+    assert await manager.async_get_access_token() == expected
+
+
+async def test_login_stored_before_the_refresh_task_starts_wins(
+    mock_tado: TadoCloudMock, session: ClientSession
+) -> None:
+    """A login stored after a refresh was decided but before its task ran is kept."""
+    store = MemoryTokenStore(_tokens(0))
+    login = _tokens(600, ACCESS_C, REFRESH_C)
+
+    def create_task(coro: Coroutine[Any, Any, TokenSet]) -> asyncio.Task[TokenSet]:
+        # Tasks start in creation order, so the login is stored first.
+        asyncio.get_running_loop().create_task(store.async_save(login))
+        return asyncio.create_task(coro)
+
+    manager = TokenManager(session, store, create_task=create_task)
+
+    assert await manager.async_get_access_token() == ACCESS_C
+    assert store.load() == login
+    assert len(_refreshes(mock_tado)) == 1
+
+
 async def test_refresh_runs_in_the_injected_task(
     mock_tado: TadoCloudMock, session: ClientSession
 ) -> None:

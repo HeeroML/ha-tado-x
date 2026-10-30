@@ -23,10 +23,13 @@ from custom_components.tado_x.token_store import (
     ConfigEntryTokenStore,
     parse_expiry,
 )
+from homeassistant.components.button.const import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
+from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.util import dt as dt_util
-from tests.tado_mock import HOME_C, TadoCloudMock, entry_tokens
+from tests.tado_mock import HOME_B, HOME_C, TadoCloudMock, entry_tokens
+from tests.test_climate import entity_id
 from tests.test_init import make_entry, setup_entry, state
 
 TOKEN_PATH = "/oauth2/token"
@@ -44,6 +47,12 @@ async def _until(condition: Any, rounds: int = 200) -> None:
 
 def _bearer(call: Any) -> str:
     return str(call.headers["Authorization"]).removeprefix("Bearer ")
+
+
+async def _press(hass: HomeAssistant, button: str) -> None:
+    await hass.services.async_call(
+        BUTTON_DOMAIN, SERVICE_PRESS, {ATTR_ENTITY_ID: button}, blocking=True
+    )
 
 
 async def test_rotation_is_persisted_before_the_new_token_is_used(
@@ -196,6 +205,59 @@ async def test_login_stored_during_a_refresh_survives_it(
     assert entry.data[CONF_REFRESH_TOKEN] == refresh
     last_reads = mock_tado.calls("GET", "/homes/1000002/rooms")[-1]
     assert _bearer(last_reads) == access
+
+
+@pytest.mark.parametrize("old_grant_valid", [True, False], ids=["rotated", "rejected"])
+async def test_login_used_during_a_cancelled_press_survives_its_refresh(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    old_grant_valid: bool,
+) -> None:
+    """A new login a later press used outlives the refresh of a cancelled press.
+
+    An automation that restarts while its button press waits for the token
+    leaves the refresh running. A reauth stores a new login, and the press of
+    the restarted run uses it before tado answers the refresh of the old grant.
+    """
+    expiry = dt_util.utcnow() + timedelta(seconds=61)
+    entry = make_entry(token_expiry=expiry.isoformat())
+    await setup_entry(hass, entry)
+    access, refresh = entry_tokens(HOME_C)
+    if not old_grant_valid:
+        mock_tado.valid_refresh_tokens.discard(entry.data[CONF_REFRESH_TOKEN])
+    # The token needs a refresh now, but no poll is due: only the press waits.
+    freezer.tick(timedelta(seconds=2))
+    release = mock_tado.hold("POST", TOKEN_PATH)
+    button = entity_id(hass, BUTTON_DOMAIN, f"{HOME_B}_resume_schedules")
+    cancelled = hass.async_create_task(_press(hass, button))
+    await _until(lambda: mock_tado.calls("POST", TOKEN_PATH))
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+
+    # The tokens a reauth writes; the reload it schedules comes after the answer.
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_ACCESS_TOKEN: access,
+            CONF_REFRESH_TOKEN: refresh,
+            CONF_TOKEN_EXPIRY: (dt_util.utcnow() + timedelta(minutes=10)).isoformat(),
+        },
+    )
+    await _press(hass, button)
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert entry.data[CONF_ACCESS_TOKEN] == access
+    assert entry.data[CONF_REFRESH_TOKEN] == refresh
+    await _press(hass, button)
+    await hass.async_block_till_done()
+    presses = mock_tado.calls("POST", f"/homes/{HOME_B}/quickActions/resumeSchedule")
+    assert [_bearer(call) for call in presses] == [access, access]
+    assert len(mock_tado.calls("POST", TOKEN_PATH)) == 1
+    assert not list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
 
 
 async def test_network_error_during_refresh_is_transient(
