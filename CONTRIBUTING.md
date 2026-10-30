@@ -67,6 +67,13 @@ docker run --rm -v "$PWD":/github/workspace ghcr.io/home-assistant/hassfest
 
 `scripts/live_probe.py` reads the live API of your own account (GET only) and writes a pseudonymized report; see the README. If you share a report, read it first and never share the `--keep-raw` file.
 
+## Releasing
+
+1. Set `version` in `custom_components/tado_x/manifest.json` and add a `## <version>` section to the changelog. `python3 scripts/release_check.py v<version>` checks both.
+2. Push the tag `v<version>`. Do not create the release on GitHub by hand.
+
+The release workflow checks the tag against the manifest, runs lint and tests, and only then creates the release with `tado_x.zip` and the changelog section as its notes. A manual run of the workflow with a tag is a dry run that creates nothing.
+
 ## License
 
 By contributing you agree that your contribution is licensed under the MIT License of this repository.
