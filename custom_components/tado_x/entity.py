@@ -6,6 +6,7 @@ from typing import Any, Concatenate, NoReturn, override
 
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity, EntityDescription
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -45,6 +46,12 @@ class TadoXEntity[C: TadoXCoordinator[Any]](CoordinatorEntity[C]):
         self.entity_description = description
         self._attr_unique_id = unique_id
         self._attr_device_info = DeviceInfo(identifiers={device})
+        self._device_identifier = device
+
+    @property
+    def device_identifier(self) -> tuple[str, str]:
+        """Return the identifier of the device this entity belongs to."""
+        return self._device_identifier
 
     def _present(self) -> bool:
         """Return True while the object of this entity is in the data."""
@@ -154,14 +161,23 @@ def async_add_dynamic_entities(
     async_add_entities: AddConfigEntryEntitiesCallback,
     build: Callable[[], Iterable[TadoXEntity[Any]]],
 ) -> None:
-    """Add the built entities now and after every update, skipping known unique ids."""
-    known: set[str | None] = set()
+    """Add the built entities now and after every update, skipping known unique ids.
+
+    Removing a device removes its entities, so a unique id is forgotten once
+    its device is gone; the entities of a room or device that tado reports
+    again are then added again.
+    """
+    registry = dr.async_get(coordinator.hass)
+    known: dict[str | None, tuple[str, str]] = {}
 
     @callback
     def _async_add_new() -> None:
+        for unique_id, device in list(known.items()):
+            if registry.async_get_device_by_identifier(device, entry.entry_id) is None:
+                del known[unique_id]
         new = [entity for entity in build() if entity.unique_id not in known]
         if new:
-            known.update(entity.unique_id for entity in new)
+            known.update((entity.unique_id, entity.device_identifier) for entity in new)
             async_add_entities(new)
 
     _async_add_new()

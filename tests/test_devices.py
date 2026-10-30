@@ -1,6 +1,7 @@
 """Tests for the device registry and dynamic entities."""
 
 from collections.abc import Iterable
+import copy
 from datetime import timedelta
 import logging
 from typing import Any, override
@@ -26,6 +27,7 @@ from custom_components.tado_x.entity import (
     TadoXStatusEntity,
     async_add_dynamic_entities,
 )
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import (
     area_registry as ar,
@@ -291,6 +293,59 @@ async def test_unreadable_topology_items_remove_nothing(
         and "malformed topology" in record.getMessage()
     ]
     assert len(warnings) == 2
+
+
+async def test_entities_return_with_their_device(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A room or device that drops out of a live read gets its entities back."""
+    await setup_entry(hass, config_entry)
+    _add_room(mock_tado, 7, "VA0000000107")
+    live_rooms = mock_tado.home(HOME_B).rooms
+    live_rooms.append({**copy.deepcopy(live_rooms[0]), "id": 7, "name": "Gaestezimmer"})
+    await _tick(hass, freezer, 900)
+    entities = {
+        ("climate", f"{HOME_B}_7_climate"),
+        ("binary_sensor", "VA0000000107_connectivity"),
+        ("switch", "VA0000000101_child_lock"),
+    }
+    entity_ids = {
+        unique_id: entity_registry.async_get_entity_id(domain, DOMAIN, unique_id)
+        for domain, unique_id in entities
+    }
+    boost = ("binary_sensor", DOMAIN, f"{HOME_B}_7_boost")
+    assert entity_registry.async_get_entity_id(*boost)
+    for unique_id, entity_id in entity_ids.items():
+        state = hass.states.get(str(entity_id))
+        assert state is not None, unique_id
+        assert state.state != STATE_UNAVAILABLE, unique_id
+
+    topology = mock_tado.home(HOME_B).topology
+    room = topology["rooms"].pop()
+    valve = topology["rooms"][0]["devices"].pop(0)
+    await _tick(hass, freezer, 900)
+
+    for domain, unique_id in entities:
+        assert entity_registry.async_get_entity_id(domain, DOMAIN, unique_id) is None
+    assert entity_registry.async_get_entity_id(*boost) is None
+
+    topology["rooms"].append(room)
+    topology["rooms"][0]["devices"].insert(0, valve)
+    await _tick(hass, freezer, 900)
+
+    for unique_id, entity_id in entity_ids.items():
+        state = hass.states.get(str(entity_id))
+        assert state is not None, unique_id
+        assert state.state != STATE_UNAVAILABLE, unique_id
+    boost_id = entity_registry.async_get_entity_id(*boost)
+    assert boost_id is not None
+    boost_entry = entity_registry.async_get(boost_id)
+    assert boost_entry is not None
+    assert boost_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
 
 
 async def test_phones_are_registered_and_removed(
