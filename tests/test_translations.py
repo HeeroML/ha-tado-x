@@ -399,3 +399,81 @@ def test_code_key_scanner_finds_every_kind() -> None:
     assert [key for key in keys if not _defined(key)] == [
         "entity.sensor.no_such_sensor"
     ]
+
+
+def _literal_keys(node: ast.expr, constants: dict[str, str]) -> list[str]:
+    """Return the keys a literal or a conditional of literals can take."""
+    if isinstance(node, ast.IfExp):
+        return _literal_keys(node.body, constants) + _literal_keys(
+            node.orelse, constants
+        )
+    key = _literal(node, constants)
+    return [] if key is None else [key]
+
+
+def exception_placeholders(source: str) -> list[tuple[int, str, list[str]]]:
+    """Return (line, exception key, placeholder names) of every translated error.
+
+    Only calls with translation_domain=, a literal translation key and a dict
+    literal without ** unpacking as translation_placeholders= are returned; a
+    call without translation_placeholders= passes none.
+    """
+    tree = ast.parse(source)
+    constants = {**CONSTANTS, **_string_constants(tree)}
+    found: list[tuple[int, str, list[str]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        keywords = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+        if "translation_domain" not in keywords or "translation_key" not in keywords:
+            continue
+        placeholders = keywords.get("translation_placeholders")
+        if placeholders is None:
+            names: list[str] = []
+        elif isinstance(placeholders, ast.Dict) and None not in placeholders.keys:
+            names = sorted(
+                key.value
+                for key in placeholders.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            )
+        else:
+            continue
+        found.extend(
+            (node.lineno, key, names)
+            for key in _literal_keys(keywords["translation_key"], constants)
+        )
+    return sorted(found)
+
+
+@pytest.mark.parametrize("path", MODULES, ids=_relative)
+def test_exception_placeholders_match_strings(path: Path) -> None:
+    """A translated error passes exactly the placeholders its message uses."""
+    mismatched = [
+        f"line {line}: {key} passes {names}, the message uses {expected}"
+        for line, key, names in exception_placeholders(path.read_text("utf-8"))
+        if (message := STRINGS.get(f"exceptions.{key}.message")) is not None
+        and names != (expected := sorted(set(PLACEHOLDER.findall(message))))
+    ]
+    assert mismatched == []
+
+
+def test_placeholder_scanner_reads_every_form() -> None:
+    """The placeholder scanner resolves conditionals and skips unpacked dicts."""
+    source = """
+raise HomeAssistantError(translation_domain="tado_x", translation_key="not_found")
+UpdateFailed(
+    translation_domain="tado_x",
+    translation_key="setup_quota_exhausted" if setup else "quota_exhausted",
+    translation_placeholders={"reset": reset},
+)
+UpdateFailed(
+    translation_domain="tado_x",
+    translation_key="api_error",
+    translation_placeholders={"home": home, **more},
+)
+"""
+    assert [entry[1:] for entry in exception_placeholders(source)] == [
+        ("not_found", []),
+        ("quota_exhausted", ["reset"]),
+        ("setup_quota_exhausted", ["reset"]),
+    ]
