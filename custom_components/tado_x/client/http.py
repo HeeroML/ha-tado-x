@@ -141,7 +141,7 @@ class Transport:
         headers = {"Authorization": f"Bearer {token}"}
         if body is not None:
             headers["Content-Type"] = "application/json"
-        self._quota.record_call()
+        ticket = self._quota.record_call()
         started = time.monotonic()
         try:
             async with self._session.request(
@@ -158,7 +158,7 @@ class Transport:
         except (ClientError, TimeoutError) as err:
             raise TadoXConnectionError(f"cannot reach {url.host}") from err
         info = parse_rate_limit(response_headers, self._clock())
-        self._quota.observe(info, status=status)
+        self._quota.observe(info, status=status, ticket=ticket)
         _LOGGER.debug(
             "%s %s%s: HTTP %s, r=%s, %.2f s",
             method,
