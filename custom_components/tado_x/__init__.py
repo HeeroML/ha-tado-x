@@ -18,7 +18,7 @@ from .const import CONF_HOME_ID, CONF_USER_ID, DOMAIN, LOGGER
 from .coordinator import DevicesCoordinator, HomeCoordinator, RoomsCoordinator
 from .devices import async_is_current_device, async_setup_device_registry
 from .issues import async_delete_entry_issues
-from .migration import async_migrate_entry
+from .migration import async_finish_migration, async_migrate_entry
 from .quota import QuotaMonitor
 from .runtime import TadoXConfigEntry, TadoXRuntimeData
 from .services import async_setup_services
@@ -62,6 +62,7 @@ async def _async_store_user_id(
 
 async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> bool:
     """Set up a tado X home from a config entry."""
+    async_finish_migration(hass, entry)
     home_id = int(entry.data[CONF_HOME_ID])
     session = async_get_clientsession(hass)
     cache = SnapshotCache(hass, entry.entry_id, home_id)

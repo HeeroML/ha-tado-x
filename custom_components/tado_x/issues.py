@@ -86,8 +86,16 @@ def async_create_not_tado_x_issue(hass: HomeAssistant, entry: TadoXConfigEntry) 
 def async_create_duplicate_home_issue(
     hass: HomeAssistant, entry: TadoXConfigEntry
 ) -> None:
-    """Report a second entry for the same home found by the migration."""
+    """Report an entry whose home another entry owns, a duplicate of 1.8.x."""
     _async_set(hass, entry, DUPLICATE_HOME, {}, url=TROUBLESHOOTING_URL)
+
+
+@callback
+def async_delete_duplicate_home_issue(
+    hass: HomeAssistant, entry: TadoXConfigEntry
+) -> None:
+    """Delete the duplicate report once the entry owns its home."""
+    _async_set(hass, entry, DUPLICATE_HOME, None)
 
 
 @callback

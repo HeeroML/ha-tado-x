@@ -321,10 +321,15 @@ class TadoXConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Start switching the tado account used for this home."""
+        """Start switching the tado account used for this home.
+
+        A duplicate entry of 1.8.x has no unique_id while another entry owns
+        its home; its home id is the one in its data, so it matches.
+        """
         entry = self._get_reconfigure_entry()
         await self.async_set_unique_id(str(entry.data[CONF_HOME_ID]))
-        self._abort_if_unique_id_mismatch()
+        if entry.unique_id is not None:
+            self._abort_if_unique_id_mismatch()
         return await self.async_step_reconfigure_confirm()
 
     async def async_step_reconfigure_confirm(
