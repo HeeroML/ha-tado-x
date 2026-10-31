@@ -75,6 +75,8 @@ from .models import (
 from .ratelimit import CallCounter, Priority, QuotaTracker, parse_rate_limit
 from .schedule import DaySummary, summarize_day_report, validate_day
 from .telemetry import (
+    ENUM_KEYS,
+    SAFE_TITLES,
     SENSITIVE_KEYS,
     WARN_ONCE,
     ErrorRecord,
@@ -87,14 +89,18 @@ from .telemetry import (
     describe_value,
     endpoint_template,
     error_details,
+    home_label,
     mask_serial,
     redact_text,
+    safe_title,
     shape,
 )
 
 __all__ = [
     "CLIENT_ID",
+    "ENUM_KEYS",
     "REFRESH_MARGIN",
+    "SAFE_TITLES",
     "SENSITIVE_KEYS",
     "WARN_ONCE",
     "Account",
@@ -173,11 +179,13 @@ __all__ = [
     "endpoint_template",
     "error_details",
     "format_clock",
+    "home_label",
     "mask_serial",
     "parse_clock",
     "parse_enum",
     "parse_rate_limit",
     "redact_text",
+    "safe_title",
     "shape",
     "summarize_day_report",
     "tariff_cents",

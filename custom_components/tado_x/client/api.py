@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from functools import partial
+from http import HTTPStatus
 import logging
 from typing import Any
 
@@ -19,7 +20,12 @@ from .const import (
     REQUEST_TIMEOUT,
 )
 from .enums import DayType, PresenceSetting, QuickAction, TariffUnit
-from .errors import TadoXError
+from .errors import (
+    TadoXError,
+    TadoXForbiddenError,
+    TadoXNotFoundError,
+    TadoXRequestError,
+)
 from .http import Transport
 from .models import (
     Account,
@@ -61,6 +67,21 @@ def _command_context(method: str, url: URL) -> str:
     path = endpoint_template(method, url).partition(":")[2]
     name = next(part for part in reversed(path.split("/")) if not part.startswith("{"))
     return f"command {name}"
+
+
+def _no_open_window(err: TadoXError) -> bool:
+    """Return True for tado's refusal of open-window mode without a detection."""
+    return isinstance(err, TadoXRequestError) and not isinstance(
+        err, TadoXForbiddenError | TadoXNotFoundError
+    )
+
+
+def _needs_auto_assist(err: TadoXError) -> bool:
+    """Return True for tado's 422 to AUTO presence of a home without Auto-Assist."""
+    return (
+        isinstance(err, TadoXRequestError)
+        and err.status == HTTPStatus.UNPROCESSABLE_ENTITY
+    )
 
 
 def _utc_timestamp(value: datetime) -> str:
@@ -108,16 +129,29 @@ class TadoXHome:
             "GET", url, params=params, priority=Priority.COMMAND
         )
 
-    async def _command(self, method: str, url: URL, body: Any = None) -> None:
+    async def _command(
+        self,
+        method: str,
+        url: URL,
+        body: Any = None,
+        *,
+        expected: Callable[[TadoXError], bool] | None = None,
+    ) -> None:
         """Send a write and log it for the audit trail; a failure is re-raised.
 
         A failure is recorded in the telemetry in the context "command" plus
         the last fixed segment of the endpoint, such as "command manualControl".
+        A failure the expected predicate accepts is tado's answer to a write
+        that cannot apply, not an API problem: it is audited as refused and
+        not recorded.
         """
         action = describe_command(method, url, body)
         try:
             exchange = await self._transport.command(method, url, json=body)
         except TadoXError as err:
+            if expected is not None and expected(err):
+                _LOGGER.info("Write refused: %s -> %s", action, describe_error(err))
+                raise
             self._transport.telemetry.record_tado_error(
                 err, context=_command_context(method, url)
             )
@@ -229,19 +263,30 @@ class TadoXHome:
         await self._command("DELETE", self._room(room_id) / "manualControl")
 
     async def async_set_open_window(self, room_id: int, *, active: bool) -> None:
-        """Activate (POST) or end (DELETE) open-window mode of a room."""
-        method = "POST" if active else "DELETE"
-        await self._command(method, self._room(room_id) / "openWindow")
+        """Activate (POST) or end (DELETE) open-window mode of a room.
+
+        Activating it without a detected open window raises the
+        TadoXRequestError tado answers with.
+        """
+        url = self._room(room_id) / "openWindow"
+        if active:
+            await self._command("POST", url, expected=_no_open_window)
+        else:
+            await self._command("DELETE", url)
 
     async def async_quick_action(self, action: QuickAction) -> None:
         """Run a home-wide quick action."""
         await self._command("POST", self._hops / "quickActions" / action.value)
 
     async def async_set_presence(self, setting: PresenceSetting) -> None:
-        """Lock the presence (PUT presenceLock), or return to AUTO (DELETE)."""
+        """Lock the presence (PUT presenceLock), or return to AUTO (DELETE).
+
+        AUTO in a home without Auto-Assist raises the TadoXRequestError with
+        HTTP 422 tado answers with.
+        """
         url = self._my / "presenceLock"
         if setting is PresenceSetting.AUTO:
-            await self._command("DELETE", url)
+            await self._command("DELETE", url, expected=_needs_auto_assist)
         else:
             await self._command("PUT", url, {"homePresence": setting.value})
 

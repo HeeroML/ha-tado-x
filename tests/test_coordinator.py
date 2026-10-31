@@ -1173,13 +1173,12 @@ async def test_poll_errors_are_recorded_once_with_their_context(
 
     assert not data.rooms.last_update_success
     assert [
-        (error.context, error.kind, error.endpoint, error.status)
+        (error.context, error.kind, error.endpoint, error.status, error.count)
         for error in data.telemetry.errors()
     ] == [
-        ("poll rooms", "TadoXServerError", "GET hops:/homes/{home}/rooms", 503),
-        ("poll home", "TadoXServerError", "GET my:/homes/{home}/weather", 500),
-        ("poll home", "TadoXServerError", "GET my:/homes/{home}/weather", 500),
-        ("token refresh", "TadoXConnectionError", "POST login:/oauth2/token", None),
+        ("poll rooms", "TadoXServerError", "GET hops:/homes/{home}/rooms", 503, 1),
+        ("poll home", "TadoXServerError", "GET my:/homes/{home}/weather", 500, 2),
+        ("token refresh", "TadoXConnectionError", "POST login:/oauth2/token", None, 1),
     ]
 
 

@@ -8,7 +8,7 @@ counts requests and errors over a rolling 24 hours.
 
 from collections import Counter, deque
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 import logging
 from typing import Any, Final
@@ -33,15 +33,20 @@ from .errors import (
 )
 from .redact import (
     LONG_NUMBER,
+    SAFE_TITLES,
     SERIAL_NUMBER,
     describe_tado_error,
     describe_value,
+    home_label,
     mask_serial,
     redact_text,
     safe_code,
+    safe_title,
 )
 
 __all__ = [
+    "ENUM_KEYS",
+    "SAFE_TITLES",
     "SENSITIVE_KEYS",
     "WARN_ONCE",
     "ErrorRecord",
@@ -54,9 +59,11 @@ __all__ = [
     "describe_value",
     "endpoint_template",
     "error_details",
+    "home_label",
     "mask_serial",
     "redact_text",
     "safe_code",
+    "safe_title",
     "shape",
 ]
 
@@ -110,6 +117,32 @@ SENSITIVE_KEYS: Final = frozenset(
     }
 )
 """Keys whose values shape() never describes: tokens, codes and personal data."""
+
+ENUM_KEYS: Final = frozenset(
+    {
+        "batteryState",
+        "controlMode",
+        "dayType",
+        "generation",
+        "homePresence",
+        "humidityLevel",
+        "mountingState",
+        "percentageUnit",
+        "power",
+        "presence",
+        "skills",
+        "state",
+        "stripeType",
+        "temperatureLevel",
+        "temperatureUnit",
+        "type",
+        "zoneType",
+        "dataIntervals.value",
+        "freshness.value",
+        "weatherState.value",
+    }
+)
+"""Keys, as "key" or "parent.key", whose enum-like values shape() keeps."""
 
 
 def _utcnow() -> datetime:
@@ -173,8 +206,19 @@ def shape(payload: object, *, depth: int = 3, max_keys: int = 25) -> object:
     A dict keeps its keys and shapes their values; the value of a key in
     SENSITIVE_KEYS becomes "<redacted>", and keys beyond max_keys are
     counted under "…". A list becomes {"list": length, "item": shape of the
-    first item}. Scalars become describe_value(). Below depth a container is
+    first item}. Scalars become describe_value(), which keeps enum-like
+    constants only under the keys in ENUM_KEYS. Below depth a container is
     only described, as in "dict[4]".
+    """
+    return _shape(payload, ("", ""), depth, max_keys)
+
+
+def _shape(
+    payload: object, where: tuple[str, str], depth: int, max_keys: int
+) -> object:
+    """Shape a payload found at where, its parent key and its own key.
+
+    The items of a list are found where the list is.
     """
     if isinstance(payload, Mapping):
         if depth <= 0:
@@ -187,7 +231,7 @@ def shape(payload: object, *, depth: int = 3, max_keys: int = 25) -> object:
             result[_shape_key(key)] = (
                 _REDACTED
                 if key in SENSITIVE_KEYS
-                else shape(value, depth=depth - 1, max_keys=max_keys)
+                else _shape(value, (where[1], str(key)), depth - 1, max_keys)
             )
         return result
     if isinstance(payload, list | tuple):
@@ -197,9 +241,12 @@ def shape(payload: object, *, depth: int = 3, max_keys: int = 25) -> object:
             return {"list": 0}
         return {
             "list": len(payload),
-            "item": shape(payload[0], depth=depth - 1, max_keys=max_keys),
+            "item": _shape(payload[0], where, depth - 1, max_keys),
         }
-    return describe_value(payload)
+    parent, key = where
+    return describe_value(
+        payload, constants=key in ENUM_KEYS or f"{parent}.{key}" in ENUM_KEYS
+    )
 
 
 def _get(data: object, *keys: str) -> object:
@@ -311,11 +358,11 @@ def error_details(err: TadoXError) -> tuple[int | None, str | None]:
         case TadoXRateLimitError():
             return None if err.local else 429, str(err)
         case TadoXAuthError():
-            return None, safe_code(err.reason)
+            return err.status, safe_code(err.reason)
         case TadoXParseError() if err.found is not None:
             return None, redact_text(f"{err} ({err.found})")
-        case TadoXConnectionError() if err.__cause__ is not None:
-            return None, redact_text(f"{err} ({type(err.__cause__).__name__})")
+        case TadoXConnectionError(cause=str() as cause):
+            return None, redact_text(f"{err} ({cause})")
     return None, redact_text(str(err))
 
 
@@ -358,7 +405,12 @@ class Exchange:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ErrorRecord:
-    """One error, with the context it happened in, such as "poll rooms"."""
+    """One error, with the context it happened in, such as "poll rooms".
+
+    An error that repeats the newest record is counted there: count is the
+    number of occurrences, at the first and last_at the latest of them,
+    None until the error repeats.
+    """
 
     at: datetime
     kind: str
@@ -366,6 +418,19 @@ class ErrorRecord:
     endpoint: str | None = None
     status: int | None = None
     message: str | None = None
+    count: int = 1
+    last_at: datetime | None = None
+
+
+def _error_key(record: ErrorRecord) -> tuple[object, ...]:
+    """Return what makes two records the same error in the same context."""
+    return (
+        record.kind,
+        record.context,
+        record.endpoint,
+        record.status,
+        record.message,
+    )
 
 
 class WarnOnce:
@@ -390,6 +455,10 @@ class WarnOnce:
         if len(self._keys) > self._max_keys:
             del self._keys[next(iter(self._keys))]
         return True
+
+    def clear(self) -> None:
+        """Forget every key, so that each warning may be logged again."""
+        self._keys.clear()
 
 
 WARN_ONCE: Final = WarnOnce()
@@ -462,9 +531,12 @@ class Telemetry:
 
     The last EXCHANGES HTTP attempts and ERRORS errors are kept, and requests
     per endpoint and errors per kind are counted over a rolling 24 hours.
-    Every exchange is logged at debug level. An error object is recorded
-    once: when a caller records an error the client recorded already, for
-    example a failed token refresh that also fails a poll, nothing changes.
+    Every exchange is logged at debug level. An error that repeats the
+    newest record is counted in it, so an outage does not flush the others.
+    An error object is recorded once: when a caller records an error the
+    client recorded already, for example a failed token refresh that also
+    fails a poll, nothing changes. The error is marked, not kept, so its
+    traceback and frames are freed.
     """
 
     EXCHANGES: Final = 50
@@ -475,7 +547,6 @@ class Telemetry:
         self._clock = clock
         self._exchanges: deque[Exchange] = deque(maxlen=self.EXCHANGES)
         self._errors: deque[ErrorRecord] = deque(maxlen=self.ERRORS)
-        self._recorded: deque[TadoXError] = deque(maxlen=self.ERRORS)
         self._requests = _RollingCounts()
         self._kinds = _RollingCounts()
         self._listeners: list[Callable[[], None]] = []
@@ -501,7 +572,10 @@ class Telemetry:
         status: int | None = None,
         message: str | None = None,
     ) -> None:
-        """Keep and count one error; the message passes redact_text()."""
+        """Keep and count one error; the message passes redact_text().
+
+        An error that repeats the newest record increments its count.
+        """
         record = ErrorRecord(
             at=self._clock(),
             kind=kind,
@@ -510,16 +584,22 @@ class Telemetry:
             status=status,
             message=redact_text(message),
         )
-        self._errors.append(record)
+        newest = self.last_error
+        if newest is not None and _error_key(newest) == _error_key(record):
+            self._errors[-1] = replace(
+                newest, count=newest.count + 1, last_at=record.at
+            )
+        else:
+            self._errors.append(record)
         self._kinds.add(kind, record.at)
         for listener in list(self._listeners):
             listener()
 
     def record_tado_error(self, err: TadoXError, *, context: str) -> None:
         """Record a client error by its class, its request, status and message."""
-        if any(recorded is err for recorded in self._recorded):
+        if err.recorded:
             return
-        self._recorded.append(err)
+        err.recorded = True
         status, message = error_details(err)
         self.record_error(
             kind=type(err).__name__,

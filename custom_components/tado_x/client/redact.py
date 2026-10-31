@@ -18,8 +18,23 @@ _CODE: Final = re.compile(r"[A-Za-z][A-Za-z_]{0,40}(?:\.[A-Za-z][A-Za-z_]{0,40})
 _URL_TEXT: Final = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S*")
 _EMAIL: Final = re.compile(r"[^\s@]+@[^\s@]+")
 _BEARER: Final = re.compile(r"\bbearer\s+\S+", re.IGNORECASE)
+# "key=value" or "key": "value" of a token or code; a bare "code" only in a
+# query, so that the "code=not.found" of describe_tado_error() stays.
+_SECRET_FIELD: Final = re.compile(
+    r"(\b(?:access_token|refresh_token|id_token|device_code|user_code|token)"
+    r"|(?<=[?&])code)"
+    r"(\"?\s*[:=]\s*\"?)[^\s\"&,;}]+",
+    re.IGNORECASE,
+)
+_USER_CODE: Final = re.compile(r"(?<![\w-])[A-Z0-9]{4}-[A-Z0-9]{4}(?![\w-])")
 _LONG_RUN: Final = re.compile(r"[A-Za-z0-9_+/=.-]{20,}")
+_RUN_PARTS: Final = re.compile(r"[/.]")
+_IDENTIFIER: Final = re.compile(r"[a-z]+(?:[A-Z][a-z]+|_[a-z]+)*")
+_WORD_LIMIT: Final = 32
 _REDACTED: Final = "<redacted>"
+
+SAFE_TITLES: Final = frozenset({"Timezone of home # not found"})
+"""tado error titles, after redact_text(), that hold no personal data."""
 
 
 def mask_serial(serial: str) -> str:
@@ -27,10 +42,30 @@ def mask_serial(serial: str) -> str:
     return f"{serial[:2]}…{serial[-4:]}"
 
 
+def home_label(home_id: int) -> str:
+    """Return the neutral name of a home in logs, such as "home …0002".
+
+    It keeps the last four digits of the home id. It stands in for the entry
+    title, which is the home's name from tado unless the user renamed it.
+    """
+    return f"home …{str(home_id)[-4:]}"
+
+
 def _secret_run(match: re.Match[str]) -> str:
-    """Blank a long run that looks like a token or a UUID, not like a word."""
+    """Blank a long run that looks like a token or a UUID, not like a word.
+
+    A run with a digit or a dash is a secret. So is a run with a part of 32
+    or more characters between "/" and "." that is no camelCase or
+    snake_case name, such as a token of letters only; paths and JSON paths
+    of long key names stay.
+    """
     run = match.group()
     if "-" in run or any(char.isdigit() for char in run):
+        return _REDACTED
+    if any(
+        len(part) >= _WORD_LIMIT and not _IDENTIFIER.fullmatch(part)
+        for part in _RUN_PARTS.split(run)
+    ):
         return _REDACTED
     return run
 
@@ -39,9 +74,11 @@ def redact_text(text: str | None, limit: int = 120) -> str | None:
     """Return text from tado that is safe to log, or None for None.
 
     Every run of four or more digits becomes "#". URLs, e-mail addresses,
-    bearer tokens and long token-like runs are blanked as well, whitespace
-    and control characters collapse to single spaces so the text cannot fake
-    a log line, and the result is cut to limit characters.
+    bearer tokens, the values of token and code fields such as
+    "refresh_token=…", device-login user codes such as "WDJB-MJHT" and long
+    token-like runs are blanked as well, whitespace and control characters
+    collapse to single spaces so the text cannot fake a log line, and the
+    result is cut to limit characters.
     """
     if text is None:
         return None
@@ -50,6 +87,8 @@ def redact_text(text: str | None, limit: int = 120) -> str | None:
     cleaned = _URL_TEXT.sub("<url>", cleaned)
     cleaned = _EMAIL.sub("<email>", cleaned)
     cleaned = _BEARER.sub(_REDACTED, cleaned)
+    cleaned = _SECRET_FIELD.sub(rf"\1\2{_REDACTED}", cleaned)
+    cleaned = _USER_CODE.sub(_REDACTED, cleaned)
     cleaned = _LONG_RUN.sub(_secret_run, cleaned)
     cleaned = LONG_NUMBER.sub("#", cleaned)
     if len(cleaned) > limit:
@@ -57,13 +96,13 @@ def redact_text(text: str | None, limit: int = 120) -> str | None:
     return cleaned
 
 
-def describe_value(value: object) -> str:
+def describe_value(value: object, *, constants: bool = True) -> str:
     """Describe a value from the API without revealing it.
 
     Numbers and booleans give their type, a container its kind and length,
     as in "list[3]", and a string its length, as in "<str len=7>". Only
-    enum-like constants such as "DEPLETED" are kept, and serial numbers are
-    masked to "VA…0101".
+    enum-like constants such as "DEPLETED" are kept, unless constants is
+    False, and serial numbers are masked to "VA…0101".
     """
     match value:
         case None:
@@ -76,7 +115,9 @@ def describe_value(value: object) -> str:
             return "float"
         case str() if SERIAL_NUMBER.fullmatch(value):
             return mask_serial(value)
-        case str() if _ENUM_LIKE.fullmatch(value) and not LONG_NUMBER.search(value):
+        case str() if (
+            constants and _ENUM_LIKE.fullmatch(value) and not LONG_NUMBER.search(value)
+        ):
             return value
         case str():
             return f"<str len={len(value)}>"
@@ -96,14 +137,24 @@ def safe_code(code: str) -> str:
     return code if _CODE.fullmatch(code) else describe_value(code)
 
 
+def safe_title(title: str) -> str:
+    """Return a tado error title if it is a known template, else "<str len=N>".
+
+    A title is free text that can name a room, a home or an address, so
+    only the templates in SAFE_TITLES pass, after redact_text().
+    """
+    redacted = redact_text(title)
+    return redacted if redacted in SAFE_TITLES else f"<str len={len(title)}>"
+
+
 def describe_tado_error(code: str | None, title: str | None) -> str | None:
     """Return "code=… title=…" of a tado error answer, or None without either.
 
-    The code passes safe_code() and the title redact_text().
+    The code passes safe_code() and the title safe_title().
     """
     parts: list[str] = []
     if code:
         parts.append(f"code={safe_code(code)}")
     if title:
-        parts.append(f"title={redact_text(title)}")
+        parts.append(f"title={safe_title(title)}")
     return " ".join(parts) or None

@@ -4,10 +4,12 @@ import asyncio
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 import logging
+import traceback
 from typing import Any, override
 from unittest.mock import Mock
 
 from aiohttp import (
+    ClientConnectionError,
     ClientConnectorError,
     ClientSession,
     ServerDisconnectedError,
@@ -466,7 +468,7 @@ async def test_rejected_refresh_is_sticky(
     manager = TokenManager(session, MemoryTokenStore(_tokens(0)))
     with pytest.raises(TadoXAuthError) as err:
         await manager.async_get_access_token()
-    assert err.value.reason == reason
+    assert (err.value.reason, err.value.status) == (reason, status)
     assert manager.auth_failed
 
     mock_tado.clear_failures()
@@ -476,7 +478,7 @@ async def test_rejected_refresh_is_sticky(
     ):
         with pytest.raises(TadoXAuthError) as err:
             await call
-        assert err.value.reason == reason
+        assert (err.value.reason, err.value.status) == (reason, status)
     assert len(_refreshes(mock_tado)) == 1
 
 
@@ -880,6 +882,24 @@ async def test_failed_refresh_is_recorded_once(
         assert secret not in caplog.text
 
 
+async def test_unreachable_login_does_not_chain_its_cause(
+    mock_tado: TadoCloudMock, session: ClientSession
+) -> None:
+    """The error of an unreachable login.tado.com is kept by its class name only."""
+    secret = f"Cannot connect to login.tado.com with {REFRESH_B}"
+    mock_tado.fail("POST", TOKEN_URL, exc=ClientConnectionError(secret))
+    manager = TokenManager(session, MemoryTokenStore(_tokens(0)))
+
+    with pytest.raises(TadoXConnectionError) as err:
+        await manager.async_get_access_token()
+
+    assert err.value.cause == "ClientConnectionError"
+    assert err.value.__cause__ is None
+    trace = "".join(traceback.format_exception(err.value))
+    assert "ClientConnectionError" not in trace
+    assert REFRESH_B not in trace
+
+
 async def test_rejected_login_logs_its_code_only(
     mock_tado: TadoCloudMock,
     session: ClientSession,
@@ -916,7 +936,10 @@ async def test_rejected_login_logs_its_code_only(
         "invalid_grant",
     )
     assert telemetry.last_error is not None
-    assert telemetry.last_error.message == "invalid_grant"
+    assert (telemetry.last_error.status, telemetry.last_error.message) == (
+        400,
+        "invalid_grant",
+    )
     for secret in ("fake-refresh-token", "user@example", "revoked"):
         assert secret not in caplog.text
 

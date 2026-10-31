@@ -196,7 +196,12 @@ async def test_unknown_battery_value(
     assert (
         state_of(hass, "sensor.temperature_sensor_wohnzimmer_battery") == STATE_UNKNOWN
     )
-    assert caplog.text.count("ALMOST_EMPTY_SENSOR_TEST") == 1
+    assert [
+        record.levelno
+        for record in caplog.records
+        if "ALMOST_EMPTY_SENSOR_TEST" in record.getMessage()
+        and record.levelno >= logging.WARNING
+    ] == [logging.WARNING]
     assert not [
         record
         for record in caplog.records
@@ -607,10 +612,17 @@ async def test_last_api_error(
     )
     assert state_of(hass, f"{HOME}_last_api_error_time") == dt_util.utcnow().isoformat()
 
+    mock_tado.fail("GET", "/homes/1000002/rooms", status=503, times=1)
+    await tick(hass, freezer, 45)
+
+    [record] = config_entry.runtime_data.telemetry.errors()
+    assert record.count == 2
+    assert state_of(hass, f"{HOME}_last_api_error_time") == dt_util.utcnow().isoformat()
+
     mock_tado.fail(
         "GET", "/api/v2/homes/1000002/state", exc=ClientConnectionError(), times=1
     )
-    await tick(hass, freezer, 255)
+    await tick(hass, freezer, 210)
 
     assert (
         state_of(hass, f"{HOME}_last_api_error")
@@ -651,6 +663,17 @@ ROOMS_GET = "GET hops:/homes/{home}/rooms"
             ),
             "token refresh: TadoXAuthError invalid_grant",
         ),
+        (
+            ErrorRecord(
+                at=AT,
+                kind="TadoXAuthError",
+                context="token refresh",
+                endpoint="POST login:/oauth2/token",
+                status=400,
+                message="invalid_grant",
+            ),
+            "token refresh: TadoXAuthError HTTP 400 invalid_grant",
+        ),
         (ErrorRecord(at=AT, kind="TadoXError", context="setup"), "setup: TadoXError"),
         (
             ErrorRecord(
@@ -679,7 +702,7 @@ ROOMS_GET = "GET hops:/homes/{home}/rooms"
             f"TadoXOtherError {ROOMS_GET}",
         ),
     ],
-    ids=["quota", "refresh", "bare", "parse", "local", "other"],
+    ids=["quota", "refresh", "rejected", "bare", "parse", "local", "other"],
 )
 def test_error_text(record: ErrorRecord, text: str) -> None:
     """Errors are named by status and endpoint, or by their context."""

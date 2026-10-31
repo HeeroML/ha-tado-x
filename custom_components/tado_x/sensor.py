@@ -109,7 +109,7 @@ def error_text(record: ErrorRecord) -> str:
         detail = record.kind
         if record.status is not None:
             detail = f"{detail} HTTP {record.status}"
-        elif record.message:
+        if record.message:
             detail = f"{detail} {record.message}"
         text = f"{record.context}: {detail}"
     elif record.status is not None:
@@ -126,7 +126,7 @@ def _last_error(data: TadoXRuntimeData) -> str | None:
 
 def _last_error_time(data: TadoXRuntimeData) -> datetime | None:
     record = data.telemetry.last_error
-    return None if record is None else record.at
+    return None if record is None else record.last_at or record.at
 
 
 def _next_change(room: RoomState) -> NextScheduleChange | None:

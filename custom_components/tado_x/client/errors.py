@@ -22,18 +22,26 @@ class TadoXError(Exception):
 
     request names the HTTP request that failed, as an endpoint template such
     as "GET hops:/homes/{home}/rooms"; it is None when no request was made.
+    recorded is True once a Telemetry recorded the error, so that a caller
+    further up does not record it again.
     """
 
     request: str | None = None
+    recorded: bool = False
 
 
 class TadoXAuthError(TadoXError):
-    """The credentials were rejected for good; a new login is required."""
+    """The credentials were rejected for good; a new login is required.
 
-    def __init__(self, reason: str) -> None:
+    status is the HTTP status of the answer that rejected them, None when
+    no request was made.
+    """
+
+    def __init__(self, reason: str, *, status: int | None = None) -> None:
         """Initialize with the OAuth error code or a short internal reason."""
         super().__init__(safe_code(reason))
         self.reason = reason
+        self.status = status
 
 
 class TadoXTransientError(TadoXError):
@@ -41,7 +49,16 @@ class TadoXTransientError(TadoXError):
 
 
 class TadoXConnectionError(TadoXTransientError):
-    """No HTTP response arrived: network, DNS, TLS or timeout."""
+    """No HTTP response arrived: network, DNS, TLS or timeout.
+
+    cause is the class name of the aiohttp or timeout error. That error is
+    not chained, because its text can hold the request URL with ids.
+    """
+
+    def __init__(self, message: str, *, cause: str | None = None) -> None:
+        """Initialize with a safe message and the class name of the cause."""
+        super().__init__(message)
+        self.cause = cause
 
 
 class TadoXServerError(TadoXTransientError):
@@ -80,7 +97,7 @@ class TadoXRequestError(TadoXError):
         """Initialize with the status and the first entry of the error body.
 
         The message carries the code and the title only as describe_tado_error()
-        gives them.
+        gives them; title keeps the raw text for code that matches it.
         """
         details = describe_tado_error(code, title)
         super().__init__(

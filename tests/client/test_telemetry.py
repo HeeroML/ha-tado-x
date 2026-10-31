@@ -4,10 +4,12 @@ import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+import gc
 import json
 import logging
 import re
 from typing import Any
+import weakref
 
 from aiohttp import ClientSession
 from freezegun.api import FrozenDateTimeFactory
@@ -48,10 +50,13 @@ from custom_components.tado_x.client import (
     WarnOnce,
     describe_command,
     describe_error,
+    describe_tado_error,
     describe_value,
     endpoint_template,
+    home_label,
     mask_serial,
     redact_text,
+    safe_title,
     shape,
 )
 from custom_components.tado_x.client.const import (
@@ -68,6 +73,10 @@ NOW = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
 HOPS_B = f"{HOPS_API_URL}/homes/{HOME_B}"
 MY_B = f"{MY_API_URL}/homes/{HOME_B}"
 CLIENT_LOGGER = "custom_components.tado_x.client"
+
+
+class _Local:
+    """A local variable of a frame that raised."""
 
 
 def _exchange(
@@ -179,11 +188,80 @@ def test_endpoint_template(method: str, url: str, expected: str) -> None:
         ("id 00000000-0000-4000-8000-000000000001", "id <redacted>"),
         ("$.maxFlowTemperatureConstraints.min", "$.maxFlowTemperatureConstraints.min"),
         ("unauthorized_after_refresh", "unauthorized_after_refresh"),
+        ("token ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef", "token <redacted>"),
+        ("key AbcdEFGHijklMNOPqrstUVWXyzab+cdef/gh==", "key <redacted>"),
+        (
+            "$.supportsFlowTemperatureOptimization",
+            "$.supportsFlowTemperatureOptimization",
+        ),
+        ("showSwitchToAutoGeofencingButton", "showSwitchToAutoGeofencingButton"),
+        (
+            "GET hops:/homes/{home}/settings/flowTemperatureOptimization",
+            "GET hops:/homes/{home}/settings/flowTemperatureOptimization",
+        ),
+        ("refresh_token=abcdefgh&client_id=x", "refresh_token=<redacted>&client_id=x"),
+        ("grant_type=refresh_token", "grant_type=refresh_token"),
+        ("www.example.com/path?token=abc", "www.example.com/path?token=<redacted>"),
+        ('{"access_token": "abc", "a": 1}', '{"access_token": "<redacted>", "a": 1}'),
+        ("Device_Code: xyz", "Device_Code: <redacted>"),
+        ("callback?code=abc&state=x", "callback?code=<redacted>&state=x"),
+        ("code=not.found title=Room", "code=not.found title=Room"),
+        (
+            "visit tado.com/device?user_code=ABCDEF",
+            "visit tado.com/device?user_code=<redacted>",
+        ),
+        ("user code WDJB-MJHT entered", "user code <redacted> entered"),
+        ("code 7LXZ-G2AB", "code <redacted>"),
+        ("a real-time long-term view", "a real-time long-term view"),
     ],
 )
 def test_redact_text(text: str | None, expected: str | None) -> None:
     """Numbers, addresses, URLs and tokens are blanked; words are kept."""
     assert redact_text(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("code", "title", "expected"),
+    [
+        (
+            "not.found",
+            f"Timezone of home {HOME_B} not found",
+            "code=not.found title=Timezone of home # not found",
+        ),
+        (
+            "not.allowed",
+            "Wohnzimmer Musterstrasse 1 ABCD-EFGH",
+            "code=not.allowed title=<str len=36>",
+        ),
+        (
+            None,
+            "Room 'Wohnzimmer' of home 'Familie Mueller' not found",
+            "title=<str len=53>",
+        ),
+        ("openWindow.notDetected", None, "code=openWindow.notDetected"),
+        (f"user {HOME_B}", "", "code=<str len=12>"),
+        (None, None, None),
+    ],
+)
+def test_describe_tado_error(
+    code: str | None, title: str | None, expected: str | None
+) -> None:
+    """Only known title templates are shown; any other title by its length."""
+    assert describe_tado_error(code, title) == expected
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("Timezone of home 1000001 not found", "Timezone of home # not found"),
+        ("Timezone of home 1000001 not found ", "Timezone of home # not found"),
+        ("Timezone of home Haus B not found", "<str len=33>"),
+        ("Kueche", "<str len=6>"),
+    ],
+)
+def test_safe_title(title: str, expected: str) -> None:
+    """A title passes only as a known template, after redact_text()."""
+    assert safe_title(title) == expected
 
 
 def test_redact_text_is_cut_to_the_limit() -> None:
@@ -216,6 +294,14 @@ def test_redact_text_is_cut_to_the_limit() -> None:
 def test_describe_value(value: object, expected: str) -> None:
     """Only types, lengths, constants and masked serials are described."""
     assert describe_value(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("home_id", "label"), [(HOME_B, "home …0002"), (815, "home …815")]
+)
+def test_home_label(home_id: int, label: str) -> None:
+    """A home is named by the last four digits of its id, never by its name."""
+    assert home_label(home_id) == label
 
 
 def test_mask_serial() -> None:
@@ -293,6 +379,60 @@ def test_shape_of_the_topology_masks_serials() -> None:
     assert room["roomName"] == "<redacted>"
     assert room["devices"]["item"]["serialNumber"] == "VA…0101"
     assert "Wohnzimmer" not in json.dumps(result)
+
+
+def test_shape_keeps_constants_of_known_enum_keys_only() -> None:
+    """An upper-case value is kept only under a key known to hold an enum."""
+    payload = {
+        "rooms": [
+            {
+                "id": 3,
+                "label": "KUECHE",
+                "nickname": "WOHNZIMMER",
+                "ssid": "HOME",
+                "title": "BAD",
+                "type": "HEATING",
+                "setting": {"power": "ON"},
+                "connection": {"state": "CONNECTED"},
+                "serialNo": "VA0000000101",
+            }
+        ],
+        "weatherState": {"value": "CLOUDY_PARTLY"},
+        "freshness": {"value": "FAIR"},
+        "owner": {"value": "HANS"},
+        "skills": ["AUTO_ASSIST"],
+        "tags": ["MUELLER"],
+        "callForHeat": {"dataIntervals": [{"value": "LOW"}]},
+    }
+
+    assert shape(payload) == {
+        "rooms": {
+            "list": 1,
+            "item": {
+                "id": "int",
+                "label": "<str len=6>",
+                "nickname": "<str len=10>",
+                "ssid": "<str len=4>",
+                "title": "<str len=3>",
+                "type": "HEATING",
+                "setting": "dict[1]",
+                "connection": "dict[1]",
+                "serialNo": "VA…0101",
+            },
+        },
+        "weatherState": {"value": "CLOUDY_PARTLY"},
+        "freshness": {"value": "FAIR"},
+        "owner": {"value": "<str len=4>"},
+        "skills": {"list": 1, "item": "AUTO_ASSIST"},
+        "tags": {"list": 1, "item": "<str len=7>"},
+        "callForHeat": {"dataIntervals": {"list": 1, "item": "dict[1]"}},
+    }
+    deeper = shape(payload, depth=4)
+    assert isinstance(deeper, dict)
+    assert deeper["rooms"]["item"]["setting"] == {"power": "ON"}
+    assert deeper["rooms"]["item"]["connection"] == {"state": "CONNECTED"}
+    assert deeper["callForHeat"]["dataIntervals"]["item"] == {"value": "LOW"}
+    assert shape("HOME") == "<str len=4>"
 
 
 def test_shape_limits() -> None:
@@ -587,24 +727,91 @@ async def test_failed_write_is_audited_and_recorded(
     caplog: pytest.LogCaptureFixture,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """A refused write logs one info line with code and title, and is recorded."""
+    """A failed write logs one info line with code and title, and is recorded."""
     caplog.set_level(logging.DEBUG)
 
     with pytest.raises(TadoXRequestError):
-        await client.home(HOME_B).async_set_open_window(1, active=True)
+        await client.home(HOME_B).async_set_open_window(99, active=True)
 
     assert _client_messages(caplog, logging.INFO) == [
-        "Write failed: open window room 1: on -> HTTP 422 "
-        "code=openWindow.notDetected title=No open window detected"
+        "Write failed: open window room 99: on -> HTTP 404 "
+        "code=not.found title=<str len=14>"
     ]
     assert client.telemetry.last_error == ErrorRecord(
         at=datetime.now(UTC),
-        kind="TadoXRequestError",
+        kind="TadoXNotFoundError",
         context="command openWindow",
         endpoint="POST hops:/homes/{home}/rooms/{room}/openWindow",
-        status=422,
-        message="code=openWindow.notDetected title=No open window detected",
+        status=404,
+        message="code=not.found title=<str len=14>",
     )
+
+
+async def test_expected_refusals_are_audited_not_recorded(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A refusal of a write that cannot apply is an answer, no API error.
+
+    Open-window mode without a detected window and AUTO presence without
+    Auto-Assist are audited as refused and leave the error records alone.
+    """
+    home = client.home(HOME_B)
+    mock_tado.fail("DELETE", f"{MY_B}/presenceLock", status=422)
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(TadoXRequestError):
+        await home.async_set_open_window(1, active=True)
+    with pytest.raises(TadoXRequestError):
+        await home.async_set_presence(PresenceSetting.AUTO)
+
+    assert _client_messages(caplog, logging.INFO) == [
+        "Write refused: open window room 1: on -> HTTP 422 "
+        "code=openWindow.notDetected title=<str len=23>",
+        "Write refused: presence AUTO -> HTTP 422 code=error title=<str len=8>",
+    ]
+    assert client.telemetry.errors() == []
+    assert [exchange.status for exchange in client.telemetry.exchanges()] == [422, 422]
+
+
+@pytest.mark.parametrize(
+    ("write", "path", "status"),
+    [
+        (lambda home: home.async_set_open_window(1, active=False), "openWindow", 422),
+        (lambda home: home.async_set_open_window(1, active=True), "openWindow", 403),
+        (
+            lambda home: home.async_set_presence(PresenceSetting.AUTO),
+            "presenceLock",
+            403,
+        ),
+        (
+            lambda home: home.async_set_presence(PresenceSetting.HOME),
+            "presenceLock",
+            422,
+        ),
+    ],
+    ids=["window off", "window forbidden", "auto forbidden", "home 422"],
+)
+async def test_other_refusals_are_recorded(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    caplog: pytest.LogCaptureFixture,
+    write: Write,
+    path: str,
+    status: int,
+) -> None:
+    """Only the expected refusal of each write is spared; others are API errors."""
+    mock_tado.fail(None, path, status=status)
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(TadoXRequestError):
+        await write(client.home(HOME_B))
+
+    [line] = _client_messages(caplog, logging.INFO)
+    assert line.startswith("Write failed: ")
+    assert client.telemetry.last_error is not None
+    assert client.telemetry.last_error.status == status
 
 
 @pytest.mark.parametrize(
@@ -622,8 +829,8 @@ async def test_failed_write_is_audited_and_recorded(
         (
             TadoXRequestError(400, "fake-access-token-1000002", "Bearer x"),
             400,
-            "code=<str len=25> title=<redacted>",
-            "HTTP 400 code=<str len=25> title=<redacted>",
+            "code=<str len=25> title=<str len=8>",
+            "HTTP 400 code=<str len=25> title=<str len=8>",
         ),
         (TadoXServerError(503), 503, None, "HTTP 503"),
         (
@@ -643,6 +850,12 @@ async def test_failed_write_is_audited_and_recorded(
             None,
             "invalid_grant",
             "TadoXAuthError: invalid_grant",
+        ),
+        (
+            TadoXAuthError("unauthorized_after_refresh", status=401),
+            401,
+            "unauthorized_after_refresh",
+            "HTTP 401 unauthorized_after_refresh",
         ),
         (
             TadoXAuthError("Login of user@example.invalid failed"),
@@ -702,8 +915,7 @@ def test_record_tado_error_maps_the_taxonomy(
 
 def test_connection_error_names_its_cause() -> None:
     """A connection error tells which exception caused it, not its text."""
-    err = TadoXConnectionError("cannot reach hops.tado.com")
-    err.__cause__ = TimeoutError("connect to 192.168.100.200 timed out")
+    err = TadoXConnectionError("cannot reach hops.tado.com", cause="TimeoutError")
     assert describe_error(err) == (
         "TadoXConnectionError: cannot reach hops.tado.com (TimeoutError)"
     )
@@ -738,6 +950,61 @@ def test_an_error_object_is_recorded_once(freezer: FrozenDateTimeFactory) -> Non
     ]
     assert telemetry.errors_by_kind() == {"TadoXServerError": 2}
     assert len(calls) == 2
+
+
+def test_recorded_errors_keep_nothing_alive() -> None:
+    """Telemetry holds no error, so no traceback keeps frames and their locals."""
+    telemetry = Telemetry()
+    locals_: list[weakref.ref[_Local]] = []
+
+    def fail(index: int) -> None:
+        local = _Local()
+        locals_.append(weakref.ref(local))
+        raise TadoXServerError(500 + index)
+
+    for index in range(Telemetry.ERRORS + 5):
+        try:
+            fail(index)
+        except TadoXServerError as err:
+            telemetry.record_tado_error(err, context="poll rooms")
+    gc.collect()
+
+    assert [ref() for ref in locals_ if ref() is not None] == []
+    assert len(telemetry.errors()) == Telemetry.ERRORS
+
+
+def test_repeated_errors_are_counted_in_one_record(
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An error like the newest one counts there; it still counts per kind."""
+    freezer.move_to(NOW)
+    telemetry = Telemetry()
+    calls: list[None] = []
+    telemetry.add_listener(lambda: calls.append(None))
+
+    for _ in range(3):
+        telemetry.record_tado_error(TadoXServerError(503), context="poll rooms")
+        freezer.tick(timedelta(minutes=1))
+    telemetry.record_error(kind="TadoXServerError", context="poll home", status=503)
+    telemetry.record_error(kind="TadoXServerError", context="poll rooms", status=503)
+    telemetry.record_error(
+        kind="TadoXServerError", context="poll rooms", status=503, message="x"
+    )
+
+    first, home, again, other = telemetry.errors()
+    assert first == ErrorRecord(
+        at=NOW,
+        kind="TadoXServerError",
+        context="poll rooms",
+        status=503,
+        count=3,
+        last_at=NOW + timedelta(minutes=2),
+    )
+    assert (home.context, home.count, home.last_at) == ("poll home", 1, None)
+    assert (again.context, again.count) == ("poll rooms", 1)
+    assert (other.message, other.count) == ("x", 1)
+    assert telemetry.errors_by_kind() == {"TadoXServerError": 6}
+    assert len(calls) == 6
 
 
 def test_ring_buffers_keep_the_newest(freezer: FrozenDateTimeFactory) -> None:
@@ -819,6 +1086,8 @@ def test_diagnostics(freezer: FrozenDateTimeFactory) -> None:
         "endpoint": "GET hops:/homes/{home}/rooms",
         "status": 503,
         "message": "home #",
+        "count": 1,
+        "last_at": None,
     }
     assert diagnostics == {
         "exchanges": [
@@ -917,6 +1186,15 @@ def test_warn_once_is_bounded() -> None:
     assert warn.should_warn(("a",))
     assert not warn.should_warn(("d",))
     assert warn.should_warn(("b",))
+
+
+def test_warn_once_can_be_cleared() -> None:
+    """A cleared set warns about every key again."""
+    warn = WarnOnce()
+    assert warn.should_warn(("a",))
+    warn.clear()
+    assert warn.should_warn(("a",))
+    assert not warn.should_warn(("a",))
 
 
 def test_warn_once_default_bound() -> None:

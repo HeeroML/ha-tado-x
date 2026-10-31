@@ -248,4 +248,4 @@ async def test_unknown_rejection(
     mock_tado.fail("POST", TOKEN_URL, status=400, body=body)
     with pytest.raises(TadoXAuthError) as err:
         await flow.async_wait_for_token(_auth())
-    assert err.value.reason == reason
+    assert (err.value.reason, err.value.status) == (reason, 400)

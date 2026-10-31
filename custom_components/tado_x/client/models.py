@@ -1,9 +1,10 @@
 """Typed models of the tado X API and their boundary parsers.
 
 ``from_api`` is the only code that reads raw payload keys. A bad required key
-raises TadoXParseError, an optional key that is missing or has the wrong type
-becomes None, and a malformed item of a list is skipped, with one warning per
-kind, so that one bad room does not fail a whole poll. Datetimes are aware UTC.
+raises TadoXParseError, an optional key that is missing or null becomes None,
+one that has the wrong type becomes None with one warning per path, and a
+malformed item of a list is skipped, with one warning per kind, so that one
+bad room does not fail a whole poll. Datetimes are aware UTC.
 """
 
 from collections.abc import Callable, Iterable, Mapping
@@ -71,6 +72,62 @@ def _parse_datetime(raw: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _to_int(value: object) -> int | None:
+    """Return an int or an integral float as int; never a bool."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _to_float(value: object) -> float | None:
+    """Return an int or a float as float; never a bool."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
+def _to_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _to_bool(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _to_list(value: object) -> list[object] | None:
+    return value if isinstance(value, list) else None
+
+
+def _to_seconds(value: object) -> timedelta | None:
+    """Return a whole number of seconds as timedelta, None if out of range."""
+    if (seconds := _to_int(value)) is None:
+        return None
+    try:
+        return timedelta(seconds=seconds)
+    except OverflowError:
+        return None
+
+
+def _log_unusable(endpoint: str, path: str, found: str) -> None:
+    """Log an optional value that cannot be used, by its path and description.
+
+    The first of each endpoint and path is a warning, repeats are debug
+    messages; the value itself is never logged.
+    """
+    kind = ("field", endpoint, _INDEX.sub("[]", path))
+    _LOGGER.log(
+        logging.WARNING if WARN_ONCE.should_warn(kind) else logging.DEBUG,
+        "Ignoring an unusable %s field: %s is %s",
+        endpoint,
+        path,
+        found,
+    )
+
+
 def parse_clock(raw: object) -> int | None:
     """Parse "HH:MM" into minutes after midnight; "24:00" is 1440."""
     if not isinstance(raw, str):
@@ -120,14 +177,32 @@ class _Reader:
             self._endpoint, f"{self._path}.{key}", found=self.describe(key)
         )
 
+    def _optional[T](self, key: str, convert: Callable[[object], T | None]) -> T | None:
+        """Return the converted value of an optional key.
+
+        A missing key and null are None. A value convert cannot use is None
+        as well, and is logged by its path and describe_value().
+        """
+        value = self._data.get(key)
+        if value is None:
+            return None
+        if (result := convert(value)) is None:
+            _log_unusable(self._endpoint, f"{self._path}.{key}", describe_value(value))
+        return result
+
     def child(self, key: str) -> _Reader:
         return _Reader(self._data.get(key), self._endpoint, f"{self._path}.{key}")
 
     def opt_child(self, key: str) -> _Reader | None:
-        value = self._data.get(key)
-        if not isinstance(value, Mapping):
-            return None
-        return _Reader(value, self._endpoint, f"{self._path}.{key}")
+        path = f"{self._path}.{key}"
+        return self._optional(
+            key,
+            lambda value: (
+                _Reader(value, self._endpoint, path)
+                if isinstance(value, Mapping)
+                else None
+            ),
+        )
 
     def items(self, key: str) -> list[object]:
         value = self._data.get(key)
@@ -136,11 +211,10 @@ class _Reader:
         return value
 
     def opt_items(self, key: str) -> list[object]:
-        value = self._data.get(key)
-        return value if isinstance(value, list) else []
+        return self._optional(key, _to_list) or []
 
     def req_int(self, key: str) -> int:
-        if (value := self.opt_int(key)) is None:
+        if (value := _to_int(self._data.get(key))) is None:
             raise self._error(key)
         return value
 
@@ -151,31 +225,19 @@ class _Reader:
         return value
 
     def opt_int(self, key: str) -> int | None:
-        value = self._data.get(key)
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float) and value.is_integer():
-            return int(value)
-        return None
+        return self._optional(key, _to_int)
 
     def opt_float(self, key: str) -> float | None:
-        value = self._data.get(key)
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            return None
-        return float(value)
+        return self._optional(key, _to_float)
 
     def opt_str(self, key: str) -> str | None:
-        value = self._data.get(key)
-        return value if isinstance(value, str) else None
+        return self._optional(key, _to_str)
 
     def opt_bool(self, key: str) -> bool | None:
-        value = self._data.get(key)
-        return value if isinstance(value, bool) else None
+        return self._optional(key, _to_bool)
 
     def opt_datetime(self, key: str) -> datetime | None:
-        return _parse_datetime(self._data.get(key))
+        return self._optional(key, _parse_datetime)
 
     def req_clock(self, key: str) -> int:
         if (value := parse_clock(self._data.get(key))) is None:
@@ -183,13 +245,7 @@ class _Reader:
         return value
 
     def opt_seconds(self, key: str) -> timedelta | None:
-        value = self.opt_int(key)
-        if value is None:
-            return None
-        try:
-            return timedelta(seconds=value)
-        except OverflowError:
-            return None
+        return self._optional(key, _to_seconds)
 
     def enum[E: StrEnum](self, cls: type[E], key: str, *, field: str) -> E | None:
         return parse_enum(cls, self._data.get(key), field=field)
@@ -285,7 +341,7 @@ class Termination:
         return body
 
     @classmethod
-    def from_api(cls, raw: object) -> Self | None:
+    def from_api(cls, raw: object) -> Termination | None:
         """Parse a room's deviceManualControlTermination.
 
         Return None when the value is missing or unknown, or when it is a
@@ -293,21 +349,27 @@ class Termination:
         """
         if not isinstance(raw, Mapping):
             return None
-        reader = _Reader(raw, "topology")
-        kind = reader.enum(
-            TerminationType, "type", field="deviceManualControlTermination.type"
-        )
-        if kind is None:
-            return None
-        if kind is not TerminationType.TIMER:
-            return cls(type=kind)
-        if (duration := reader.opt_seconds("durationInSeconds")) is None:
-            return None
-        try:
-            return cls.timer(duration)
-        except ValueError:
-            _LOGGER.debug("Ignoring a room timer default of %s", duration)
-            return None
+        return _termination_default(_Reader(raw, "topology"))
+
+
+def _termination_default(reader: _Reader | None) -> Termination | None:
+    """Parse a room's deviceManualControlTermination; see Termination.from_api."""
+    if reader is None:
+        return None
+    kind = reader.enum(
+        TerminationType, "type", field="deviceManualControlTermination.type"
+    )
+    if kind is None:
+        return None
+    if kind is not TerminationType.TIMER:
+        return Termination(type=kind)
+    if (duration := reader.opt_seconds("durationInSeconds")) is None:
+        return None
+    try:
+        return Termination.timer(duration)
+    except ValueError:
+        _LOGGER.debug("Ignoring a room timer default of %s", duration)
+        return None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -377,11 +439,13 @@ def _active_override(reader: _Reader | None, field: str) -> ActiveOverride | Non
 def _next_schedule_change(reader: _Reader | None) -> NextScheduleChange | None:
     if reader is None or (start := reader.opt_datetime("start")) is None:
         return None
-    try:
-        setting = _setting(reader.child("setting"))
-    except TadoXParseError:
+    if (setting := reader.opt_child("setting")) is None:
         return None
-    return NextScheduleChange(start=start, setting=setting)
+    try:
+        return NextScheduleChange(start=start, setting=_setting(setting))
+    except TadoXParseError as err:
+        _log_unusable(err.endpoint, err.path, err.found or "invalid")
+        return None
 
 
 def _open_window(reader: _Reader | None) -> OpenWindow | None:
@@ -532,8 +596,8 @@ def _room_topology(reader: _Reader, skipped: list[str]) -> RoomTopology:
     return RoomTopology(
         id=room_id,
         name=reader.req_str("roomName"),
-        manual_termination_default=Termination.from_api(
-            reader.data.get("deviceManualControlTermination")
+        manual_termination_default=_termination_default(
+            reader.opt_child("deviceManualControlTermination")
         ),
         devices=_devices(reader, "devices", room_id, skipped),
     )
