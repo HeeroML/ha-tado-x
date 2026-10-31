@@ -365,10 +365,12 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
         """Set a temperature; duration in minutes means a timer (v1 compatible)."""
         await self._async_heat(temperature, termination_override(duration, termination))
 
-    @handle_tado_errors
     async def async_get_schedule(self) -> ServiceResponse:
         """Return the weekly schedule of the room."""
-        schedule = await self.coordinator.api.async_get_schedule(self._room_id)
+        try:
+            schedule = await self.coordinator.api.async_get_schedule(self._room_id)
+        except TadoXError as err:
+            raise_for_tado_error(err, self._entry, context="service get_schedule")
         return schedule_response(schedule)
 
     async def async_set_schedule(
@@ -389,7 +391,9 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
                 )
             except TadoXError as err:
                 if not done:
-                    raise_for_tado_error(err, self._entry)
+                    raise_for_tado_error(
+                        err, self._entry, context="service set_schedule"
+                    )
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="schedule_partially_written",
@@ -411,7 +415,7 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
                 translation_domain=DOMAIN, translation_key="day_report_forbidden"
             ) from err
         except TadoXError as err:
-            raise_for_tado_error(err, self._entry)
+            raise_for_tado_error(err, self._entry, context="service get_day_report")
         return {
             "summary": asdict(summarize_day_report(report)),
             "report": dict(report.raw),

@@ -25,6 +25,7 @@ from .client import (
     RunningTimes,
     TadoXClient,
     TadoXHome,
+    Telemetry,
     Termination,
     Topology,
     Weather,
@@ -141,9 +142,14 @@ class DevicesSnapshot:
 
 @dataclass(slots=True, kw_only=True)
 class TadoXRuntimeData:
-    """Everything a loaded config entry owns."""
+    """Everything a loaded config entry owns.
+
+    telemetry is the one Telemetry of the entry, shared by the client, its
+    token manager and its quota tracker.
+    """
 
     client: TadoXClient
+    telemetry: Telemetry
     api: TadoXHome
     rooms: RoomsCoordinator
     home: HomeCoordinator

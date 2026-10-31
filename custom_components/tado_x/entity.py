@@ -1,4 +1,13 @@
-"""Base entities and error mapping of the tado X integration."""
+"""Base entities and error mapping of the tado X integration.
+
+Errors are recorded in the telemetry of the entry once, by the innermost
+layer that knows why the request was made. The client records failed writes
+("command <endpoint>"), token refreshes and the closing of the quota gate;
+the coordinators record polls ("poll <kind>"), setup records "setup", and
+raise_for_tado_error() records entity actions ("command <key>") and services
+("service <name>"). Telemetry ignores an error object it holds already, so
+an outer layer that records the same error again changes nothing.
+"""
 
 from collections.abc import Callable, Coroutine, Iterable
 from functools import wraps
@@ -21,6 +30,7 @@ from .client import (
     TadoXRateLimitError,
     TadoXRequestError,
     TadoXTransientError,
+    redact_text,
 )
 from .const import DOMAIN
 from .coordinator import TadoXCoordinator
@@ -85,11 +95,15 @@ class TadoXStatusEntity(Entity):
             )
 
 
-def raise_for_tado_error(err: TadoXError, entry: TadoXConfigEntry) -> NoReturn:
-    """Raise the translated Home Assistant error for a client error.
+def raise_for_tado_error(
+    err: TadoXError, entry: TadoXConfigEntry, *, context: str
+) -> NoReturn:
+    """Record a client error and raise the translated Home Assistant error.
 
-    An auth error also starts a reauth flow.
+    context names the action, such as "command child_lock" or "service
+    set_schedule". An auth error also starts a reauth flow.
     """
+    entry.runtime_data.telemetry.record_tado_error(err, context=context)
     if isinstance(err, TadoXAuthError):
         entry.async_start_reauth(entry.runtime_data.rooms.hass)
         raise HomeAssistantError(
@@ -126,7 +140,7 @@ def raise_for_tado_error(err: TadoXError, entry: TadoXConfigEntry) -> NoReturn:
             translation_key="request_rejected",
             translation_placeholders={
                 "status": str(err.status),
-                "title": err.title or "",
+                "title": redact_text(err.title) or "",
             },
         ) from err
     error = (
@@ -142,14 +156,21 @@ def raise_for_tado_error(err: TadoXError, entry: TadoXConfigEntry) -> NoReturn:
 def handle_tado_errors[E: TadoXEntity[Any], **P, R](
     func: Callable[Concatenate[E, P], Coroutine[Any, Any, R]],
 ) -> Callable[Concatenate[E, P], Coroutine[Any, Any, R]]:
-    """Translate client errors raised by an entity action."""
+    """Translate client errors raised by an entity action.
+
+    The error is recorded as "command" plus the key of the entity description.
+    """
 
     @wraps(func)
     async def wrapper(entity: E, /, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
             return await func(entity, *args, **kwargs)
         except TadoXError as err:
-            raise_for_tado_error(err, entity.coordinator.config_entry)
+            raise_for_tado_error(
+                err,
+                entity.coordinator.config_entry,
+                context=f"command {entity.entity_description.key}",
+            )
 
     return wrapper
 

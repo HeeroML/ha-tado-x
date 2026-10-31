@@ -1,4 +1,9 @@
-"""Diagnostics of the tado X integration."""
+"""Diagnostics of the tado X integration.
+
+Nothing here identifies the user: tokens, account data, the address,
+coordinates, room and home names are redacted, serial numbers masked, and
+the telemetry holds endpoint templates and payload shapes, never a body.
+"""
 
 from collections.abc import Mapping
 from dataclasses import asdict
@@ -12,8 +17,8 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.util import dt as dt_util
 
-from .client import Device, RoomTopology
-from .const import CONF_REFRESH_TOKEN, CONF_TOKEN_EXPIRY, DOMAIN
+from .client import Device, RoomTopology, mask_serial
+from .const import CONF_HOME_NAME, CONF_REFRESH_TOKEN, CONF_TOKEN_EXPIRY, DOMAIN
 from .coordinator import TadoXCoordinator
 from .runtime import TadoXConfigEntry
 from .token_store import parse_expiry
@@ -33,14 +38,12 @@ TO_REDACT: Final = {
     "deviceMetadata",
     "device_code",
     "user_code",
+    CONF_HOME_NAME,
+    "name",
+    "roomName",
 }
 SERIAL_KEYS: Final = frozenset({"serialNumber", "serial"})
 PAYLOADS: Final = ("rooms", "topology", "home_state", "weather", "air_comfort")
-
-
-def mask_serial(serial: str) -> str:
-    """Keep the type prefix and the last four characters of a serial number."""
-    return f"{serial[:2]}…{serial[-4:]}"
 
 
 def _plain(value: Any) -> Any:
@@ -88,6 +91,7 @@ async def async_get_config_entry_diagnostics(
     }
     info = monitor.info
     plan = monitor.plan
+    now = dt_util.utcnow()
     payloads = {key: data.cache.payload(key) for key in PAYLOADS}
     diagnostics: dict[str, Any] = _plain(
         {
@@ -109,7 +113,7 @@ async def async_get_config_entry_diagnostics(
                 "info": None if info is None else asdict(info),
                 "reset_at": None if info is None else info.reset_at,
                 "blocked_until": monitor.blocked_until,
-                "calls_24h": monitor.calls_24h(dt_util.utcnow()),
+                "calls_24h": monitor.calls_24h(now),
                 "status": monitor.status,
                 "mode": monitor.mode,
                 "factor": monitor.factor,
@@ -131,6 +135,9 @@ async def async_get_config_entry_diagnostics(
                 else async_redact_data({"at": item[0], "raw": item[1]}, TO_REDACT)
                 for key, item in payloads.items()
             },
+            "telemetry": async_redact_data(
+                data.telemetry.as_diagnostics(now), TO_REDACT
+            ),
         }
     )
     return diagnostics
@@ -156,5 +163,7 @@ async def async_get_device_diagnostics(
     """Return the entry diagnostics plus the topology entry of one device."""
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
     found = _topology_entry(entry, device)
-    diagnostics["device"] = None if found is None else _plain(asdict(found))
+    diagnostics["device"] = (
+        None if found is None else _plain(async_redact_data(asdict(found), TO_REDACT))
+    )
     return diagnostics

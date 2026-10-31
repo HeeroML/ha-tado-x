@@ -303,7 +303,7 @@ async def _async_add_meter_reading(call: ServiceCall) -> None:
     try:
         await data.api.async_add_meter_reading(call.data[ATTR_READING], day)
     except TadoXError as err:
-        raise_for_tado_error(err, entry)
+        raise_for_tado_error(err, entry, context=f"service {SERVICE_ADD_METER_READING}")
 
 
 async def _async_set_eiq_tariff(call: ServiceCall) -> None:
@@ -322,16 +322,22 @@ async def _async_set_eiq_tariff(call: ServiceCall) -> None:
             end=call.data.get(ATTR_END_DATE),
         )
     except TadoXError as err:
-        raise_for_tado_error(err, entry)
+        raise_for_tado_error(err, entry, context=f"service {SERVICE_SET_EIQ_TARIFF}")
 
 
-def _raise_holiday_error(err: TadoXError, entry: TadoXConfigEntry) -> NoReturn:
-    """Raise the translated error of a holiday mode request."""
+def _raise_holiday_error(
+    err: TadoXError, entry: TadoXConfigEntry, service_name: str
+) -> NoReturn:
+    """Raise the translated error of a holiday mode request.
+
+    A home without holiday mode is an answer, not an API problem, so only
+    the other errors are recorded.
+    """
     if isinstance(err, TadoXForbiddenError | TadoXNotFoundError):
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="holiday_mode_unavailable"
         ) from err
-    raise_for_tado_error(err, entry)
+    raise_for_tado_error(err, entry, context=f"service {service_name}")
 
 
 def _iso(value: dt.datetime | None) -> str | None:
@@ -344,7 +350,7 @@ async def _async_get_holiday_mode(call: ServiceCall) -> ServiceResponse:
     try:
         holiday = await entry.runtime_data.api.async_read_holiday_mode()
     except TadoXError as err:
-        _raise_holiday_error(err, entry)
+        _raise_holiday_error(err, entry, SERVICE_GET_HOLIDAY_MODE)
     return {
         ATTR_ENABLED: holiday.enabled,
         ATTR_ACTIVE: holiday.active,
@@ -398,7 +404,7 @@ async def _async_set_holiday_mode(call: ServiceCall) -> None:
     try:
         await data.api.async_set_holiday_mode(enabled=enabled, start=start, end=end)
     except TadoXError as err:
-        _raise_holiday_error(err, entry)
+        _raise_holiday_error(err, entry, SERVICE_SET_HOLIDAY_MODE)
     data.devices.async_apply_optimistic(
         {"holiday_mode": _holiday_patch(enabled, start, end, dt_util.utcnow())}
     )

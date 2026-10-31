@@ -703,7 +703,9 @@ async def test_optimistic_patch_needs_data(
     """A coordinator without data ignores a patch."""
     data = await _setup(hass, freezer)
     entry = data.rooms.config_entry
-    rooms = RoomsCoordinator(hass, entry, data.api, data.monitor, None)
+    rooms = RoomsCoordinator(
+        hass, entry, data.api, data.monitor, None, telemetry=data.telemetry
+    )
 
     rooms.async_apply_optimistic({1: lambda snapshot: snapshot})
 
@@ -1146,3 +1148,71 @@ async def test_home_details_of_the_previous_generation_fail_setup(
 
     assert entry.state is ConfigEntryState.SETUP_ERROR
     assert issue_registry.async_get_issue(DOMAIN, f"not_tado_x_home_{entry.entry_id}")
+
+
+async def test_poll_errors_are_recorded_once_with_their_context(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Failed polls are recorded as "poll <kind>"; answers and holds are not.
+
+    The 404 of a home without flow temperature is an answer, and a token
+    refresh that fails a poll keeps the context of the refresh.
+    """
+    data = await _setup(hass, freezer)
+    assert data.telemetry.errors() == []
+    mock_tado.fail("GET", ROOMS, status=503, times=1)
+    mock_tado.fail("GET", WEATHER, status=500, times=2)
+
+    await _poll(freezer, data.rooms)
+    for _ in range(2):
+        freezer.tick(timedelta(seconds=900))
+        await data.home.async_refresh()
+    freezer.tick(timedelta(minutes=10))
+    mock_tado.fail("POST", "/oauth2/token", exc=ClientConnectionError(), times=1)
+    await data.rooms.async_refresh()
+
+    assert not data.rooms.last_update_success
+    assert [
+        (error.context, error.kind, error.endpoint, error.status)
+        for error in data.telemetry.errors()
+    ] == [
+        ("poll rooms", "TadoXServerError", "GET hops:/homes/{home}/rooms", 503),
+        ("poll home", "TadoXServerError", "GET my:/homes/{home}/weather", 500),
+        ("poll home", "TadoXServerError", "GET my:/homes/{home}/weather", 500),
+        ("token refresh", "TadoXConnectionError", "POST login:/oauth2/token", None),
+    ]
+
+
+async def test_quota_holds_record_the_gate_once(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A 429 and the refusals after it are one quota_gate error, not one per poll."""
+    data = await _setup(hass, freezer)
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=1))
+
+    for _ in range(3):
+        await _poll(freezer, data.rooms)
+
+    assert data.rooms.stale_since is not None
+    assert [(error.kind, error.context) for error in data.telemetry.errors()] == [
+        ("quota_gate", "quota")
+    ]
+
+
+async def test_entity_action_errors_are_recorded_as_commands(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """An entity action records an error the client did not, by the entity key."""
+    data = await _setup(hass, freezer)
+    probe = _Probe(data.rooms, TadoXServerError(502))
+
+    with pytest.raises(HomeAssistantError):
+        await probe.async_act(1)
+
+    error = data.telemetry.last_error
+    assert error is not None
+    assert (error.context, error.kind, error.status) == (
+        "command probe",
+        "TadoXServerError",
+        502,
+    )
