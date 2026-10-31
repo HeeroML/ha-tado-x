@@ -4,6 +4,7 @@ from collections.abc import Callable
 import copy
 from datetime import UTC, datetime, timedelta
 import logging
+import re
 from typing import Any
 
 from aiohttp import ClientConnectionError
@@ -1252,6 +1253,66 @@ async def test_poll_errors_are_recorded_once_with_their_context(
         ("poll home", "TadoXServerError", "GET my:/homes/{home}/weather", 500, 2),
         ("token refresh", "TadoXConnectionError", "POST login:/oauth2/token", None, 1),
     ]
+
+
+async def test_an_outage_of_every_poll_keeps_older_errors(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """The three polls take turns failing; each repeat counts in its own record.
+
+    None of the repeats is like the newest record, so counting only there
+    would fill the ring with them and drop the failed write before them. The
+    timers of the coordinators poll as well, so the counts follow the calls.
+    """
+    data = await _setup(hass, freezer)
+    mock_tado.fail("POST", "/manualControl", status=422, times=1)
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_TEMPERATURE,
+            {ATTR_ENTITY_ID: climate_id(hass, 1), ATTR_TEMPERATURE: 21},
+            blocking=True,
+        )
+    mock_tado.fail(
+        None, re.compile(r"//(hops|my)\.tado\.com/"), exc=ClientConnectionError()
+    )
+
+    mock_tado.clear_calls()
+
+    for _ in range(60):
+        freezer.tick(timedelta(minutes=15))
+        for coordinator in (data.rooms, data.home, data.devices):
+            await coordinator.async_refresh()
+
+    calls = {path: _count(mock_tado, path) for path in (ROOMS, STATE, TOPOLOGY)}
+    assert min(calls.values()) >= 60
+    write, *polls = data.telemetry.errors()
+    assert (write.context, write.kind, write.count) == (
+        "command manualControl",
+        "TadoXRequestError",
+        1,
+    )
+    assert {poll.context: (poll.kind, poll.endpoint, poll.count) for poll in polls} == {
+        "poll rooms": (
+            "TadoXConnectionError",
+            "GET hops:/homes/{home}/rooms",
+            calls[ROOMS],
+        ),
+        "poll home": (
+            "TadoXConnectionError",
+            "GET my:/homes/{home}/state",
+            calls[STATE],
+        ),
+        "poll devices": (
+            "TadoXConnectionError",
+            "GET hops:/homes/{home}/roomsAndDevices",
+            calls[TOPOLOGY],
+        ),
+    }
+    assert data.telemetry.errors_by_kind() == {
+        "TadoXConnectionError": sum(calls.values()),
+        "TadoXRequestError": 1,
+    }
 
 
 async def test_quota_holds_record_the_gate_once(

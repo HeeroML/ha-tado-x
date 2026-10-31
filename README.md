@@ -549,7 +549,7 @@ Diagnostics are downloaded per entry or per device; see [Reporting a problem](#r
 - the quota and the polling plan;
 - the state of each coordinator;
 - the last payloads of rooms, devices, home state, weather and air comfort, without names. Numbers, constants such as `ON`, timestamps, clock times and version numbers stay; any other text is replaced by its length, such as `<str len=19>`, also where tado sends text in place of a number;
-- the telemetry of the entry since its last start: the last 50 HTTP requests (method, path with ids replaced by placeholders, status, duration, quota numbers and the structure of the answer without its values), the last 20 errors with what the integration was doing at the time (an error that repeats is counted in one entry), and the requests per endpoint and errors per kind over the last 24 hours;
+- the telemetry of the entry since its last start: the last 50 HTTP requests (method, path with ids replaced by placeholders, status, duration, quota numbers and the structure of the answer without its values), the last 20 errors with what the integration was doing at the time (an error that repeats is counted in one entry, also when other errors came in between), and the requests per endpoint and errors per kind over the last 24 hours;
 - for a device, its entry from the device list.
 
 Removed from diagnostics: tokens, codes, user id, e-mail, address, coordinates, contact details, device metadata, the entry's title, the names of the home and its rooms, and free text in the payloads and the device entry. Serial numbers are shortened to the type and the last four characters (`VA…0101`). Phone data is never included.

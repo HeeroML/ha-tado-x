@@ -1069,7 +1069,7 @@ def test_recorded_errors_keep_nothing_alive() -> None:
 def test_repeated_errors_are_counted_in_one_record(
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """An error like the newest one counts there; it still counts per kind."""
+    """A repeat counts in its record, which moves to the end; it counts per kind."""
     freezer.move_to(NOW)
     telemetry = Telemetry()
     calls: list[None] = []
@@ -1084,20 +1084,63 @@ def test_repeated_errors_are_counted_in_one_record(
         kind="TadoXServerError", context="poll rooms", status=503, message="x"
     )
 
-    first, home, again, other = telemetry.errors()
-    assert first == ErrorRecord(
+    home, rooms, other = telemetry.errors()
+    assert rooms == ErrorRecord(
         at=NOW,
         kind="TadoXServerError",
         context="poll rooms",
         status=503,
-        count=3,
-        last_at=NOW + timedelta(minutes=2),
+        count=4,
+        last_at=NOW + timedelta(minutes=3),
     )
     assert (home.context, home.count, home.last_at) == ("poll home", 1, None)
-    assert (again.context, again.count) == ("poll rooms", 1)
     assert (other.message, other.count) == ("x", 1)
     assert telemetry.errors_by_kind() == {"TadoXServerError": 6}
     assert len(calls) == 6
+
+
+def test_interleaved_repeats_keep_older_errors(freezer: FrozenDateTimeFactory) -> None:
+    """Three polls failing in turn for an hour leave three records and the older one.
+
+    A repeat counts in its record wherever that is in the ring and moves it
+    to the end; the counts per kind and the listeners see every occurrence.
+    """
+    freezer.move_to(NOW)
+    telemetry = Telemetry()
+    calls: list[None] = []
+    telemetry.add_listener(lambda: calls.append(None))
+    telemetry.record_error(
+        kind="TadoXRequestError", context="command manualControl", status=422
+    )
+    contexts = ("poll rooms", "poll home", "poll devices")
+
+    for _ in range(60):
+        freezer.tick(timedelta(minutes=1))
+        for context in contexts:
+            err = TadoXConnectionError("cannot reach hops.tado.com", cause="Timeout")
+            telemetry.record_tado_error(err, context=context)
+
+    write, *polls = telemetry.errors()
+    assert (write.context, write.count, write.at) == ("command manualControl", 1, NOW)
+    assert [(poll.context, poll.count, poll.at, poll.last_at) for poll in polls] == [
+        (context, 60, NOW + timedelta(minutes=1), NOW + timedelta(minutes=60))
+        for context in contexts
+    ]
+    assert telemetry.errors_by_kind() == {
+        "TadoXConnectionError": 180,
+        "TadoXRequestError": 1,
+    }
+    assert len(calls) == 181
+
+    freezer.tick(timedelta(minutes=1))
+    telemetry.record_error(
+        kind="TadoXRequestError", context="command manualControl", status=422
+    )
+
+    assert [error.context for error in telemetry.errors()] == [*contexts, write.context]
+    assert telemetry.last_error == replace(
+        write, count=2, last_at=NOW + timedelta(minutes=61)
+    )
 
 
 def test_ring_buffers_keep_the_newest(freezer: FrozenDateTimeFactory) -> None:

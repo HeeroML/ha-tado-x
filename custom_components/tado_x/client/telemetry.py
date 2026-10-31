@@ -409,7 +409,7 @@ class Exchange:
 class ErrorRecord:
     """One error, with the context it happened in, such as "poll rooms".
 
-    An error that repeats the newest record is counted there: count is the
+    An error that repeats a kept record is counted there: count is the
     number of occurrences, at the first and last_at the latest of them,
     None until the error repeats.
     """
@@ -533,8 +533,9 @@ class Telemetry:
 
     The last EXCHANGES HTTP attempts and ERRORS errors are kept, and requests
     per endpoint and errors per kind are counted over a rolling 24 hours.
-    Every exchange is logged at debug level. An error that repeats the
-    newest record is counted in it, so an outage does not flush the others.
+    Every exchange is logged at debug level. An error that repeats a kept
+    record is counted in it, and the record moves to the end, so an outage
+    does not flush the others, even when several polls fail in turn.
     An error object is recorded once: when a caller records an error the
     client recorded already, for example a failed token refresh that also
     fails a poll, nothing changes. The error is marked, not kept, so its
@@ -548,7 +549,7 @@ class Telemetry:
         """Initialize empty telemetry with the clock that stamps errors."""
         self._clock = clock
         self._exchanges: deque[Exchange] = deque(maxlen=self.EXCHANGES)
-        self._errors: deque[ErrorRecord] = deque(maxlen=self.ERRORS)
+        self._errors: dict[tuple[object, ...], ErrorRecord] = {}
         self._requests = _RollingCounts()
         self._kinds = _RollingCounts()
         self._listeners: list[Callable[[], None]] = []
@@ -576,24 +577,25 @@ class Telemetry:
     ) -> None:
         """Keep and count one error; the message passes redact_text().
 
-        An error that repeats the newest record increments its count.
+        An error that repeats a kept record increments its count and moves it
+        to the end; otherwise the oldest record goes when ERRORS are kept.
         """
+        at = self._clock()
         record = ErrorRecord(
-            at=self._clock(),
+            at=at,
             kind=kind,
             context=context,
             endpoint=endpoint,
             status=status,
             message=redact_text(message),
         )
-        newest = self.last_error
-        if newest is not None and _error_key(newest) == _error_key(record):
-            self._errors[-1] = replace(
-                newest, count=newest.count + 1, last_at=record.at
-            )
-        else:
-            self._errors.append(record)
-        self._kinds.add(kind, record.at)
+        key = _error_key(record)
+        if (kept := self._errors.pop(key, None)) is not None:
+            record = replace(kept, count=kept.count + 1, last_at=at)
+        self._errors[key] = record
+        if len(self._errors) > self.ERRORS:
+            del self._errors[next(iter(self._errors))]
+        self._kinds.add(kind, at)
         for listener in list(self._listeners):
             listener()
 
@@ -614,7 +616,7 @@ class Telemetry:
     @property
     def last_error(self) -> ErrorRecord | None:
         """Return the newest error, if any."""
-        return self._errors[-1] if self._errors else None
+        return next(reversed(self._errors.values()), None)
 
     def requests_by_endpoint(self, now: datetime | None = None) -> dict[str, int]:
         """Return the HTTP attempts of the 24 hours before now per endpoint."""
@@ -629,8 +631,8 @@ class Telemetry:
         return list(self._exchanges)
 
     def errors(self) -> list[ErrorRecord]:
-        """Return the kept errors, oldest first."""
-        return list(self._errors)
+        """Return the kept errors, oldest first by their latest occurrence."""
+        return list(self._errors.values())
 
     def as_diagnostics(self, now: datetime | None = None) -> dict[str, Any]:
         """Return everything as JSON-friendly data, newest last."""
@@ -638,7 +640,7 @@ class Telemetry:
         last = self.last_error
         return {
             "exchanges": [_plain(exchange) for exchange in self._exchanges],
-            "errors": [_plain(error) for error in self._errors],
+            "errors": [_plain(error) for error in self._errors.values()],
             "requests_by_endpoint_24h": self.requests_by_endpoint(now),
             "errors_by_kind_24h": self.errors_by_kind(now),
             "last_error": None if last is None else _plain(last),
