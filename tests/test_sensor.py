@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any
 
+from aiohttp import ClientConnectionError
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -12,7 +13,9 @@ from pytest_homeassistant_custom_component.common import (
 )
 from syrupy.assertion import SnapshotAssertion
 
+from custom_components.tado_x.client import ErrorRecord
 from custom_components.tado_x.const import DOMAIN
+from custom_components.tado_x.sensor import error_text
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
@@ -130,7 +133,7 @@ async def test_entity_count_of_home_b(
     config_entry: MockConfigEntry,
     entity_registry: er.EntityRegistry,
 ) -> None:
-    """The read platforms register their share of the 216 entities of home B."""
+    """The read platforms register their share of the 221 entities of home B."""
     await setup_entry(hass, config_entry)
 
     entries = [
@@ -145,7 +148,7 @@ async def test_entity_count_of_home_b(
         for entity_entry in entries
         if entity_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
     }
-    assert len(entries) == 158
+    assert len(entries) == 163
     assert disabled == {
         f"{HOME_B}_api_quota_limit",
         f"{HOME_B}_api_usage_percentage",
@@ -155,7 +158,7 @@ async def test_entity_count_of_home_b(
         *(f"{serial}_device_temperature" for serial in SERIALS),
         *(f"{serial}_temperature_offset" for serial in SERIALS),
     }
-    assert len(entries) - len(disabled) == 119
+    assert len(entries) - len(disabled) == 124
 
 
 async def test_battery_states(
@@ -370,7 +373,7 @@ async def test_api_status_stays_available_during_a_quota_hold(
     """During a hold the status sensors report it and room values stay."""
     await setup_entry(hass, config_entry)
     assert state_of(hass, f"{HOME}_api_status") == "ok"
-    assert state_of(hass, f"{HOME}_data_updated") == START
+    assert state_of(hass, f"{HOME}_rooms_updated") == START
     mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=2))
 
     await tick(hass, freezer, 45)
@@ -381,14 +384,14 @@ async def test_api_status_stays_available_during_a_quota_hold(
     assert state_of(hass, f"{HOME}_api_quota_reset") == blocked_until.isoformat()
     assert state_of(hass, f"{HOME}_api_quota_remaining") == "0"
     assert state_of(hass, f"{HOME}_api_calls_used_account") == "20000"
-    assert state_of(hass, f"{HOME}_data_updated") == START
+    assert state_of(hass, f"{HOME}_rooms_updated") == START
     assert state_of(hass, f"{LIVING}_temperature") == "21.1"
 
     await tick(hass, freezer, 2 * 3600 + 60)
     await tick(hass, freezer, 45)
 
     assert state_of(hass, f"{HOME}_api_status") == "ok"
-    assert state_of(hass, f"{HOME}_data_updated") == dt_util.utcnow().isoformat()
+    assert state_of(hass, f"{HOME}_rooms_updated") == dt_util.utcnow().isoformat()
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
@@ -445,7 +448,7 @@ async def test_restart_into_a_quota_hold(
     assert state_of(hass, f"{HOME}_api_calls_used_account") == STATE_UNKNOWN
     assert state_of(hass, f"{HOME}_api_quota_used") == STATE_UNKNOWN
     assert state_of(hass, f"{HOME}_api_calls_by_this_integration_24_h") == "0"
-    assert state_of(hass, f"{HOME}_data_updated") == CACHED_AT.isoformat()
+    assert state_of(hass, f"{HOME}_rooms_updated") == CACHED_AT.isoformat()
     assert state_of(hass, f"{LIVING}_temperature") == "21.1"
     assert state_of(hass, f"{HOME}_outdoor_temperature") == STATE_UNKNOWN
     assert state_of(hass, f"{LIVING}_comfort_level") == STATE_UNKNOWN
@@ -503,7 +506,7 @@ async def test_features_turned_off(
         )
     ]
     assert f"{HOME_B}_1_temperature" in sensors
-    assert len(sensors) == 109 - 3 - 6 * 3
+    assert len(sensors) == 113 - 3 - 6 * 3
 
 
 async def test_failed_optional_endpoints_leave_values_unknown(
@@ -558,3 +561,135 @@ async def test_rooms_and_devices_follow_the_topology(
 
     assert hass.states.get(f"{guest_valve}_battery") is None
     assert hass.states.get(f"{guest_room}_heating_time_today") is None
+
+
+async def test_data_updated_per_coordinator(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Rooms, home and devices each report when their data last came live."""
+    await setup_entry(hass, config_entry)
+    for kind in ("rooms", "home", "devices"):
+        assert state_of(hass, f"{HOME}_{kind}_updated") == START
+
+    await tick(hass, freezer, 45)
+
+    assert state_of(hass, f"{HOME}_rooms_updated") == dt_util.utcnow().isoformat()
+    assert state_of(hass, f"{HOME}_home_updated") == START
+    assert state_of(hass, f"{HOME}_devices_updated") == START
+
+    await tick(hass, freezer, 855)
+
+    now = dt_util.utcnow().isoformat()
+    for kind in ("rooms", "home", "devices"):
+        assert state_of(hass, f"{HOME}_{kind}_updated") == now
+
+
+async def test_last_api_error(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The newest error of a poll, a request or a token refresh, by its template."""
+    await setup_entry(hass, config_entry)
+    assert state_of(hass, f"{HOME}_last_api_error") == STATE_UNKNOWN
+    assert state_of(hass, f"{HOME}_last_api_error_time") == STATE_UNKNOWN
+
+    mock_tado.fail("GET", "/homes/1000002/rooms", status=503, times=1)
+    await tick(hass, freezer, 45)
+
+    assert (
+        state_of(hass, f"{HOME}_last_api_error")
+        == "HTTP 503 GET hops:/homes/{home}/rooms"
+    )
+    assert state_of(hass, f"{HOME}_last_api_error_time") == dt_util.utcnow().isoformat()
+
+    mock_tado.fail(
+        "GET", "/api/v2/homes/1000002/state", exc=ClientConnectionError(), times=1
+    )
+    await tick(hass, freezer, 255)
+
+    assert (
+        state_of(hass, f"{HOME}_last_api_error")
+        == "connection error GET my:/homes/{home}/state"
+    )
+
+    mock_tado.fail("POST", "/oauth2/token", status=502, times=1)
+    await tick(hass, freezer, 270)
+
+    assert state_of(hass, f"{LIVING}_temperature") == "21.1"
+    assert (
+        state_of(hass, f"{HOME}_last_api_error")
+        == "token refresh: TadoXServerError HTTP 502"
+    )
+    assert state_of(hass, f"{HOME}_last_api_error_time") == dt_util.utcnow().isoformat()
+
+
+AT = datetime(2026, 10, 30, 10, tzinfo=UTC)
+ROOMS_GET = "GET hops:/homes/{home}/rooms"
+
+
+@pytest.mark.parametrize(
+    ("record", "text"),
+    [
+        (
+            ErrorRecord(
+                at=AT, kind="quota_gate", context="quota", message="closed: HTTP 429"
+            ),
+            "quota: quota_gate closed: HTTP 429",
+        ),
+        (
+            ErrorRecord(
+                at=AT,
+                kind="TadoXAuthError",
+                context="token refresh",
+                endpoint="POST login:/oauth2/token",
+                message="invalid_grant",
+            ),
+            "token refresh: TadoXAuthError invalid_grant",
+        ),
+        (ErrorRecord(at=AT, kind="TadoXError", context="setup"), "setup: TadoXError"),
+        (
+            ErrorRecord(
+                at=AT,
+                kind="TadoXParseError",
+                context="poll rooms",
+                endpoint=ROOMS_GET,
+                message="unexpected rooms payload at $[0].id (missing)",
+            ),
+            f"invalid data {ROOMS_GET}",
+        ),
+        (
+            ErrorRecord(
+                at=AT,
+                kind="TadoXRateLimitError",
+                context="command manualControl",
+                endpoint="POST hops:/homes/{home}/rooms/{room}/manualControl",
+                message="rate limited by the local quota gate",
+            ),
+            "rate limited POST hops:/homes/{home}/rooms/{room}/manualControl",
+        ),
+        (
+            ErrorRecord(
+                at=AT, kind="TadoXOtherError", context="poll rooms", endpoint=ROOMS_GET
+            ),
+            f"TadoXOtherError {ROOMS_GET}",
+        ),
+    ],
+    ids=["quota", "refresh", "bare", "parse", "local", "other"],
+)
+def test_error_text(record: ErrorRecord, text: str) -> None:
+    """Errors are named by status and endpoint, or by their context."""
+    assert error_text(record) == text
+
+
+def test_error_text_fits_a_state() -> None:
+    """A state holds at most 255 characters."""
+    record = ErrorRecord(
+        at=AT, kind="TadoXServerError", context="poll rooms", endpoint="x" * 300
+    )
+
+    assert len(error_text(record)) == 255

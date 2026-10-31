@@ -72,6 +72,9 @@
       "boost": {
         "name": "Boost"
       },
+      "cache_fallback": {
+        "name": "Zwischengespeicherte Daten"
+      },
       "connectivity": {
         "name": "Verbindung"
       },
@@ -227,10 +230,13 @@
         }
       },
       "data_updated": {
-        "name": "Daten aktualisiert"
+        "name": "Räume aktualisiert"
       },
       "device_temperature": {
         "name": "Gerätetemperatur"
+      },
+      "devices_data_updated": {
+        "name": "Geräte aktualisiert"
       },
       "heating_power": {
         "name": "Heizleistung"
@@ -238,8 +244,17 @@
       "heating_time_today": {
         "name": "Heizdauer heute"
       },
+      "home_data_updated": {
+        "name": "Zuhause aktualisiert"
+      },
       "humidity": {
         "name": "Luftfeuchtigkeit"
+      },
+      "last_api_error": {
+        "name": "Letzter API-Fehler"
+      },
+      "last_api_error_time": {
+        "name": "Zeitpunkt des letzten API-Fehlers"
       },
       "manual_control_end": {
         "name": "Ende der manuellen Steuerung"

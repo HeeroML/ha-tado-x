@@ -1498,7 +1498,7 @@
     'state': 'ok',
   })
 # ---
-# name: test_sensors[sensor.haus_b_data_updated-entry]
+# name: test_sensors[sensor.haus_b_devices_updated-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
       None,
@@ -1512,7 +1512,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.haus_b_data_updated',
+    'entity_id': 'sensor.haus_b_devices_updated',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1520,33 +1520,185 @@
     'labels': set({
     }),
     'name': None,
-    'object_id_base': 'Data updated',
+    'object_id_base': 'Devices updated',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
     'original_icon': None,
-    'original_name': 'Data updated',
+    'original_name': 'Devices updated',
     'platform': 'tado_x',
     'previous_unique_id': None,
     'suggested_object_id': None,
     'supported_features': 0,
-    'translation_key': 'data_updated',
-    'unique_id': '1000002_data_updated',
+    'translation_key': 'devices_data_updated',
+    'unique_id': '1000002_devices_data_updated',
     'unit_of_measurement': None,
   })
 # ---
-# name: test_sensors[sensor.haus_b_data_updated-state]
+# name: test_sensors[sensor.haus_b_devices_updated-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Haus B Data updated',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Haus B Devices updated',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.haus_b_data_updated',
+    'entity_id': 'sensor.haus_b_devices_updated',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': '2026-10-30T10:00:00+00:00',
+  })
+# ---
+# name: test_sensors[sensor.haus_b_home_updated-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.haus_b_home_updated',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Home updated',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Home updated',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'home_data_updated',
+    'unique_id': '1000002_home_data_updated',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_sensors[sensor.haus_b_home_updated-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Haus B Home updated',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.haus_b_home_updated',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-10-30T10:00:00+00:00',
+  })
+# ---
+# name: test_sensors[sensor.haus_b_last_api_error-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.haus_b_last_api_error',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last API error',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Last API error',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'last_api_error',
+    'unique_id': '1000002_last_api_error',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_sensors[sensor.haus_b_last_api_error-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Haus B Last API error',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.haus_b_last_api_error',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_sensors[sensor.haus_b_last_api_error_time-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.haus_b_last_api_error_time',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last API error time',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Last API error time',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'last_api_error_time',
+    'unique_id': '1000002_last_api_error_time',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_sensors[sensor.haus_b_last_api_error_time-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Haus B Last API error time',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.haus_b_last_api_error_time',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
   })
 # ---
 # name: test_sensors[sensor.haus_b_outdoor_temperature-entry]
@@ -1725,6 +1877,57 @@
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'auto',
+  })
+# ---
+# name: test_sensors[sensor.haus_b_rooms_updated-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.haus_b_rooms_updated',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Rooms updated',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Rooms updated',
+    'platform': 'tado_x',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'data_updated',
+    'unique_id': '1000002_data_updated',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_sensors[sensor.haus_b_rooms_updated-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Haus B Rooms updated',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.haus_b_rooms_updated',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-10-30T10:00:00+00:00',
   })
 # ---
 # name: test_sensors[sensor.haus_b_solar_intensity-entry]

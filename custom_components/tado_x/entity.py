@@ -78,7 +78,8 @@ class TadoXStatusEntity(Entity):
     """API and status entity driven by the quota monitor, not by a coordinator.
 
     It stays available whenever the entry is loaded, and writes its state
-    whenever the monitor of its config entry reports a change.
+    whenever the monitor of its config entry reports a change or an error is
+    recorded in its telemetry.
     """
 
     _attr_has_entity_name = True
@@ -86,13 +87,15 @@ class TadoXStatusEntity(Entity):
 
     @override
     async def async_added_to_hass(self) -> None:
-        """Listen to the quota monitor of the entry."""
+        """Listen to the quota monitor and the telemetry of the entry."""
         await super().async_added_to_hass()
         entry: TadoXConfigEntry | None = self.platform.config_entry
         if entry is not None:
+            data = entry.runtime_data
             self.async_on_remove(
-                entry.runtime_data.monitor.async_add_listener(self.async_write_ha_state)
+                data.monitor.async_add_listener(self.async_write_ha_state)
             )
+            self.async_on_remove(data.telemetry.add_listener(self.async_write_ha_state))
 
 
 def raise_for_tado_error(

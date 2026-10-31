@@ -209,7 +209,7 @@ async def test_restart_during_quota_hold_creates_every_entity(
     await _start(hass, freezer, entry)
 
     entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
-    assert len(entities) == 216
+    assert len(entities) == 221
     assert [
         entity.unique_id
         for entity in entities
