@@ -48,6 +48,7 @@ from .runtime import (
     DevicesSnapshot,
     FeatureStatus,
     HomeSnapshot,
+    ReauthNotice,
     RoomsSnapshot,
     TadoXConfigEntry,
 )
@@ -234,6 +235,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         seed: CacheSeed | None,
         *,
         telemetry: Telemetry,
+        reauth: ReauthNotice,
     ) -> None:
         """Initialize with always_update=False and a 5 s refresh debouncer.
 
@@ -256,6 +258,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         self._label = label
         self._monitor = monitor
         self._telemetry = telemetry
+        self._reauth = reauth
         self._context = f"poll {self.KIND}"
         self.last_fetched = {}
         self.last_live_update = None
@@ -322,6 +325,8 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
                 translation_placeholders={"home": self.config_entry.title},
             )
         if isinstance(err, TadoXAuthError):
+            # Home Assistant starts the reauth flow for this error.
+            self._reauth.note(err)
             return ConfigEntryAuthFailed(
                 translation_domain=DOMAIN, translation_key="auth_failed"
             )
@@ -623,6 +628,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         seed: CacheSeed | None,
         *,
         telemetry: Telemetry,
+        reauth: ReauthNotice,
         client: TadoXClient,
     ) -> None:
         """Initialize, and tell the monitor what the cached home details say.
@@ -632,7 +638,9 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         """
         self._client = client
         self._generation_warned = False
-        super().__init__(hass, entry, api, monitor, seed, telemetry=telemetry)
+        super().__init__(
+            hass, entry, api, monitor, seed, telemetry=telemetry, reauth=reauth
+        )
         if self._seed_data is not None:
             monitor.async_note_devices(self._seed_data)
 

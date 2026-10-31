@@ -286,12 +286,83 @@ async def test_rejected_refresh_logs_no_login_body(
         body={"error": "invalid_grant", "error_description": LOGIN_SECRET},
     )
 
+    start = len(caplog.records)
     await entry.runtime_data.rooms.async_refresh()
+    await hass.async_block_till_done()
+    for coordinator in (entry.runtime_data.home, entry.runtime_data.devices):
+        await coordinator.async_refresh()
+
+    assert list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
+    assert _messages(caplog.records[start:], logging.INFO) == [
+        "tado rejected the login (invalid_grant); a new login is needed"
+    ]
+    assert LOGIN_SECRET not in caplog.text
+
+
+async def test_401_after_a_refresh_logs_the_reauth_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 401 that a fresh token gets too starts a reauth, logged once with its reason.
+
+    Every coordinator fails the same way; the line is not repeated.
+    """
+    entry = await _setup(hass)
+    data: TadoXRuntimeData = entry.runtime_data
+    mock_tado.fail("GET", re.compile(r"/homes/1000002/"), status=401)
+    start = len(caplog.records)
+
+    freezer.tick(timedelta(minutes=1))
+    for coordinator in (data.rooms, data.home, data.devices, data.rooms):
+        await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     assert list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
-    assert "tado rejected the login (invalid_grant)" in caplog.text
-    assert LOGIN_SECRET not in caplog.text
+    assert _messages(caplog.records[start:], logging.INFO) == [
+        f"tado no longer accepts the login of {LABEL} "
+        "(unauthorized_after_refresh); a new login is needed"
+    ]
+
+
+async def test_401_of_a_write_logs_the_reauth_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A write that gets 401 after a refresh starts a reauth and logs it.
+
+    The polls that fail the same way afterwards log nothing more.
+    """
+    entry = await _setup(hass)
+    data: TadoXRuntimeData = entry.runtime_data
+    mock_tado.fail("DELETE", MANUAL_1, status=401)
+    mock_tado.fail("GET", ROOMS, status=401)
+    start = len(caplog.records)
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_HVAC_MODE,
+            {
+                ATTR_ENTITY_ID: _entity(hass, CLIMATE_DOMAIN, f"{HOME_B}_1_climate"),
+                "hvac_mode": HVACMode.AUTO,
+            },
+            blocking=True,
+        )
+    await hass.async_block_till_done()
+    await _poll(freezer, data.rooms)
+
+    assert list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
+    assert not data.rooms.last_update_success
+    assert _messages(caplog.records[start:], logging.INFO) == [
+        "Write failed: resume schedule room 1 -> TadoXAuthError: "
+        "unauthorized_after_refresh",
+        f"tado no longer accepts the login of {LABEL} "
+        "(unauthorized_after_refresh); a new login is needed",
+    ]
 
 
 async def test_nothing_private_reaches_the_log(

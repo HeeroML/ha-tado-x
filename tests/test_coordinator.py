@@ -717,7 +717,13 @@ async def test_optimistic_patch_needs_data(
     data = await _setup(hass, freezer)
     entry = data.rooms.config_entry
     rooms = RoomsCoordinator(
-        hass, entry, data.api, data.monitor, None, telemetry=data.telemetry
+        hass,
+        entry,
+        data.api,
+        data.monitor,
+        None,
+        telemetry=data.telemetry,
+        reauth=data.reauth,
     )
 
     rooms.async_apply_optimistic({1: lambda snapshot: snapshot})

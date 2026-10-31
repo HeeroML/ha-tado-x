@@ -112,6 +112,7 @@ def raise_for_tado_error(
     """
     entry.runtime_data.telemetry.record_tado_error(err, context=context)
     if isinstance(err, TadoXAuthError):
+        entry.runtime_data.reauth.note(err)
         entry.async_start_reauth(entry.runtime_data.rooms.hass)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="auth_failed"

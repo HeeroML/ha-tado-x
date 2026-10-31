@@ -23,15 +23,17 @@ from .client import (
     PresenceSetting,
     RoomState,
     RunningTimes,
+    TadoXAuthError,
     TadoXClient,
     TadoXHome,
     Telemetry,
     Termination,
+    TokenManager,
     Topology,
     Weather,
 )
-from .client.redact import home_label
-from .const import CONF_HOME_ID
+from .client.redact import home_label, safe_code
+from .const import CONF_HOME_ID, LOGGER
 
 if TYPE_CHECKING:
     from .cache import SnapshotCache
@@ -142,16 +144,46 @@ class DevicesSnapshot:
         return replace(self, flow_temperature=replace(self.flow_temperature, **changes))
 
 
+class ReauthNotice:
+    """Log the start of a reauth once per entry, with its reason code only.
+
+    The token manager logs a refresh that tado rejects. A 401 that a freshly
+    refreshed token gets as well reaches only the coordinators and the
+    entity actions, which report it here.
+    """
+
+    def __init__(self, tokens: TokenManager, label: str) -> None:
+        """Initialize for the token manager and the home label of one entry."""
+        self._tokens = tokens
+        self._label = label
+        self._logged = False
+
+    def note(self, err: TadoXAuthError) -> None:
+        """Log the reauth an auth error starts, unless it is logged already."""
+        if self._logged:
+            return
+        self._logged = True
+        if self._tokens.auth_failed:
+            return
+        LOGGER.info(
+            "tado no longer accepts the login of %s (%s); a new login is needed",
+            self._label,
+            safe_code(err.reason),
+        )
+
+
 @dataclass(slots=True, kw_only=True)
 class TadoXRuntimeData:
     """Everything a loaded config entry owns.
 
     telemetry is the one Telemetry of the entry, shared by the client, its
-    token manager and its quota tracker.
+    token manager and its quota tracker; reauth is the one ReauthNotice,
+    shared by the coordinators and the entity actions.
     """
 
     client: TadoXClient
     telemetry: Telemetry
+    reauth: ReauthNotice
     api: TadoXHome
     rooms: RoomsCoordinator
     home: HomeCoordinator
