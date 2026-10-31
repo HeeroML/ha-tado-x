@@ -52,8 +52,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from tests.tado_mock import HOME_B, HOME_NAMES, TadoCloudMock, load_fixture
 from tests.test_init import make_entry, setup_entry
 
@@ -484,6 +484,47 @@ async def test_the_home_name_stays_out_of_logs_and_diagnostics(
         f"Writing the rotated tado tokens of {LABEL}",
     ):
         assert line in text
+
+
+@pytest.mark.parametrize(
+    "cause",
+    ["timezone_not_found", "previous_generation"],
+    ids=["hops_404", "home_info"],
+)
+async def test_a_home_that_is_no_tado_x_home_is_logged_by_its_label(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+    issue_registry: ir.IssueRegistry,
+    cause: str,
+) -> None:
+    """The error that Home Assistant logs, with its traceback, names the label.
+
+    A hops 404 "Timezone of home … not found" and home details of the
+    previous generation both end the polling with a ConfigEntryError. Only
+    the repair issue, which the log never shows, keeps the entry title.
+    """
+    entry = await _setup(hass)
+    data: TadoXRuntimeData = entry.runtime_data
+    if cause == "timezone_not_found":
+        title = f"Timezone of home {HOME_B} not found"
+        body = {"errors": [{"code": "not.found", "title": title}]}
+        mock_tado.fail("GET", ROOMS, status=404, body=body)
+        coordinator: Any = data.rooms
+    else:
+        mock_tado.home(HOME_B).info["generation"] = "PRE_LINE_X"
+        coordinator = data.devices
+    freezer.tick(timedelta(days=1))
+    await coordinator.async_refresh()
+
+    assert isinstance(coordinator.last_exception, ConfigEntryError)
+    text = _tado_log_text(caplog)
+    assert f"{LABEL} is not a tado X home" in text
+    assert entry.title not in text
+    issue = issue_registry.async_get_issue(DOMAIN, f"not_tado_x_home_{entry.entry_id}")
+    assert issue is not None
+    assert issue.translation_placeholders == {"home": entry.title}
 
 
 async def test_steady_state_logs_nothing_at_info(

@@ -326,13 +326,18 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         return self._pending.apply(data, now)
 
     def _translate(self, err: TadoXError) -> Exception:
-        """Return the coordinator error for a client error other than a quota hold."""
+        """Return the coordinator error for a client error other than a quota hold.
+
+        Home Assistant logs a ConfigEntryError with its message and traceback
+        under the integration's logger, so it names the home by its label;
+        the repair issue names it by the entry title.
+        """
         if isinstance(err, TadoXHomeNotXError):
             async_create_not_tado_x_issue(self.hass, self.config_entry)
             return ConfigEntryError(
                 translation_domain=DOMAIN,
                 translation_key="not_tado_x_home",
-                translation_placeholders={"home": self.config_entry.title},
+                translation_placeholders={"home": self._label},
             )
         if isinstance(err, TadoXAuthError):
             # Home Assistant starts the reauth flow for this error.
