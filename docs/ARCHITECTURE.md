@@ -1,6 +1,6 @@
 # Architecture of tado_x 1.9
 
-This is a condensed version of the v1.9.0 design. It describes how the integration is built and why. The API facts it relies on are in [API.md](API.md).
+This is a condensed version of the v1.9.0 design, with the observability of 1.9.1 (see [Observability](#observability)). It describes how the integration is built and why. The API facts it relies on are in [API.md](API.md).
 
 ## Goals
 
@@ -17,6 +17,8 @@ custom_components/tado_x/
 ├── client/            pure tado client: stdlib + aiohttp + yarl, no Home Assistant imports
 │   ├── const.py       hosts, public client id, timeouts
 │   ├── errors.py      error taxonomy
+│   ├── redact.py      log-safe text: redact_text, describe_value, mask_serial
+│   ├── telemetry.py   Telemetry, Exchange, ErrorRecord, endpoint templates, WARN_ONCE
 │   ├── enums.py       open StrEnums; unknown values parse to None with one warning
 │   ├── models.py      frozen dataclasses with from_api() parsers and to_api() writers
 │   ├── ratelimit.py   ratelimit header parser, Priority, QuotaTracker, CallCounter
@@ -65,7 +67,7 @@ TadoXError
 
 1. The quota gate decides first. While it is closed, the request fails locally and no HTTP is sent.
 2. Get an access token (see below).
-3. Send with a timeout. Every attempt counts toward the entry's own 24 h call counter.
+3. Send with a timeout. Every attempt counts toward the entry's own 24 h call counter and is recorded in the telemetry as an `Exchange`.
 4. Read the `ratelimit` headers **before** the status, so a 429 still updates the quota state.
 5. On a 401, refresh once under the token lock and retry once. A second 401 is an authentication error.
 6. Any 2xx is success, except an Energy IQ answer that carries only a `message`, which is a refusal (`TadoXRequestError`). The body is parsed only when it is not empty. A cacheable read reaches the payload observer (the cache) only after its endpoint parser accepted it, so a malformed answer never replaces the last good payload; home details are cached without contact details, address and location.
@@ -98,7 +100,7 @@ TadoXError
 
 `async_setup_entry` loads the cache, restores the quota state, builds one client per entry over HA's shared session, and runs the first refresh of the devices, rooms and home coordinators **one after another**, so a 429 in the first one closes the gate before the others send anything. It then starts the quota monitor, registers all devices, and forwards the platforms. No update listener exists; options use `OptionsFlowWithReload`, so writing a rotated token to `entry.data` never reloads the entry.
 
-Each entry owns its client, token manager, quota tracker, coordinators and cache. The only module-level state is the enum warn-once set. Actions are registered once in `async_setup` and look up the target entry on each call, so they always reach the current client after a reload and the right home with several homes.
+Each entry owns its client, token manager, quota tracker, telemetry, coordinators and cache. The only module-level state is `WARN_ONCE`, the bounded warn-once set of the client. Actions are registered once in `async_setup` and look up the target entry on each call, so they always reach the current client after a reload and the right home with several homes.
 
 ### Coordinators
 
@@ -176,7 +178,7 @@ A pending patch is re-applied to later reads until the server agrees or 60 s pas
 
 ### Termination (#94)
 
-`resolve_termination(policy, timer, room_default, override)`:
+`resolve_termination(room_id=, policy=, timer=, room_default=, override=)` (keyword-only; the room id names the room in its debug line):
 
 1. an explicit termination from `set_climate_timer` wins;
 2. policy `manual`, `next_time_block` or `timer` gives that termination;
@@ -209,20 +211,67 @@ Home Assistant migrates an entry only once, so setup redoes two parts: it derive
 
 The user step starts the device-code flow and shows a progress step with the link and the code while a background task waits for the token; no request blocks the flow. After the sign-in it reads `/me` and each home, keeps `LINE_X` homes and names the others. Every error at this boundary becomes an abort reason. Reauth requires the same tado account; reconfigure switches the account and requires that it has the home. The options flow has three sections (polling, features, control) and shows the plan for the current settings.
 
-## Logging and privacy
+## Observability
 
-- Never logged: tokens, device and user codes, the verification link, the `Authorization` header, login response bodies, e-mail, raw `/me`.
-- DEBUG: method, host, path, status, remaining calls, duration; for non-auth errors the first 300 characters of the body.
-- WARNING once per episode: quota hold, conserving mode, the first transient refresh failure, an auth failure (error code only), an optional endpoint failing, an unknown enum value, a home whose generation tado does not report, and a list item that fails to parse (once per endpoint and path).
-- Diagnostics redact tokens, user id, e-mail, address, coordinates, contact details and device metadata, and shorten serial numbers.
+The goal: a problem in a live home is visible quickly and can be pinned to a request, without log floods and without personal data.
 
-`tests/test_logging.py` runs the sign-in, setup, rotation, a 401 cycle and a rejected refresh at DEBUG and fails if any fake secret appears in the log.
+### Telemetry
+
+`client/telemetry.py` is pure (no Home Assistant import). Setup creates one `Telemetry` per entry and hands the same instance to the quota tracker, the token manager and the client; the runtime data carries it. It lives in memory only and is empty after a start or reload.
+
+- `Exchange`: one HTTP attempt, recorded by the transport: time, method, endpoint template, status, duration, attempt (2 for the retry after a 401), quota numbers, outcome (`ok`, `retried` or the error class), the `shape()` of a 2xx body (keys and value types, never values) and a short safe error text. The last 50 are kept.
+- `ErrorRecord`: one error with its kind (error class or `quota_gate`), its context, the endpoint template, the status and a redacted message. The last 20 are kept; `last_error` feeds the "Last API error" sensors.
+- Requests per endpoint template and errors per kind are counted over a rolling 24 hours in minute buckets, like `CallCounter`, so memory stays bounded.
+- `endpoint_template()` turns a URL into `GET hops:/homes/{home}/rooms/{room}/schedule`: short host names, ids and serials as placeholders, query keys without values. Templates are the only form in which requests appear in logs, telemetry and entity states.
+
+**Error recording rule.** An error is recorded once, by the innermost layer that knows why the request was made:
+
+| Layer | Context |
+|---|---|
+| client, token refresh | `token refresh` |
+| client, write | `command <endpoint>`, as in `command manualControl` |
+| quota tracker, gate closing | `quota` (kind `quota_gate`), once per closing |
+| coordinator, failed poll | `poll rooms`, `poll home`, `poll devices` |
+| setup | `setup` |
+| entity action | `command <entity description key>` |
+| action (service) | `service <name>` |
+
+`Telemetry` ignores an error object it already holds, so an outer layer that records an error the client recorded (a failed refresh that also fails a poll, a failed write that an entity action re-raises) adds nothing. Local refusals and 429 answers during a quota hold are not poll errors; the closing of the gate is the one record. A new layer that catches `TadoXError` records it with its own context through `raise_for_tado_error()` or `record_tado_error()`, never by formatting the exception itself.
+
+Status entities listen to the telemetry, so the error sensors update when an error is recorded, not only on the next poll.
+
+### Log levels
+
+Loggers are `custom_components.tado_x` (Home Assistant layer) and `custom_components.tado_x.client`; setting the first covers both.
+
+| Level | Rule | Examples |
+|---|---|---|
+| DEBUG | every exchange and every decision | `GET hops:/homes/{home}/rooms -> 200 in 182 ms, quota 18342/20000 left, reset in 7082 s`; 401 retry; refresh backoff; 429 backoff step; local gate refusal; endpoints due per tick; optimistic patch applied or dropped; `Termination of room 3: follow_app -> TIMER 3600 s`; token stored (expiry only); cache load and write (slices and age) |
+| INFO | changes of state, once each, and writes | setup summary; first failed token refresh and the recovery; rejected sign-in (OAuth code only); quota hold below the poll floor starts and ends; conserving mode on and off; cached data served and stopped, per coordinator; device or room added after setup or removed; `Write: manualControl room 3: ON 21.0 °C until TIMER 3600 s -> ok (HTTP 204, 312 ms)` and `Write failed: … -> HTTP 422 code=… title=…` |
+| WARNING | needs attention, rate-limited | quota used up (stops polling); an optional endpoint failing, once per episode; an unknown enum value or an unreadable list item, once per field and path through `WARN_ONCE`; a home whose generation tado does not report; a failed sign-in in the config flow |
+| ERROR | unexpected | unexpected exceptions at the config flow boundary; storing rotated tokens failed |
+
+Budget: a steady home logs nothing at INFO. Routine token refreshes (about every 10 minutes) and polls stay at DEBUG. `test_steady_state_logs_nothing_at_info` runs six hours of polling with refreshes and fails on any INFO line. A new INFO line must describe a transition and must be logged once per transition.
+
+`WARN_ONCE` is a bounded set (512 keys, oldest evicted). A field warning names the path and a `describe_value()` of what was there, never the raw value. Unknown extra keys are not warned about; tado sends many fields the integration ignores.
+
+### Privacy rules
+
+These apply to every log line, diagnostics field, entity state and exception message.
+
+- Never: access or refresh tokens, the `Authorization` header, device code, user code, verification link, login.tado.com bodies, e-mail, user name, address, coordinates, contact details, phone names and metadata, room names, home names from the API, full serial numbers, raw response bodies.
+- Allowed: HTTP method, endpoint template, status, durations, rate-limit numbers, tado's error `code`, tado's error `title` after `redact_text()` (every run of four or more digits becomes `#`, truncated), error class names, enum-like constants (`^[A-Z][A-Z0-9_]{0,39}$`), room ids as the room pseudonym (`room 3`), masked serials (`VA…0101`) and the config entry title, which Home Assistant logs anyway.
+- Any other string from the API is described as `<str len=N>` by `describe_value()`.
+- Writes are logged by `describe_command()` from an allow-list of fields; meter readings and tariffs say `(value hidden)`.
+- Diagnostics add the telemetry (`exchanges`, `errors`, `requests_by_endpoint_24h`, `errors_by_kind_24h`, `last_error`) and pass everything through `async_redact_data()`, which also removes room and home names, and through the serial masking.
+
+`tests/test_logging.py` runs the sign-in, setup, polls, writes, rotation, a 401 cycle, a rejected refresh, 4xx and 5xx bodies laced with token-like strings, an e-mail, an address and a home id, and diagnostics, and fails if any of it reaches the log. It also checks the INFO budget and that each warning is logged once.
 
 ## Tests
 
 - `tests/tado_mock.py` provides `TadoCloudMock`, a stateful fake of the tado hosts on top of `aioclient_mock`. It rotates tokens (reusing a rotated refresh token gives `invalid_grant`), emits `ratelimit` headers from a counter, injects failures and holds responses for concurrency tests.
 - No integration code is patched. Time moves with `freezer`; the device flow gets an injected sleep.
-- Coverage gates: 95 % line and branch overall; 100 % line for `client/auth.py`, `client/ratelimit.py`, `client/http.py`, `budget.py`, `termination.py`, `migration.py` and `config_flow.py`.
+- Coverage gates: 95 % line and branch overall; 100 % line for `client/auth.py`, `client/ratelimit.py`, `client/http.py`, `budget.py`, `termination.py`, `migration.py` and `config_flow.py`; 100 % line and branch for `client/telemetry.py`.
 - `tests/test_translations.py` checks that `en.json` equals `strings.json`, that German is complete, that every key used in code exists, and that placeholders match.
 
 ## Decisions worth knowing
@@ -238,3 +287,6 @@ The user step starts the device-code flow and shows a progress step with the lin
 | `off` stays manual by default | an "off" that reverts on its own surprises people |
 | No learned reset time | sources disagree on when tado resets; only `t=` is trusted |
 | HTTP as the only test seam | parsing, tokens, headers and errors run in every test |
+| Telemetry in memory only | it explains the recent past; persisting it would put request history on disk for no gain |
+| INFO only for changes of state and writes | users can leave INFO on; a steady home logs nothing |
+| Endpoint templates instead of URLs | ids stay out of logs, and the counters stay low-cardinality |
