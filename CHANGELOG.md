@@ -2,6 +2,28 @@
 
 All notable changes of the HeeroML fork of [exabird/ha-tado-x](https://github.com/exabird/ha-tado-x). Issue and pull request numbers refer to the upstream repository. Versions up to 1.8.11 are upstream releases; see the upstream [releases](https://github.com/exabird/ha-tado-x/releases) for them.
 
+## 1.9.1
+
+Observability: a problem in a live home now shows up in entities, diagnostics and the log, and can be traced to the request that failed, without filling the log and without personal data. There are no breaking changes. Entity ids and unique ids stay as they are; the renamed "Data updated" sensor keeps its entity id in existing installations.
+
+### Added
+
+- Diagnostic entities on the home device, enabled by default: "Last API error" (for example `HTTP 503 GET hops:/homes/{home}/rooms`) and "Last API error time"; "Home updated" and "Devices updated" next to "Rooms updated"; a "Cached data" binary sensor that is on while cached data is shown during a quota hold. A 6-room home now has 221 entities, 170 of them enabled.
+- Telemetry per entry, in memory only: the last 50 HTTP requests (method, path template, status, duration, quota numbers, the structure of the answer without values), the last 20 errors with what the integration was doing, and requests per endpoint and errors per kind over 24 hours. Diagnostics include it under `telemetry`.
+- One INFO line per command, with its result: `Write: manualControl room 3: ON 21.0 °C until TIMER 3600 s -> ok (HTTP 204, 312 ms)`, or `Write failed: … -> HTTP 422 code=… title=…`.
+- One INFO line per change of state: setup, the first failed token refresh and the recovery, a quota hold below the poll floor starting and ending, conserving mode on and off, cached data served and stopped, devices and rooms added after setup or removed. Normal polling and routine token refreshes log nothing at INFO.
+- One DEBUG line per HTTP request, such as `GET hops:/homes/{home}/rooms -> 200 in 182 ms, quota 18342/20000 left, reset in 7082 s`, and DEBUG lines for the decisions behind requests: retries after a 401, backoff steps, local refusals during a quota hold, the endpoints due per poll, optimistic updates, the termination chosen for a manual change, token and cache writes (never their values).
+- README: the Troubleshooting section explains the log levels, how to turn on debug logging from the UI, with `logger.set_level` or in `configuration.yaml`, and what to send with a bug report.
+
+### Changed
+
+- Log levels of the quota and the sign-in: conserving mode, the first failed token refresh and a rejected sign-in are logged at INFO instead of WARNING. Only "quota used up" stays a WARNING, because it stops polling. Repair issues and the reauthentication prompt are unchanged. To keep seeing these lines, set `custom_components.tado_x` to `info` (see "Debug logging" in the README).
+- The "Data updated" sensor is named "Rooms updated". Only new installations get an entity id from the new name.
+- Diagnostics also redact the names of the home and its rooms, in the entry data, the payloads and the device entry.
+- Logs contain no response bodies any more; the debug line with up to 300 characters of a failed body is gone. A tado error is shown by its code and its title, with every run of four or more digits replaced by `#`. That applies to the "tado rejected the request" error of an action too.
+- A field or value tado sends that the integration cannot read is warned about once per field and path, with a description such as `<str len=19>` instead of the value.
+- For developers: `resolve_termination()` takes a keyword-only `room_id`; client errors carry `request`, the endpoint template of the failed request, and `TadoXParseError` carries `found`; `Transport`, `TokenManager` and `QuotaTracker` take an optional `telemetry`; `mask_serial()` moved from `diagnostics.py` to the client.
+
 ## 1.9.0
 
 A rewrite of v1.8.11. The domain stays `tado_x`, every entity unique id of 1.8.11 is kept, and an existing installation upgrades in place without a new sign-in. Home Assistant 2026.10.0 or newer is required.
