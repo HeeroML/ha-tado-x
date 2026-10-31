@@ -36,8 +36,9 @@ _MASKED_SERIAL: Final = re.compile(r"[A-Z]{2}…[A-Za-z0-9]{4}")
 _PAYLOAD_TEXT: Final = (_TIMESTAMP, _CLOCK, _NUMBER_TEXT, _MASKED_SERIAL)
 _LONG_RUN: Final = re.compile(r"[A-Za-z0-9_+/=.-]{20,}")
 _RUN_PARTS: Final = re.compile(r"[/.]")
-_IDENTIFIER: Final = re.compile(r"[a-z]+(?:[A-Z][a-z]+|_[a-z]+)*")
+_IDENTIFIER: Final = re.compile(r"[a-z]{1,16}(?:[A-Z][a-z]{1,15}|_[a-z]{1,16})+")
 _WORD_LIMIT: Final = 32
+_INPUT_LIMIT: Final = 2000
 _REDACTED: Final = "<redacted>"
 
 SAFE_TITLES: Final = frozenset({"Timezone of home # not found"})
@@ -62,9 +63,11 @@ def _secret_run(match: re.Match[str]) -> str:
     """Blank a long run that looks like a token or a UUID, not like a word.
 
     A run with a digit or a dash is a secret. So is a run with a part of 32
-    or more characters between "/" and "." that is no camelCase or
-    snake_case name, such as a token of letters only; paths and JSON paths
-    of long key names stay.
+    or more characters between "/" and "." unless that part is a camelCase
+    or snake_case name of short words, such as "supportsFlowTemperature";
+    a long part of letters without humps or underscores, or with a word of
+    17 or more letters, is a token. Paths and JSON paths of long key names
+    stay.
     """
     run = match.group()
     if "-" in run or any(char.isdigit() for char in run):
@@ -85,12 +88,17 @@ def redact_text(text: str | None, limit: int = 120) -> str | None:
     "refresh_token=…", device-login user codes such as "WDJB-MJHT" and long
     token-like runs are blanked as well, whitespace and control characters
     collapse to single spaces so the text cannot fake a log line, and the
-    result is cut to limit characters.
+    result is cut to limit characters. Only the first 2,000 characters are
+    read, up to the last whole word, and "…" stands for the rest.
     """
     if text is None:
         return None
     printable = "".join(char if char.isprintable() else " " for char in text)
     cleaned = " ".join(printable.split())
+    if len(cleaned) > _INPUT_LIMIT:
+        # Some patterns take quadratic time on a long run. The word the cut
+        # splits is dropped: its start may be too short to look like a token.
+        cleaned = f"{cleaned[:_INPUT_LIMIT].rpartition(' ')[0]}…"
     cleaned = _URL_TEXT.sub("<url>", cleaned)
     cleaned = _EMAIL.sub("<email>", cleaned)
     cleaned = _BEARER.sub(_REDACTED, cleaned)

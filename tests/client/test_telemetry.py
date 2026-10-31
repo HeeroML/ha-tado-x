@@ -71,6 +71,7 @@ from custom_components.tado_x.client.telemetry import safe_code
 from tests.tado_mock import HOME_B, TadoCloudMock, entry_tokens, load_fixture
 
 NOW = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
+LOWERCASE_TOKEN = "abcdefghijklmnopqrstuvwxyz" * 2
 HOPS_B = f"{HOPS_API_URL}/homes/{HOME_B}"
 MY_B = f"{MY_API_URL}/homes/{HOME_B}"
 CLIENT_LOGGER = "custom_components.tado_x.client"
@@ -214,6 +215,16 @@ def test_endpoint_template(method: str, url: str, expected: str) -> None:
         ("user code WDJB-MJHT entered", "user code <redacted> entered"),
         ("code 7LXZ-G2AB", "code <redacted>"),
         ("a real-time long-term view", "a real-time long-term view"),
+        (f"token {LOWERCASE_TOKEN}", "token <redacted>"),
+        (LOWERCASE_TOKEN[:32], "<redacted>"),
+        (LOWERCASE_TOKEN[:31], LOWERCASE_TOKEN[:31]),
+        (f"at /x/{LOWERCASE_TOKEN}", "at <redacted>"),
+        (f"{LOWERCASE_TOKEN[:32]}Xyz", "<redacted>"),
+        (f"{LOWERCASE_TOKEN[:20]}_{LOWERCASE_TOKEN[:20]}", "<redacted>"),
+        (
+            "reason a_very_long_snake_case_identifier_name",
+            "reason a_very_long_snake_case_identifier_name",
+        ),
     ],
 )
 def test_redact_text(text: str | None, expected: str | None) -> None:
@@ -270,6 +281,35 @@ def test_redact_text_is_cut_to_the_limit() -> None:
     assert redact_text("word " * 50) == f"{'word ' * 23}word…"
     assert len(redact_text("x" * 50, limit=10) or "") == 10
     assert redact_text("short", limit=10) == "short"
+
+
+def test_redact_text_reads_the_first_2000_characters() -> None:
+    """A longer text is cut before the patterns run, after its last whole word.
+
+    A token that the cut would split is dropped, so no part of it that is
+    too short to look like a token remains.
+    """
+    assert redact_text("word " * 1000, limit=10_000) == f"{'word ' * 399}word…"
+    cut_token = "x " * 999 + "fake-access-token-9999 tail"
+    assert redact_text(cut_token, limit=10_000) == f"{'x ' * 998}x…"
+    assert redact_text("x" * 2001, limit=10_000) == "…"
+
+
+@pytest.mark.timeout(2)
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a" * 100_000,
+        "a" * 100_000 + ":",
+        "a." * 50_000,
+        ("abcdefghijklmnopqrstuvwxyzabcdefgh" + "AAA") * 2_700,
+        "word " * 20_000,
+    ],
+    ids=["letters", "scheme", "dots", "identifier", "words"],
+)
+def test_redact_text_is_fast_on_long_input(text: str) -> None:
+    """Patterns that are quadratic in the length of a run see 2,000 characters."""
+    assert len(redact_text(text) or "") <= 120
 
 
 @pytest.mark.parametrize(
