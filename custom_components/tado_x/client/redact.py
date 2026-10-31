@@ -96,13 +96,13 @@ def redact_text(text: str | None, limit: int = 120) -> str | None:
     return cleaned
 
 
-def describe_value(value: object) -> str:
+def describe_value(value: object, *, constants: bool = True) -> str:
     """Describe a value from the API without revealing it.
 
     Numbers and booleans give their type, a container its kind and length,
     as in "list[3]", and a string its length, as in "<str len=7>". Only
-    enum-like constants such as "DEPLETED" are kept, and serial numbers are
-    masked to "VA…0101".
+    enum-like constants such as "DEPLETED" are kept, unless constants is
+    False, and serial numbers are masked to "VA…0101".
     """
     match value:
         case None:
@@ -115,7 +115,9 @@ def describe_value(value: object) -> str:
             return "float"
         case str() if SERIAL_NUMBER.fullmatch(value):
             return mask_serial(value)
-        case str() if _ENUM_LIKE.fullmatch(value) and not LONG_NUMBER.search(value):
+        case str() if (
+            constants and _ENUM_LIKE.fullmatch(value) and not LONG_NUMBER.search(value)
+        ):
             return value
         case str():
             return f"<str len={len(value)}>"

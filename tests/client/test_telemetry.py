@@ -375,6 +375,60 @@ def test_shape_of_the_topology_masks_serials() -> None:
     assert "Wohnzimmer" not in json.dumps(result)
 
 
+def test_shape_keeps_constants_of_known_enum_keys_only() -> None:
+    """An upper-case value is kept only under a key known to hold an enum."""
+    payload = {
+        "rooms": [
+            {
+                "id": 3,
+                "label": "KUECHE",
+                "nickname": "WOHNZIMMER",
+                "ssid": "HOME",
+                "title": "BAD",
+                "type": "HEATING",
+                "setting": {"power": "ON"},
+                "connection": {"state": "CONNECTED"},
+                "serialNo": "VA0000000101",
+            }
+        ],
+        "weatherState": {"value": "CLOUDY_PARTLY"},
+        "freshness": {"value": "FAIR"},
+        "owner": {"value": "HANS"},
+        "skills": ["AUTO_ASSIST"],
+        "tags": ["MUELLER"],
+        "callForHeat": {"dataIntervals": [{"value": "LOW"}]},
+    }
+
+    assert shape(payload) == {
+        "rooms": {
+            "list": 1,
+            "item": {
+                "id": "int",
+                "label": "<str len=6>",
+                "nickname": "<str len=10>",
+                "ssid": "<str len=4>",
+                "title": "<str len=3>",
+                "type": "HEATING",
+                "setting": "dict[1]",
+                "connection": "dict[1]",
+                "serialNo": "VA…0101",
+            },
+        },
+        "weatherState": {"value": "CLOUDY_PARTLY"},
+        "freshness": {"value": "FAIR"},
+        "owner": {"value": "<str len=4>"},
+        "skills": {"list": 1, "item": "AUTO_ASSIST"},
+        "tags": {"list": 1, "item": "<str len=7>"},
+        "callForHeat": {"dataIntervals": {"list": 1, "item": "dict[1]"}},
+    }
+    deeper = shape(payload, depth=4)
+    assert isinstance(deeper, dict)
+    assert deeper["rooms"]["item"]["setting"] == {"power": "ON"}
+    assert deeper["rooms"]["item"]["connection"] == {"state": "CONNECTED"}
+    assert deeper["callForHeat"]["dataIntervals"]["item"] == {"value": "LOW"}
+    assert shape("HOME") == "<str len=4>"
+
+
 def test_shape_limits() -> None:
     """Containers below the depth are only described; keys are made safe."""
     nested = {"a": {"b": {"c": {"d": 1}}}, "list": [[1, 2]]}

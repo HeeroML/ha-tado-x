@@ -45,6 +45,7 @@ from .redact import (
 )
 
 __all__ = [
+    "ENUM_KEYS",
     "SAFE_TITLES",
     "SENSITIVE_KEYS",
     "WARN_ONCE",
@@ -117,6 +118,32 @@ SENSITIVE_KEYS: Final = frozenset(
 )
 """Keys whose values shape() never describes: tokens, codes and personal data."""
 
+ENUM_KEYS: Final = frozenset(
+    {
+        "batteryState",
+        "controlMode",
+        "dayType",
+        "generation",
+        "homePresence",
+        "humidityLevel",
+        "mountingState",
+        "percentageUnit",
+        "power",
+        "presence",
+        "skills",
+        "state",
+        "stripeType",
+        "temperatureLevel",
+        "temperatureUnit",
+        "type",
+        "zoneType",
+        "dataIntervals.value",
+        "freshness.value",
+        "weatherState.value",
+    }
+)
+"""Keys, as "key" or "parent.key", whose enum-like values shape() keeps."""
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -179,8 +206,19 @@ def shape(payload: object, *, depth: int = 3, max_keys: int = 25) -> object:
     A dict keeps its keys and shapes their values; the value of a key in
     SENSITIVE_KEYS becomes "<redacted>", and keys beyond max_keys are
     counted under "…". A list becomes {"list": length, "item": shape of the
-    first item}. Scalars become describe_value(). Below depth a container is
+    first item}. Scalars become describe_value(), which keeps enum-like
+    constants only under the keys in ENUM_KEYS. Below depth a container is
     only described, as in "dict[4]".
+    """
+    return _shape(payload, ("", ""), depth, max_keys)
+
+
+def _shape(
+    payload: object, where: tuple[str, str], depth: int, max_keys: int
+) -> object:
+    """Shape a payload found at where, its parent key and its own key.
+
+    The items of a list are found where the list is.
     """
     if isinstance(payload, Mapping):
         if depth <= 0:
@@ -193,7 +231,7 @@ def shape(payload: object, *, depth: int = 3, max_keys: int = 25) -> object:
             result[_shape_key(key)] = (
                 _REDACTED
                 if key in SENSITIVE_KEYS
-                else shape(value, depth=depth - 1, max_keys=max_keys)
+                else _shape(value, (where[1], str(key)), depth - 1, max_keys)
             )
         return result
     if isinstance(payload, list | tuple):
@@ -203,9 +241,12 @@ def shape(payload: object, *, depth: int = 3, max_keys: int = 25) -> object:
             return {"list": 0}
         return {
             "list": len(payload),
-            "item": shape(payload[0], depth=depth - 1, max_keys=max_keys),
+            "item": _shape(payload[0], where, depth - 1, max_keys),
         }
-    return describe_value(payload)
+    parent, key = where
+    return describe_value(
+        payload, constants=key in ENUM_KEYS or f"{parent}.{key}" in ENUM_KEYS
+    )
 
 
 def _get(data: object, *keys: str) -> object:
