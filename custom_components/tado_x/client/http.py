@@ -261,7 +261,7 @@ class Transport:
         """Return the parsed body of a 2xx answer; raise the error of any other."""
         status = answer.status
         if status == HTTPStatus.UNAUTHORIZED:
-            raise TadoXAuthError("unauthorized_after_refresh")
+            raise TadoXAuthError("unauthorized_after_refresh", status=status)
         if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
             raise self._error(method, url, status, answer.raw)
         data = _decode(answer.raw, endpoint)

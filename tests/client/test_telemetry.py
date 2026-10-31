@@ -785,6 +785,12 @@ async def test_failed_write_is_audited_and_recorded(
             "TadoXAuthError: invalid_grant",
         ),
         (
+            TadoXAuthError("unauthorized_after_refresh", status=401),
+            401,
+            "unauthorized_after_refresh",
+            "HTTP 401 unauthorized_after_refresh",
+        ),
+        (
             TadoXAuthError("Login of user@example.invalid failed"),
             None,
             "<str len=36>",

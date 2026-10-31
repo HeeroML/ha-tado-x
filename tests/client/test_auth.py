@@ -468,7 +468,7 @@ async def test_rejected_refresh_is_sticky(
     manager = TokenManager(session, MemoryTokenStore(_tokens(0)))
     with pytest.raises(TadoXAuthError) as err:
         await manager.async_get_access_token()
-    assert err.value.reason == reason
+    assert (err.value.reason, err.value.status) == (reason, status)
     assert manager.auth_failed
 
     mock_tado.clear_failures()
@@ -478,7 +478,7 @@ async def test_rejected_refresh_is_sticky(
     ):
         with pytest.raises(TadoXAuthError) as err:
             await call
-        assert err.value.reason == reason
+        assert (err.value.reason, err.value.status) == (reason, status)
     assert len(_refreshes(mock_tado)) == 1
 
 
@@ -936,7 +936,10 @@ async def test_rejected_login_logs_its_code_only(
         "invalid_grant",
     )
     assert telemetry.last_error is not None
-    assert telemetry.last_error.message == "invalid_grant"
+    assert (telemetry.last_error.status, telemetry.last_error.message) == (
+        400,
+        "invalid_grant",
+    )
     for secret in ("fake-refresh-token", "user@example", "revoked"):
         assert secret not in caplog.text
 

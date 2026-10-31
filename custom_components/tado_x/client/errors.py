@@ -31,12 +31,17 @@ class TadoXError(Exception):
 
 
 class TadoXAuthError(TadoXError):
-    """The credentials were rejected for good; a new login is required."""
+    """The credentials were rejected for good; a new login is required.
 
-    def __init__(self, reason: str) -> None:
+    status is the HTTP status of the answer that rejected them, None when
+    no request was made.
+    """
+
+    def __init__(self, reason: str, *, status: int | None = None) -> None:
         """Initialize with the OAuth error code or a short internal reason."""
         super().__init__(safe_code(reason))
         self.reason = reason
+        self.status = status
 
 
 class TadoXTransientError(TadoXError):

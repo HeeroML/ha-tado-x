@@ -358,7 +358,7 @@ def error_details(err: TadoXError) -> tuple[int | None, str | None]:
         case TadoXRateLimitError():
             return None if err.local else 429, str(err)
         case TadoXAuthError():
-            return None, safe_code(err.reason)
+            return err.status, safe_code(err.reason)
         case TadoXParseError() if err.found is not None:
             return None, redact_text(f"{err} ({err.found})")
         case TadoXConnectionError(cause=str() as cause):

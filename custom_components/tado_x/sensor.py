@@ -109,7 +109,7 @@ def error_text(record: ErrorRecord) -> str:
         detail = record.kind
         if record.status is not None:
             detail = f"{detail} HTTP {record.status}"
-        elif record.message:
+        if record.message:
             detail = f"{detail} {record.message}"
         text = f"{record.context}: {detail}"
     elif record.status is not None:

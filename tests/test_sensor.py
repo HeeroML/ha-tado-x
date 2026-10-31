@@ -663,6 +663,17 @@ ROOMS_GET = "GET hops:/homes/{home}/rooms"
             ),
             "token refresh: TadoXAuthError invalid_grant",
         ),
+        (
+            ErrorRecord(
+                at=AT,
+                kind="TadoXAuthError",
+                context="token refresh",
+                endpoint="POST login:/oauth2/token",
+                status=400,
+                message="invalid_grant",
+            ),
+            "token refresh: TadoXAuthError HTTP 400 invalid_grant",
+        ),
         (ErrorRecord(at=AT, kind="TadoXError", context="setup"), "setup: TadoXError"),
         (
             ErrorRecord(
@@ -691,7 +702,7 @@ ROOMS_GET = "GET hops:/homes/{home}/rooms"
             f"TadoXOtherError {ROOMS_GET}",
         ),
     ],
-    ids=["quota", "refresh", "bare", "parse", "local", "other"],
+    ids=["quota", "refresh", "rejected", "bare", "parse", "local", "other"],
 )
 def test_error_text(record: ErrorRecord, text: str) -> None:
     """Errors are named by status and endpoint, or by their context."""

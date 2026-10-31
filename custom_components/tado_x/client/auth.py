@@ -251,7 +251,7 @@ class TokenManager:
 
     def _raise_if_auth_failed(self) -> None:
         if (failure := self._auth_error) is not None:
-            err = TadoXAuthError(failure.reason)
+            err = TadoXAuthError(failure.reason, status=failure.status)
             err.request = failure.request
             raise err
 
@@ -380,7 +380,7 @@ class TokenManager:
             )
         error = _oauth_error(body)
         if error in _GRANT_REJECTED and not _is_transient(status):
-            raise TadoXAuthError(error)
+            raise TadoXAuthError(error, status=status)
         raise TadoXServerError(status)
 
     def _record(
@@ -503,4 +503,4 @@ class DeviceCodeFlow:
                 case "access_denied":
                     raise TadoXDeviceFlowError("denied")
                 case error:
-                    raise TadoXAuthError(error or f"http_{status}")
+                    raise TadoXAuthError(error or f"http_{status}", status=status)

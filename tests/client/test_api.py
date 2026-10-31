@@ -25,6 +25,7 @@ from custom_components.tado_x.client import (
     RateLimitInfo,
     ScheduleBlock,
     Setting,
+    TadoXAuthError,
     TadoXClient,
     TadoXConnectionError,
     TadoXHome,
@@ -833,6 +834,36 @@ async def test_free_text_title_never_shows(
     for word in ("Wohnzimmer", "Musterstrasse", "ABCD"):
         assert word not in caplog.text
         assert word not in json.dumps(client.telemetry.as_diagnostics())
+
+
+async def test_write_rejected_after_two_401s_names_the_status(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    home: TadoXHome,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A write that still gets 401 with a new token is audited with its status."""
+    mock_tado.fail("DELETE", f"{HOPS_B}/rooms/1/manualControl", status=401, times=2)
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(TadoXAuthError) as err:
+        await home.async_resume_schedule(1)
+
+    assert err.value.status == 401
+    assert _client_log(caplog, logging.INFO) == [
+        (
+            logging.INFO,
+            "Write failed: resume schedule room 1 -> "
+            "HTTP 401 unauthorized_after_refresh",
+        )
+    ]
+    record = client.telemetry.last_error
+    assert record is not None
+    assert (record.kind, record.status, record.message) == (
+        "TadoXAuthError",
+        401,
+        "unauthorized_after_refresh",
+    )
 
 
 async def test_write_refused_locally_is_audited(

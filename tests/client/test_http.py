@@ -165,7 +165,7 @@ async def test_second_401_is_an_auth_error(
     mock_tado.fail("GET", ROOMS_B, status=401)
     with pytest.raises(TadoXAuthError) as err:
         await transport.request("GET", ROOMS_B)
-    assert err.value.reason == "unauthorized_after_refresh"
+    assert (err.value.reason, err.value.status) == ("unauthorized_after_refresh", 401)
     assert len(mock_tado.calls("GET", ROOMS_B)) == 2
     assert len(mock_tado.calls("POST", TOKEN_URL)) == 1
 
