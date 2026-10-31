@@ -727,24 +727,91 @@ async def test_failed_write_is_audited_and_recorded(
     caplog: pytest.LogCaptureFixture,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """A refused write logs one info line with code and title, and is recorded."""
+    """A failed write logs one info line with code and title, and is recorded."""
     caplog.set_level(logging.DEBUG)
 
     with pytest.raises(TadoXRequestError):
-        await client.home(HOME_B).async_set_open_window(1, active=True)
+        await client.home(HOME_B).async_set_open_window(99, active=True)
 
     assert _client_messages(caplog, logging.INFO) == [
-        "Write failed: open window room 1: on -> HTTP 422 "
-        "code=openWindow.notDetected title=<str len=23>"
+        "Write failed: open window room 99: on -> HTTP 404 "
+        "code=not.found title=<str len=14>"
     ]
     assert client.telemetry.last_error == ErrorRecord(
         at=datetime.now(UTC),
-        kind="TadoXRequestError",
+        kind="TadoXNotFoundError",
         context="command openWindow",
         endpoint="POST hops:/homes/{home}/rooms/{room}/openWindow",
-        status=422,
-        message="code=openWindow.notDetected title=<str len=23>",
+        status=404,
+        message="code=not.found title=<str len=14>",
     )
+
+
+async def test_expected_refusals_are_audited_not_recorded(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A refusal of a write that cannot apply is an answer, no API error.
+
+    Open-window mode without a detected window and AUTO presence without
+    Auto-Assist are audited as refused and leave the error records alone.
+    """
+    home = client.home(HOME_B)
+    mock_tado.fail("DELETE", f"{MY_B}/presenceLock", status=422)
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(TadoXRequestError):
+        await home.async_set_open_window(1, active=True)
+    with pytest.raises(TadoXRequestError):
+        await home.async_set_presence(PresenceSetting.AUTO)
+
+    assert _client_messages(caplog, logging.INFO) == [
+        "Write refused: open window room 1: on -> HTTP 422 "
+        "code=openWindow.notDetected title=<str len=23>",
+        "Write refused: presence AUTO -> HTTP 422 code=error title=<str len=8>",
+    ]
+    assert client.telemetry.errors() == []
+    assert [exchange.status for exchange in client.telemetry.exchanges()] == [422, 422]
+
+
+@pytest.mark.parametrize(
+    ("write", "path", "status"),
+    [
+        (lambda home: home.async_set_open_window(1, active=False), "openWindow", 422),
+        (lambda home: home.async_set_open_window(1, active=True), "openWindow", 403),
+        (
+            lambda home: home.async_set_presence(PresenceSetting.AUTO),
+            "presenceLock",
+            403,
+        ),
+        (
+            lambda home: home.async_set_presence(PresenceSetting.HOME),
+            "presenceLock",
+            422,
+        ),
+    ],
+    ids=["window off", "window forbidden", "auto forbidden", "home 422"],
+)
+async def test_other_refusals_are_recorded(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    caplog: pytest.LogCaptureFixture,
+    write: Write,
+    path: str,
+    status: int,
+) -> None:
+    """Only the expected refusal of each write is spared; others are API errors."""
+    mock_tado.fail(None, path, status=status)
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(TadoXRequestError):
+        await write(client.home(HOME_B))
+
+    [line] = _client_messages(caplog, logging.INFO)
+    assert line.startswith("Write failed: ")
+    assert client.telemetry.last_error is not None
+    assert client.telemetry.last_error.status == status
 
 
 @pytest.mark.parametrize(

@@ -145,14 +145,18 @@ async def test_start_open_window_mode_after_detection(
 async def test_open_window_mode_needs_a_detection(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Without a detected window tado refuses, and the error says why (Q11)."""
-    await setup(hass, freezer)
+    """Without a detected window tado refuses, and the error says why (Q11).
+
+    The refusal is no API error, so "Last API error" stays unknown.
+    """
+    entry = await setup(hass, freezer)
 
     with pytest.raises(ServiceValidationError) as raised:
         await switch(hass, window_id(hass, 1), on=True)
 
     assert raised.value.translation_key == "open_window_not_detected"
     assert state_of(hass, window_id(hass, 1)).state == STATE_OFF
+    assert entry.runtime_data.telemetry.last_error is None
 
 
 async def test_end_open_window_mode_error(
