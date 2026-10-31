@@ -52,7 +52,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryError,
+    HomeAssistantError,
+)
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from tests.tado_mock import HOME_B, HOME_NAMES, TadoCloudMock, load_fixture
 from tests.test_init import make_entry, setup_entry
@@ -334,12 +338,12 @@ async def test_401_of_a_write_logs_the_reauth_once(
 ) -> None:
     """A write that gets 401 after a refresh starts a reauth and logs it.
 
-    The polls that fail the same way afterwards log nothing more.
+    The write alone logs the line, while polls still succeed; the polls that
+    fail the same way afterwards log nothing more.
     """
     entry = await _setup(hass)
     data: TadoXRuntimeData = entry.runtime_data
     mock_tado.fail("DELETE", MANUAL_1, status=401)
-    mock_tado.fail("GET", ROOMS, status=401)
     start = len(caplog.records)
 
     with pytest.raises(HomeAssistantError):
@@ -353,15 +357,21 @@ async def test_401_of_a_write_logs_the_reauth_once(
             blocking=True,
         )
     await hass.async_block_till_done()
-    await _poll(freezer, data.rooms)
 
     assert list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
-    assert not data.rooms.last_update_success
+    assert data.rooms.last_update_success
     assert _messages(caplog.records[start:], logging.INFO) == [
         "Write failed: resume schedule room 1 -> HTTP 401 unauthorized_after_refresh",
         f"tado no longer accepts the login of {LABEL} "
         "(unauthorized_after_refresh); a new login is needed",
     ]
+
+    mock_tado.fail("GET", ROOMS, status=401)
+    polled = len(caplog.records)
+    await _poll(freezer, data.rooms)
+
+    assert isinstance(data.rooms.last_exception, ConfigEntryAuthFailed)
+    assert _messages(caplog.records[polled:], logging.INFO) == []
 
 
 async def test_nothing_private_reaches_the_log(
