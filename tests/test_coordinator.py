@@ -60,6 +60,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 from tests.tado_mock import HOME_B, TadoCloudMock
 from tests.test_climate import climate_id, entity_id, state_of
 from tests.test_init import make_entry, setup_entry
@@ -734,15 +735,53 @@ async def test_optimistic_patch_needs_data(
 async def test_refresh_before_anything_is_due_sends_nothing(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A refresh of the plan only reads endpoints whose period has passed."""
+    """A refresh of the plan only reads endpoints whose period has passed.
+
+    Nothing came from tado, so the update times stay as they are.
+    """
     data = await _setup(hass, freezer)
     before = data.rooms.data
+    updated = {
+        coordinator.KIND: coordinator.last_live_update
+        for coordinator in (data.rooms, data.home, data.devices)
+    }
     mock_tado.clear_calls()
+    freezer.tick(timedelta(seconds=30))
 
-    await data.rooms.async_refresh()
+    for coordinator in (data.rooms, data.home, data.devices):
+        await coordinator.async_refresh()
 
     assert mock_tado.calls() == []
     assert data.rooms.data is before
+    assert {
+        coordinator.KIND: coordinator.last_live_update
+        for coordinator in (data.rooms, data.home, data.devices)
+    } == updated
+
+
+async def test_a_longer_interval_leaves_a_tick_that_changes_no_update_time(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """The timer armed before the plan slowed down sends nothing and moves nothing.
+
+    Home Assistant arms the next poll before the quota monitor lengthens the
+    interval, so one tick at the old interval finds nothing due.
+    """
+    data = await _setup(hass, freezer)
+    updated = entity_id(hass, "sensor", f"{HOME_B}_data_updated")
+    mock_tado.set_quota(remaining=900)
+    await _tick(hass, freezer, 45)
+    assert _mode(data) is PlanMode.CONSERVING
+    assert data.rooms.update_interval == timedelta(hours=1)
+    fetched = data.rooms.last_live_update
+    assert fetched == dt_util.utcnow()
+    mock_tado.clear_calls()
+
+    await _tick(hass, freezer, 45)
+
+    assert mock_tado.calls() == []
+    assert data.rooms.last_live_update == fetched
+    assert state_of(hass, updated).state == fetched.isoformat()
 
 
 async def test_poll_floor_without_reset_fails_setup(

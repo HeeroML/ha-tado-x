@@ -277,8 +277,13 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         """Build a snapshot from cached payloads, with the time of the required one."""
 
     @abstractmethod
-    async def _async_fetch(self, previous: S | None, due: frozenset[str]) -> S:
-        """Fetch the due endpoints and merge them into the previous snapshot."""
+    async def _async_fetch(
+        self, previous: S | None, due: frozenset[str]
+    ) -> tuple[S, bool]:
+        """Fetch the due endpoints and merge them into the previous snapshot.
+
+        Return the snapshot and whether any endpoint returned a live value.
+        """
 
     @override
     async def async_request_refresh(self) -> None:
@@ -288,7 +293,11 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
 
     @override
     async def _async_update_data(self) -> S:
-        """Fetch the due endpoints and map client errors to coordinator errors."""
+        """Fetch the due endpoints and map client errors to coordinator errors.
+
+        The data counts as updated, and a quota hold as over, only when an
+        endpoint returned a live value: a tick with nothing due sends nothing.
+        """
         now = dt_util.utcnow()
         previous = self.data if self.data is not None else self._seed_data
         due = self._monitor.due(self, now)
@@ -302,7 +311,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             ", ".join(sorted(due)) or "nothing is due",
         )
         try:
-            data = await self._async_fetch(previous, due)
+            data, live = await self._async_fetch(previous, due)
         except TadoXRateLimitError as err:
             return self._serve_stale(err, now)
         except TadoXError as err:
@@ -311,8 +320,9 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             self._end_stale()
             raise self._translate(err) from err
         self.last_fetched.update(dict.fromkeys(due, now))
-        self.last_live_update = now
-        self._end_stale()
+        if live:
+            self.last_live_update = now
+            self._end_stale()
         return self._pending.apply(data, now)
 
     def _translate(self, err: TadoXError) -> Exception:
@@ -539,12 +549,12 @@ class RoomsCoordinator(TadoXCoordinator[RoomsSnapshot]):
     @override
     async def _async_fetch(
         self, previous: RoomsSnapshot | None, due: frozenset[str]
-    ) -> RoomsSnapshot:
+    ) -> tuple[RoomsSnapshot, bool]:
         """Fetch the rooms."""
         values, _ = await self._async_gather(due, {"rooms": self.api.async_get_rooms})
         if previous is None or "rooms" in values:
-            return RoomsSnapshot(rooms=values["rooms"])
-        return previous
+            return RoomsSnapshot(rooms=values["rooms"]), True
+        return previous, False
 
 
 _HOME_FIELDS: Final = {
@@ -581,7 +591,7 @@ class HomeCoordinator(TadoXCoordinator[HomeSnapshot]):
     @override
     async def _async_fetch(
         self, previous: HomeSnapshot | None, due: frozenset[str]
-    ) -> HomeSnapshot:
+    ) -> tuple[HomeSnapshot, bool]:
         """Fetch the due home endpoints."""
         api = self.api
         values, _ = await self._async_gather(
@@ -602,7 +612,7 @@ class HomeCoordinator(TadoXCoordinator[HomeSnapshot]):
             changes.update(
                 mobile_devices=phones.phones, mobile_devices_complete=phones.complete
             )
-        return replace(previous, **changes)
+        return replace(previous, **changes), bool(values)
 
 
 class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
@@ -678,7 +688,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
     @override
     async def _async_fetch(
         self, previous: DevicesSnapshot | None, due: frozenset[str]
-    ) -> DevicesSnapshot:
+    ) -> tuple[DevicesSnapshot, bool]:
         """Fetch the due device endpoints."""
         api = self.api
         today = home_today(previous.home_info if previous else None)
@@ -703,7 +713,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
                 snapshot, flow_temperature=None, flow_status=FeatureStatus.ABSENT
             )
         self._monitor.async_note_devices(snapshot)
-        return snapshot
+        return snapshot, bool(values)
 
     async def _async_get_home_info(self) -> HomeInfo:
         """Read the home details; a home of the previous generation is refused (#40)."""
