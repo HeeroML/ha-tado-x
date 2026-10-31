@@ -8,6 +8,7 @@ policy: one audit line per write, one info line per state change, and no
 info line at all in a steady state.
 """
 
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from datetime import timedelta
 import json
@@ -734,6 +735,112 @@ async def test_used_up_quota_warns_once_and_logs_the_end(
     ]
     assert _messages(records, logging.WARNING) == []
     assert [error.kind for error in data.telemetry.errors()] == ["quota_gate"]
+
+
+@pytest.mark.parametrize(
+    ("remaining", "reset_in", "options", "loads", "expected"),
+    [
+        pytest.param(
+            15,
+            None,
+            {"quota_reserve": 0},
+            True,
+            [
+                (
+                    logging.INFO,
+                    f"Set up {LABEL}: 6 rooms, 13 devices, "
+                    "2617 planned API calls a day",
+                ),
+                (logging.INFO, f"Stopped serving cached rooms data of {LABEL}"),
+            ],
+            id="floor_without_reset",
+        ),
+        pytest.param(
+            15,
+            timedelta(hours=2),
+            {"quota_reserve": 0},
+            False,
+            [
+                (
+                    logging.INFO,
+                    f"Polling of {LABEL} holds until 2026-10-30T12:00:00+00:00: "
+                    "only 14 tado API calls are left",
+                ),
+            ],
+            id="below_the_floor",
+        ),
+        pytest.param(
+            15,
+            timedelta(hours=2),
+            {},
+            False,
+            [
+                (
+                    logging.INFO,
+                    f"Only 14 tado API calls are left for {LABEL}; polling slows "
+                    "down until the quota resets",
+                ),
+                (
+                    logging.INFO,
+                    f"Polling of {LABEL} holds until 2026-10-30T12:00:00+00:00: "
+                    "only 14 tado API calls are left",
+                ),
+            ],
+            id="conserving_below_the_floor",
+        ),
+        pytest.param(
+            0,
+            timedelta(hours=2),
+            {},
+            False,
+            [
+                (
+                    logging.WARNING,
+                    f"The tado API quota of {LABEL} is used up; polling pauses "
+                    "until 2026-10-30 12:00:30+00:00",
+                ),
+            ],
+            id="used_up",
+        ),
+    ],
+)
+async def test_setup_retries_during_a_hold_log_it_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+    remaining: int,
+    reset_in: timedelta | None,
+    options: dict[str, Any],
+    loads: bool,
+    expected: list[tuple[int, str]],
+) -> None:
+    """Setup retries during a quota hold log the hold once, not on every retry.
+
+    A retry restores the quota state the previous attempt stored, so the hold
+    and the cached data it serves are no news. Without a reset time, a poll
+    goes out every 15 minutes, and the retries load the entry once each
+    coordinator has data.
+    """
+    mock_tado.set_quota(remaining=remaining, reset_in=reset_in)
+    entry = await _setup(hass, **options)
+
+    for _ in range(110):
+        freezer.tick(timedelta(minutes=1))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    assert entry.state is (
+        ConfigEntryState.LOADED if loads else ConfigEntryState.SETUP_RETRY
+    )
+    own = Counter(
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if "custom_components/tado_x/" in record.pathname
+        and record.levelno >= logging.INFO
+    )
+    assert sorted(own.items()) == sorted((line, 1) for line in expected)
+    assert f"Restored the quota state of {LABEL}" in caplog.text
 
 
 async def test_failed_refresh_and_recovery_log_once(

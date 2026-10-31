@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Hashable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, tzinfo
 from functools import partial
+import logging
 from typing import Any, ClassVar, Final, override
 
 from homeassistant.core import HomeAssistant, callback
@@ -388,7 +389,10 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         """Serve the last snapshot during a quota hold, while it is recent enough.
 
         A coordinator created by a reload or restart during a hold with a
-        known end takes the start of that hold from the quota tracker.
+        known end takes the start of that hold from the quota tracker. A
+        setup that the restored quota state refuses continues a hold that was
+        logged when it began, so serving the cache is logged at debug level;
+        every setup retry would repeat the line otherwise.
         """
         setup = self.data is None
         data: S | None = self._seed_data if setup else self.data
@@ -399,7 +403,10 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             raise _quota_failed(reset, now, setup=setup) from err
         if self.stale_since is None:
             self.stale_since = began
-            LOGGER.info(
+            LOGGER.log(
+                logging.DEBUG
+                if setup and err.local and self._monitor.restored_hold
+                else logging.INFO,
                 "Serving cached %s data of %s from %s during a quota hold",
                 self.KIND,
                 self._label,
