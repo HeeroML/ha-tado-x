@@ -338,8 +338,8 @@ async def test_nothing_private_reaches_the_log(
     assert [item for item in PRIVATE if item in text] == []
     assert FULL_SERIAL.findall(text) == []
     assert NOT_FOUND_TITLE not in text
-    assert "title=Weather of home # not found" in text
-    assert "title=Token <redacted> of <email> in home #" in text
+    assert f"title=<str len={len(NOT_FOUND_TITLE)}>" in text
+    assert f"title=<str len={len(NASTY_4XX['errors'][0]['title'])}>" in text
     assert "HTTP 500" in text
     assert "Write: manualControl room 1: ON 22.0 °C" in text
     assert "attempt 2 after 401" in text
@@ -546,7 +546,7 @@ async def test_failed_write_logs_its_status(
     title = "Token <redacted> of <email> in home #"
     assert _messages(caplog.records[start:], logging.INFO) == [
         "Write failed: manualControl room 1: ON 21.0 °C until NEXT_TIME_BLOCK "
-        f"-> HTTP 422 code=not.allowed title={title}"
+        f"-> HTTP 422 code=not.allowed title=<str len={len(NASTY_4XX['errors'][0]['title'])}>"
     ]
     assert raised.value.translation_placeholders == {"status": "422", "title": title}
     [error] = entry.runtime_data.telemetry.errors()

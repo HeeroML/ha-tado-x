@@ -444,7 +444,7 @@ async def test_error_answers_log_code_and_title_only(
     with pytest.raises(TadoXRequestError) as err:
         await transport.request("GET", ROOMS_B)
 
-    details = "code=invalid.request title=Token <redacted> of <email> is invalid"
+    details = "code=invalid.request title=<str len=66>"
     assert _client_log(caplog) == [
         (
             logging.DEBUG,

@@ -48,10 +48,12 @@ from custom_components.tado_x.client import (
     WarnOnce,
     describe_command,
     describe_error,
+    describe_tado_error,
     describe_value,
     endpoint_template,
     mask_serial,
     redact_text,
+    safe_title,
     shape,
 )
 from custom_components.tado_x.client.const import (
@@ -184,6 +186,50 @@ def test_endpoint_template(method: str, url: str, expected: str) -> None:
 def test_redact_text(text: str | None, expected: str | None) -> None:
     """Numbers, addresses, URLs and tokens are blanked; words are kept."""
     assert redact_text(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("code", "title", "expected"),
+    [
+        (
+            "not.found",
+            f"Timezone of home {HOME_B} not found",
+            "code=not.found title=Timezone of home # not found",
+        ),
+        (
+            "not.allowed",
+            "Wohnzimmer Musterstrasse 1 ABCD-EFGH",
+            "code=not.allowed title=<str len=36>",
+        ),
+        (
+            None,
+            "Room 'Wohnzimmer' of home 'Familie Mueller' not found",
+            "title=<str len=53>",
+        ),
+        ("openWindow.notDetected", None, "code=openWindow.notDetected"),
+        (f"user {HOME_B}", "", "code=<str len=12>"),
+        (None, None, None),
+    ],
+)
+def test_describe_tado_error(
+    code: str | None, title: str | None, expected: str | None
+) -> None:
+    """Only known title templates are shown; any other title by its length."""
+    assert describe_tado_error(code, title) == expected
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("Timezone of home 1000001 not found", "Timezone of home # not found"),
+        ("Timezone of home 1000001 not found ", "Timezone of home # not found"),
+        ("Timezone of home Haus B not found", "<str len=33>"),
+        ("Kueche", "<str len=6>"),
+    ],
+)
+def test_safe_title(title: str, expected: str) -> None:
+    """A title passes only as a known template, after redact_text()."""
+    assert safe_title(title) == expected
 
 
 def test_redact_text_is_cut_to_the_limit() -> None:
@@ -595,7 +641,7 @@ async def test_failed_write_is_audited_and_recorded(
 
     assert _client_messages(caplog, logging.INFO) == [
         "Write failed: open window room 1: on -> HTTP 422 "
-        "code=openWindow.notDetected title=No open window detected"
+        "code=openWindow.notDetected title=<str len=23>"
     ]
     assert client.telemetry.last_error == ErrorRecord(
         at=datetime.now(UTC),
@@ -603,7 +649,7 @@ async def test_failed_write_is_audited_and_recorded(
         context="command openWindow",
         endpoint="POST hops:/homes/{home}/rooms/{room}/openWindow",
         status=422,
-        message="code=openWindow.notDetected title=No open window detected",
+        message="code=openWindow.notDetected title=<str len=23>",
     )
 
 
@@ -622,8 +668,8 @@ async def test_failed_write_is_audited_and_recorded(
         (
             TadoXRequestError(400, "fake-access-token-1000002", "Bearer x"),
             400,
-            "code=<str len=25> title=<redacted>",
-            "HTTP 400 code=<str len=25> title=<redacted>",
+            "code=<str len=25> title=<str len=8>",
+            "HTTP 400 code=<str len=25> title=<str len=8>",
         ),
         (TadoXServerError(503), 503, None, "HTTP 503"),
         (

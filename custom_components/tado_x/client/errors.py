@@ -89,7 +89,7 @@ class TadoXRequestError(TadoXError):
         """Initialize with the status and the first entry of the error body.
 
         The message carries the code and the title only as describe_tado_error()
-        gives them.
+        gives them; title keeps the raw text for code that matches it.
         """
         details = describe_tado_error(code, title)
         super().__init__(

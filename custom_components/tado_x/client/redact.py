@@ -21,6 +21,9 @@ _BEARER: Final = re.compile(r"\bbearer\s+\S+", re.IGNORECASE)
 _LONG_RUN: Final = re.compile(r"[A-Za-z0-9_+/=.-]{20,}")
 _REDACTED: Final = "<redacted>"
 
+SAFE_TITLES: Final = frozenset({"Timezone of home # not found"})
+"""tado error titles, after redact_text(), that hold no personal data."""
+
 
 def mask_serial(serial: str) -> str:
     """Keep the type prefix and the last four characters of a serial number."""
@@ -96,14 +99,24 @@ def safe_code(code: str) -> str:
     return code if _CODE.fullmatch(code) else describe_value(code)
 
 
+def safe_title(title: str) -> str:
+    """Return a tado error title if it is a known template, else "<str len=N>".
+
+    A title is free text that can name a room, a home or an address, so
+    only the templates in SAFE_TITLES pass, after redact_text().
+    """
+    redacted = redact_text(title)
+    return redacted if redacted in SAFE_TITLES else f"<str len={len(title)}>"
+
+
 def describe_tado_error(code: str | None, title: str | None) -> str | None:
     """Return "code=… title=…" of a tado error answer, or None without either.
 
-    The code passes safe_code() and the title redact_text().
+    The code passes safe_code() and the title safe_title().
     """
     parts: list[str] = []
     if code:
         parts.append(f"code={safe_code(code)}")
     if title:
-        parts.append(f"title={redact_text(title)}")
+        parts.append(f"title={safe_title(title)}")
     return " ".join(parts) or None

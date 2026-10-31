@@ -33,15 +33,18 @@ from .errors import (
 )
 from .redact import (
     LONG_NUMBER,
+    SAFE_TITLES,
     SERIAL_NUMBER,
     describe_tado_error,
     describe_value,
     mask_serial,
     redact_text,
     safe_code,
+    safe_title,
 )
 
 __all__ = [
+    "SAFE_TITLES",
     "SENSITIVE_KEYS",
     "WARN_ONCE",
     "ErrorRecord",
@@ -57,6 +60,7 @@ __all__ = [
     "mask_serial",
     "redact_text",
     "safe_code",
+    "safe_title",
     "shape",
 ]
 
