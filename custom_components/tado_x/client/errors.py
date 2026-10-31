@@ -22,9 +22,12 @@ class TadoXError(Exception):
 
     request names the HTTP request that failed, as an endpoint template such
     as "GET hops:/homes/{home}/rooms"; it is None when no request was made.
+    recorded is True once a Telemetry recorded the error, so that a caller
+    further up does not record it again.
     """
 
     request: str | None = None
+    recorded: bool = False
 
 
 class TadoXAuthError(TadoXError):

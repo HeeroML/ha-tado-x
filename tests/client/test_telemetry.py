@@ -4,10 +4,12 @@ import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+import gc
 import json
 import logging
 import re
 from typing import Any
+import weakref
 
 from aiohttp import ClientSession
 from freezegun.api import FrozenDateTimeFactory
@@ -71,6 +73,10 @@ NOW = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
 HOPS_B = f"{HOPS_API_URL}/homes/{HOME_B}"
 MY_B = f"{MY_API_URL}/homes/{HOME_B}"
 CLIENT_LOGGER = "custom_components.tado_x.client"
+
+
+class _Local:
+    """A local variable of a frame that raised."""
 
 
 def _exchange(
@@ -873,6 +879,61 @@ def test_an_error_object_is_recorded_once(freezer: FrozenDateTimeFactory) -> Non
     assert len(calls) == 2
 
 
+def test_recorded_errors_keep_nothing_alive() -> None:
+    """Telemetry holds no error, so no traceback keeps frames and their locals."""
+    telemetry = Telemetry()
+    locals_: list[weakref.ref[_Local]] = []
+
+    def fail(index: int) -> None:
+        local = _Local()
+        locals_.append(weakref.ref(local))
+        raise TadoXServerError(500 + index)
+
+    for index in range(Telemetry.ERRORS + 5):
+        try:
+            fail(index)
+        except TadoXServerError as err:
+            telemetry.record_tado_error(err, context="poll rooms")
+    gc.collect()
+
+    assert [ref() for ref in locals_ if ref() is not None] == []
+    assert len(telemetry.errors()) == Telemetry.ERRORS
+
+
+def test_repeated_errors_are_counted_in_one_record(
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An error like the newest one counts there; it still counts per kind."""
+    freezer.move_to(NOW)
+    telemetry = Telemetry()
+    calls: list[None] = []
+    telemetry.add_listener(lambda: calls.append(None))
+
+    for _ in range(3):
+        telemetry.record_tado_error(TadoXServerError(503), context="poll rooms")
+        freezer.tick(timedelta(minutes=1))
+    telemetry.record_error(kind="TadoXServerError", context="poll home", status=503)
+    telemetry.record_error(kind="TadoXServerError", context="poll rooms", status=503)
+    telemetry.record_error(
+        kind="TadoXServerError", context="poll rooms", status=503, message="x"
+    )
+
+    first, home, again, other = telemetry.errors()
+    assert first == ErrorRecord(
+        at=NOW,
+        kind="TadoXServerError",
+        context="poll rooms",
+        status=503,
+        count=3,
+        last_at=NOW + timedelta(minutes=2),
+    )
+    assert (home.context, home.count, home.last_at) == ("poll home", 1, None)
+    assert (again.context, again.count) == ("poll rooms", 1)
+    assert (other.message, other.count) == ("x", 1)
+    assert telemetry.errors_by_kind() == {"TadoXServerError": 6}
+    assert len(calls) == 6
+
+
 def test_ring_buffers_keep_the_newest(freezer: FrozenDateTimeFactory) -> None:
     """At most 50 exchanges and 20 errors are kept, the oldest are dropped."""
     telemetry = Telemetry()
@@ -952,6 +1013,8 @@ def test_diagnostics(freezer: FrozenDateTimeFactory) -> None:
         "endpoint": "GET hops:/homes/{home}/rooms",
         "status": 503,
         "message": "home #",
+        "count": 1,
+        "last_at": None,
     }
     assert diagnostics == {
         "exchanges": [

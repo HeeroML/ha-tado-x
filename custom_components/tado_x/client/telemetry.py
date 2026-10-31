@@ -8,7 +8,7 @@ counts requests and errors over a rolling 24 hours.
 
 from collections import Counter, deque
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 import logging
 from typing import Any, Final
@@ -405,7 +405,12 @@ class Exchange:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ErrorRecord:
-    """One error, with the context it happened in, such as "poll rooms"."""
+    """One error, with the context it happened in, such as "poll rooms".
+
+    An error that repeats the newest record is counted there: count is the
+    number of occurrences, at the first and last_at the latest of them,
+    None until the error repeats.
+    """
 
     at: datetime
     kind: str
@@ -413,6 +418,18 @@ class ErrorRecord:
     endpoint: str | None = None
     status: int | None = None
     message: str | None = None
+    count: int = 1
+    last_at: datetime | None = None
+
+    def repeats(self, other: ErrorRecord) -> bool:
+        """Return True if other is the same error in the same context."""
+        return (
+            self.kind,
+            self.context,
+            self.endpoint,
+            self.status,
+            self.message,
+        ) == (other.kind, other.context, other.endpoint, other.status, other.message)
 
 
 class WarnOnce:
@@ -509,9 +526,12 @@ class Telemetry:
 
     The last EXCHANGES HTTP attempts and ERRORS errors are kept, and requests
     per endpoint and errors per kind are counted over a rolling 24 hours.
-    Every exchange is logged at debug level. An error object is recorded
-    once: when a caller records an error the client recorded already, for
-    example a failed token refresh that also fails a poll, nothing changes.
+    Every exchange is logged at debug level. An error that repeats the
+    newest record is counted in it, so an outage does not flush the others.
+    An error object is recorded once: when a caller records an error the
+    client recorded already, for example a failed token refresh that also
+    fails a poll, nothing changes. The error is marked, not kept, so its
+    traceback and frames are freed.
     """
 
     EXCHANGES: Final = 50
@@ -522,7 +542,6 @@ class Telemetry:
         self._clock = clock
         self._exchanges: deque[Exchange] = deque(maxlen=self.EXCHANGES)
         self._errors: deque[ErrorRecord] = deque(maxlen=self.ERRORS)
-        self._recorded: deque[TadoXError] = deque(maxlen=self.ERRORS)
         self._requests = _RollingCounts()
         self._kinds = _RollingCounts()
         self._listeners: list[Callable[[], None]] = []
@@ -548,7 +567,10 @@ class Telemetry:
         status: int | None = None,
         message: str | None = None,
     ) -> None:
-        """Keep and count one error; the message passes redact_text()."""
+        """Keep and count one error; the message passes redact_text().
+
+        An error that repeats the newest record increments its count.
+        """
         record = ErrorRecord(
             at=self._clock(),
             kind=kind,
@@ -557,16 +579,22 @@ class Telemetry:
             status=status,
             message=redact_text(message),
         )
-        self._errors.append(record)
+        newest = self.last_error
+        if newest is not None and newest.repeats(record):
+            self._errors[-1] = replace(
+                newest, count=newest.count + 1, last_at=record.at
+            )
+        else:
+            self._errors.append(record)
         self._kinds.add(kind, record.at)
         for listener in list(self._listeners):
             listener()
 
     def record_tado_error(self, err: TadoXError, *, context: str) -> None:
         """Record a client error by its class, its request, status and message."""
-        if any(recorded is err for recorded in self._recorded):
+        if err.recorded:
             return
-        self._recorded.append(err)
+        err.recorded = True
         status, message = error_details(err)
         self.record_error(
             kind=type(err).__name__,
