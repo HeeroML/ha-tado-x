@@ -166,9 +166,10 @@ class TariffUnit(StrEnum):
 def parse_enum[E: StrEnum](cls: type[E], raw: object, *, field: str) -> E | None:
     """Parse an open enum value from the API.
 
-    Return None for null and for unknown values. An unknown value logs one
-    warning per field and describe_value() of the value, which keeps only
-    enum-like constants, so a value that is no constant is never logged.
+    Return None for null and for unknown values. An unknown value is logged
+    with describe_value(), which keeps only enum-like constants, so a value
+    that is no constant is never logged. The first unknown value of a field
+    is a warning, any later one a debug message.
     """
     if raw is None:
         return None
@@ -177,11 +178,10 @@ def parse_enum[E: StrEnum](cls: type[E], raw: object, *, field: str) -> E | None
             return cls(raw)
         except ValueError:
             pass
-    found = describe_value(raw)
-    if WARN_ONCE.should_warn(("enum", field, found)):
-        _LOGGER.warning(
-            "Unknown value %s for %s from the tado API; it is treated as unknown",
-            found,
-            field,
-        )
+    _LOGGER.log(
+        logging.WARNING if WARN_ONCE.should_warn(("enum", field)) else logging.DEBUG,
+        "Unknown value %s for %s from the tado API; it is treated as unknown",
+        describe_value(raw),
+        field,
+    )
     return None

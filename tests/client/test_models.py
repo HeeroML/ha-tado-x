@@ -54,6 +54,7 @@ from tests.tado_mock import FIXTURES, load_fixture
 
 NOW = datetime(2026, 10, 30, 10, 0, tzinfo=UTC)
 TODAY = date(2026, 10, 30)
+CLIENT_LOGGER = "custom_components.tado_x.client"
 
 PARSERS: dict[str, Callable[[Any], object]] = {
     "air_comfort.json": AirComfort.from_api,
@@ -109,9 +110,13 @@ def test_every_fixture_has_a_parser() -> None:
 
 @pytest.mark.parametrize("name", sorted(PARSERS))
 def test_fixture_parses(name: str, caplog: pytest.LogCaptureFixture) -> None:
-    """Every response fixture parses without unknown enum values."""
+    """Every response fixture parses without a warning; nulls are no problem."""
     assert PARSERS[name](load_fixture(name)) is not None
-    assert not _unknown_value_warnings(caplog)
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER and record.levelno >= logging.WARNING
+    ] == []
 
 
 def test_rooms_list() -> None:
@@ -866,7 +871,7 @@ def test_rate_limit_reset_at() -> None:
 def test_unknown_values_are_described_not_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unknown value that is no constant is logged by its type and length, once."""
+    """An unknown value that is no constant is logged by its type and length."""
     raw = load_fixture("air_comfort.json")
     raw["comfort"][0]["temperatureLevel"] = "Mike is warm"
     raw["comfort"][1]["temperatureLevel"] = 21.5
@@ -878,16 +883,124 @@ def test_unknown_values_are_described_not_logged(
     assert [
         (record.levelno, record.getMessage())
         for record in caplog.records
-        if record.name == "custom_components.tado_x.client"
+        if record.name == CLIENT_LOGGER
     ] == [
         (
-            logging.WARNING,
+            level,
             f"Unknown value {value} for airComfort.temperatureLevel from the tado "
             "API; it is treated as unknown",
         )
-        for value in ("<str len=12>", "float")
+        for level, value in (
+            (logging.WARNING, "<str len=12>"),
+            (logging.DEBUG, "float"),
+            (logging.DEBUG, "<str len=12>"),
+            (logging.DEBUG, "float"),
+        )
     ]
     assert "Mike" not in caplog.text
+
+
+def test_unknown_values_warn_once_per_field(caplog: pytest.LogCaptureFixture) -> None:
+    """The first unknown value of a field warns; later ones, of any kind, are debug."""
+    caplog.set_level(logging.DEBUG)
+
+    for value in ("a", "ab", "abc", "ODD_TEST", "ODD_TEST"):
+        assert parse_enum(Power, value, field="room.power") is None
+    assert parse_enum(Power, "a", field="device.power") is None
+
+    message = "Unknown value {} for {} from the tado API; it is treated as unknown"
+    assert [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER
+    ] == [
+        (logging.WARNING, message.format("<str len=1>", "room.power")),
+        (logging.DEBUG, message.format("<str len=2>", "room.power")),
+        (logging.DEBUG, message.format("<str len=3>", "room.power")),
+        (logging.DEBUG, message.format("ODD_TEST", "room.power")),
+        (logging.DEBUG, message.format("ODD_TEST", "room.power")),
+        (logging.WARNING, message.format("<str len=1>", "device.power")),
+    ]
+
+
+def test_unusable_optional_fields_warn_once_per_field(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A present optional value of the wrong type is None, with one warning per path."""
+    raw = load_fixture("rooms.json")
+    raw[0]["sensorDataPoints"]["insideTemperature"]["value"] = "21.5 bei Mike"
+    raw[0]["sensorDataPoints"]["humidity"]["percentage"] = [55]
+    raw[0]["openWindow"] = "Mike's window"
+    raw[1]["sensorDataPoints"]["insideTemperature"]["value"] = {"Mike": 21.5}
+    raw[2]["heatingPower"] = {"percentage": 12.5}
+    raw[3]["nextTimeBlock"] = {"start": "Mike's birthday"}
+    raw[4]["nextScheduleChange"]["setting"] = {"temperature": {"value": 20.0}}
+    caplog.set_level(logging.DEBUG)
+
+    rooms = RoomState.list_from_api(raw)
+    RoomState.list_from_api(raw)
+
+    assert list(rooms) == [1, 2, 3, 4, 5, 6]
+    assert (rooms[1].current_temperature, rooms[1].humidity) == (None, None)
+    assert rooms[1].open_window is None
+    assert rooms[2].current_temperature is None
+    assert rooms[3].heating_power is None
+    assert rooms[4].next_time_block is None
+    assert rooms[5].next_schedule_change is None
+    paths = [
+        ("$[0].sensorDataPoints.insideTemperature.value", "<str len=13>"),
+        ("$[0].sensorDataPoints.humidity.percentage", "list[1]"),
+        ("$[0].openWindow", "<str len=13>"),
+        ("$[1].sensorDataPoints.insideTemperature.value", "dict[1]"),
+        ("$[2].heatingPower.percentage", "float"),
+        ("$[3].nextTimeBlock.start", "<str len=15>"),
+        ("$[4].nextScheduleChange.setting.power", "missing"),
+    ]
+    first = [logging.WARNING] * 3 + [logging.DEBUG] + [logging.WARNING] * 3
+    assert [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER
+    ] == [
+        (level, f"Ignoring an unusable rooms field: {path} is {found}")
+        for level, (path, found) in zip(
+            first + [logging.DEBUG] * len(paths), paths * 2, strict=True
+        )
+    ]
+    assert "Mike" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("default", "path", "found"),
+    [
+        ("TIMER", "$.rooms[0].deviceManualControlTermination", "TIMER"),
+        (
+            {"type": "TIMER", "durationInSeconds": "3600"},
+            "$.rooms[0].deviceManualControlTermination.durationInSeconds",
+            "<str len=4>",
+        ),
+        (
+            {"type": "TIMER", "durationInSeconds": 10**20},
+            "$.rooms[0].deviceManualControlTermination.durationInSeconds",
+            "int",
+        ),
+    ],
+)
+def test_unusable_termination_default_warns(
+    caplog: pytest.LogCaptureFixture, default: object, path: str, found: str
+) -> None:
+    """A termination default tado sends in an unknown form is None and named."""
+    raw = load_fixture("rooms_and_devices.json")
+    raw["rooms"][0]["deviceManualControlTermination"] = default
+
+    topology = Topology.from_api(raw)
+
+    assert topology.rooms[1].manual_termination_default is None
+    assert [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER
+    ] == [(logging.WARNING, f"Ignoring an unusable topology field: {path} is {found}")]
 
 
 def test_skipped_items_name_path_and_type_only(

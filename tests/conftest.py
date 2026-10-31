@@ -13,6 +13,7 @@ from syrupy.assertion import SnapshotAssertion
 
 # Importing the integration at collection time makes this repository's
 # custom_components package win over the stub in HA's testing_config.
+from custom_components.tado_x.client import WARN_ONCE
 from custom_components.tado_x.const import (
     CONF_ACCESS_TOKEN,
     CONF_HOME_ID,
@@ -66,6 +67,12 @@ def _config_entry(home_id: int) -> MockConfigEntry:
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Enable custom integrations in every test."""
+
+
+@pytest.fixture(autouse=True)
+def fresh_warn_once() -> None:
+    """Let every test see the first warning of each field again."""
+    WARN_ONCE.clear()
 
 
 @pytest.fixture

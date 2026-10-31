@@ -196,7 +196,12 @@ async def test_unknown_battery_value(
     assert (
         state_of(hass, "sensor.temperature_sensor_wohnzimmer_battery") == STATE_UNKNOWN
     )
-    assert caplog.text.count("ALMOST_EMPTY_SENSOR_TEST") == 1
+    assert [
+        record.levelno
+        for record in caplog.records
+        if "ALMOST_EMPTY_SENSOR_TEST" in record.getMessage()
+        and record.levelno >= logging.WARNING
+    ] == [logging.WARNING]
     assert not [
         record
         for record in caplog.records

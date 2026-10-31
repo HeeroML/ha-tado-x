@@ -1115,6 +1115,15 @@ def test_warn_once_is_bounded() -> None:
     assert warn.should_warn(("b",))
 
 
+def test_warn_once_can_be_cleared() -> None:
+    """A cleared set warns about every key again."""
+    warn = WarnOnce()
+    assert warn.should_warn(("a",))
+    warn.clear()
+    assert warn.should_warn(("a",))
+    assert not warn.should_warn(("a",))
+
+
 def test_warn_once_default_bound() -> None:
     """The default set holds 512 keys, like the process-wide WARN_ONCE."""
     assert WarnOnce.MAX_KEYS == 512

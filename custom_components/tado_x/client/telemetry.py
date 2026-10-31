@@ -455,6 +455,10 @@ class WarnOnce:
             del self._keys[next(iter(self._keys))]
         return True
 
+    def clear(self) -> None:
+        """Forget every key, so that each warning may be logged again."""
+        self._keys.clear()
+
 
 WARN_ONCE: Final = WarnOnce()
 """The process-wide WarnOnce of the client's field and item warnings."""
