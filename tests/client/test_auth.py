@@ -830,7 +830,7 @@ async def test_routine_refresh_logs_at_debug_only(
             {"status": 200, "body": {"token_type": "Bearer"}},
             "TadoXParseError",
             "invalid token response",
-            "TadoXParseError, unexpected token payload at $.access_token",
+            "TadoXParseError, unexpected token payload at $.access_token (missing)",
         ),
     ],
     ids=["connection", "server", "parse"],

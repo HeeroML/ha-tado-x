@@ -381,7 +381,7 @@ def test_other_devices_and_unknown_types(caplog: pytest.LogCaptureFixture) -> No
     assert unknown.type is None
     assert unknown.type_raw == "XX99_TEST"
     assert _unknown_value_warnings(caplog) == [
-        "Unknown value 'XX99_TEST' for device.type from the tado API; it is treated as unknown"
+        "Unknown value XX99_TEST for device.type from the tado API; it is treated as unknown"
     ]
 
     raw["otherDevices"] = []
@@ -861,3 +861,84 @@ def test_rate_limit_reset_at() -> None:
     )
     assert info.reset_at == NOW + timedelta(seconds=7082)
     assert copy.replace(info, reset_in=None).reset_at is None
+
+
+def test_unknown_values_are_described_not_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unknown value that is no constant is logged by its type and length, once."""
+    raw = load_fixture("air_comfort.json")
+    raw["comfort"][0]["temperatureLevel"] = "Mike is warm"
+    raw["comfort"][1]["temperatureLevel"] = 21.5
+    caplog.set_level(logging.DEBUG)
+
+    AirComfort.from_api(raw)
+    AirComfort.from_api(raw)
+
+    assert [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == "custom_components.tado_x.client"
+    ] == [
+        (
+            logging.WARNING,
+            f"Unknown value {value} for airComfort.temperatureLevel from the tado "
+            "API; it is treated as unknown",
+        )
+        for value in ("<str len=12>", "float")
+    ]
+    assert "Mike" not in caplog.text
+
+
+def test_skipped_items_name_path_and_type_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A skipped item is logged by its path and a description of what was there."""
+    raw = load_fixture("air_comfort.json")
+    raw["comfort"][0]["roomId"] = "Wohnzimmer von Mike"
+    raw["comfort"].append("Mike's room")
+    del raw["comfort"][1]["roomId"]
+    caplog.set_level(logging.DEBUG)
+
+    comfort = AirComfort.from_api(raw)
+
+    assert len(comfort.rooms) == len(raw["comfort"]) - 3
+    assert [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == "custom_components.tado_x.client"
+    ] == [
+        (
+            logging.WARNING,
+            "Skipping a malformed air_comfort item: $.comfort[0].roomId is <str len=19>",
+        ),
+        (
+            logging.DEBUG,
+            "Skipping a malformed air_comfort item: $.comfort[1].roomId is missing",
+        ),
+        (
+            logging.WARNING,
+            f"Skipping a malformed air_comfort item: $.comfort[{len(raw['comfort']) - 1}]"
+            " is <str len=11>",
+        ),
+    ]
+    assert "Mike" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("parse", "raw", "path", "found"),
+    [
+        (HomeState.from_api, {"presence": "Bei Mike"}, "$.presence", "<str len=8>"),
+        (HomeState.from_api, {}, "$.presence", "missing"),
+        (RoomState.list_from_api, {"id": 1}, "$", "dict[1]"),
+        (Weather.from_api, "sunny", "$", "<str len=5>"),
+    ],
+)
+def test_parse_errors_describe_what_they_found(
+    parse: Callable[[Any], object], raw: object, path: str, found: str
+) -> None:
+    """A parse error carries its path and a description of the value, never the value."""
+    with pytest.raises(TadoXParseError) as err:
+        parse(raw)
+    assert (err.value.path, err.value.found) == (path, found)
+    assert "Mike" not in str(err.value)
