@@ -480,7 +480,7 @@ async def test_optional_failure_keeps_the_previous_value(
 
     assert data.home.data.weather is not None
     assert data.home.data.weather.outdoor_temperature == 1.0
-    assert "Reading weather of Haus 1000002 works again" in caplog.text
+    assert "Reading weather of home …0002 works again" in caplog.text
 
 
 async def test_optional_rate_limit_is_not_swallowed(
@@ -646,7 +646,7 @@ async def test_low_quota_tier_issue(
     issue = issue_registry.async_get_issue(DOMAIN, f"low_quota_tier_{entry_id}")
     assert issue is not None
     assert issue.translation_placeholders == {
-        "home": "Haus 1000002",
+        "home": "Haus B",
         "limit": "100",
         "rooms_minutes": str(round(data.monitor.plan.rooms.total_seconds() / 60)),
     }
@@ -774,7 +774,7 @@ class _Probe(TadoXEntity[RoomsCoordinator]):
         ),
         (TadoXConnectionError("down"), "cannot_connect", None),
         (TadoXServerError(502), "cannot_connect", None),
-        (TadoXHomeNotXError(HOME_B), "not_tado_x_home", {"home": "Haus 1000002"}),
+        (TadoXHomeNotXError(HOME_B), "not_tado_x_home", {"home": "Haus B"}),
         (TadoXNotFoundError(404), "not_found", None),
         (
             TadoXForbiddenError(403, "forbidden", "Not allowed"),

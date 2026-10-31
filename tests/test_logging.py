@@ -10,6 +10,7 @@ info line at all in a steady state.
 
 from collections.abc import Iterator, Sequence
 from datetime import timedelta
+import json
 import logging
 import re
 from typing import Any
@@ -52,7 +53,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from tests.tado_mock import HOME_B, TadoCloudMock, load_fixture
+from tests.tado_mock import HOME_B, HOME_NAMES, TadoCloudMock, load_fixture
 from tests.test_init import make_entry, setup_entry
 
 TOKEN_PATH = "/oauth2/token"
@@ -64,7 +65,9 @@ ME = load_fixture("me.json")
 ROOMS = f"/homes/{HOME_B}/rooms"
 WEATHER = f"/api/v2/homes/{HOME_B}/weather"
 MANUAL_1 = f"/homes/{HOME_B}/rooms/1/manualControl"
-TITLE = f"Haus {HOME_B}"
+# The integration names the home by the last four digits of its id, never by
+# the entry title, which the config flow takes from tado's name of the home.
+LABEL = "home …0002"
 TADO_LOGGER = "custom_components.tado_x"
 
 SECRETS = (
@@ -117,6 +120,9 @@ NOT_FOUND_TITLE = f"Weather of home {HOME_B} not found"
 # The test harness's mock Store logs every payload it writes; Home Assistant's
 # real Store logs only the key and the file path.
 TEST_STORAGE_LOGGER = "pytest_homeassistant_custom_component.common"
+# Home Assistant logs the setup of an entry with its title under the logger of
+# the integration; those lines are Home Assistant's, not the integration's.
+HA_ENTRY_LOGS = "homeassistant/config_entries.py"
 
 
 def _log_text(caplog: pytest.LogCaptureFixture) -> str:
@@ -131,13 +137,18 @@ def _log_text(caplog: pytest.LogCaptureFixture) -> str:
 
 
 def _tado_log_text(caplog: pytest.LogCaptureFixture) -> str:
-    """Return the records of the integration, with tracebacks."""
+    """Return the records of the integration, with tracebacks.
+
+    The records of the coordinators that Home Assistant's DataUpdateCoordinator
+    writes with the coordinator name count as the integration's.
+    """
     formatter = logging.Formatter("%(name)s %(levelname)s %(message)s")
     return "\n".join(
         formatter.format(record)
         for phase in ("setup", "call")
         for record in caplog.get_records(phase)
         if record.name.startswith(TADO_LOGGER)
+        and not record.pathname.endswith(HA_ENTRY_LOGS)
     )
 
 
@@ -217,6 +228,8 @@ async def test_sign_in_and_setup(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].state is ConfigEntryState.LOADED
+    assert result["result"].title == HOME_NAMES[HOME_B]
+    assert HOME_NAMES[HOME_B] not in _tado_log_text(caplog)
     assert len(mock_tado.calls("POST", TOKEN_PATH)) == 2
     _assert_requests_were_logged(caplog)
 
@@ -345,6 +358,61 @@ async def test_nothing_private_reaches_the_log(
     assert "attempt 2 after 401" in text
     assert len(mock_tado.calls("POST", TOKEN_PATH)) == 2
     _assert_requests_were_logged(caplog)
+
+
+async def test_the_home_name_stays_out_of_logs_and_diagnostics(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The entry title, which is tado's name of the home, is never logged.
+
+    The integration names the home by a label from its id, in its own lines
+    and in the coordinator names Home Assistant logs; diagnostics show the
+    label instead of the title.
+    """
+    mock_tado.home(HOME_B).info["generation"] = "O2_NEW_GENERATION"
+    entry = await _setup(hass, holiday_mode=True)
+    data: TadoXRuntimeData = entry.runtime_data
+    assert entry.title == HOME_NAMES[HOME_B]
+    assert [
+        coordinator.name for coordinator in (data.rooms, data.home, data.devices)
+    ] == [
+        f"tado_x rooms {LABEL}",
+        f"tado_x home {LABEL}",
+        f"tado_x devices {LABEL}",
+    ]
+
+    mock_tado.revoke_access_tokens()
+    await _poll(freezer, data.rooms)
+    mock_tado.fail("GET", ROOMS, status=500, times=1)
+    await _poll(freezer, data.rooms)
+    for service, service_data in (
+        ("add_meter_reading", {"reading": 1234}),
+        ("set_eiq_tariff", {"tariff": 0.285, "unit": "kwh"}),
+        ("set_holiday_mode", {"enabled": True}),
+    ):
+        await hass.services.async_call(DOMAIN, service, service_data, blocking=True)
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=1))
+    await _poll(freezer, data.rooms)
+    diagnostics = await get_diagnostics_for_config_entry(hass, hass_client, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    assert diagnostics["entry"]["title"] == LABEL
+    assert entry.title not in json.dumps(diagnostics)
+    text = _tado_log_text(caplog)
+    assert entry.title not in text
+    for line in (
+        f"Set up {LABEL}: ",
+        f"Error fetching tado_x rooms {LABEL} data",
+        f"tado reports no known generation for {LABEL}",
+        f"Serving cached rooms data of {LABEL}",
+        f"The tado API quota of {LABEL} is used up",
+        f"Writing the rotated tado tokens of {LABEL}",
+    ):
+        assert line in text
 
 
 async def test_steady_state_logs_nothing_at_info(
@@ -567,7 +635,7 @@ async def test_quota_hold_below_the_floor_logs_each_change_once(
     start = len(caplog.records)
     await _poll(freezer, rooms)
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Polling of {TITLE} holds until 2026-10-30T11:00:00+00:00: "
+        f"Polling of {LABEL} holds until 2026-10-30T11:00:00+00:00: "
         "only 14 tado API calls are left"
     ]
 
@@ -575,7 +643,7 @@ async def test_quota_hold_below_the_floor_logs_each_change_once(
     await _poll(freezer, rooms)
     assert rooms.stale_since is not None
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Serving cached rooms data of {TITLE} from 2026-10-30T10:00:45+00:00 "
+        f"Serving cached rooms data of {LABEL} from 2026-10-30T10:00:45+00:00 "
         "during a quota hold"
     ]
 
@@ -584,8 +652,8 @@ async def test_quota_hold_below_the_floor_logs_each_change_once(
     await rooms.async_refresh()
     assert rooms.stale_since is None
     assert sorted(_messages(caplog.records[start:], logging.INFO)) == [
-        f"Polling of {TITLE} resumes after the quota hold",
-        f"Stopped serving cached rooms data of {TITLE}",
+        f"Polling of {LABEL} resumes after the quota hold",
+        f"Stopped serving cached rooms data of {LABEL}",
     ]
     assert _messages(caplog.records, logging.WARNING) == []
 
@@ -605,11 +673,11 @@ async def test_used_up_quota_warns_once_and_logs_the_end(
     await _poll(freezer, data.rooms)
     records = caplog.records[start:]
     assert _messages(records, logging.WARNING) == [
-        f"The tado API quota of {TITLE} is used up; polling pauses until "
+        f"The tado API quota of {LABEL} is used up; polling pauses until "
         "2026-10-30 12:00:30+00:00"
     ]
     assert _messages(records, logging.INFO) == [
-        f"Serving cached rooms data of {TITLE} from 2026-10-30T10:00:00+00:00 "
+        f"Serving cached rooms data of {LABEL} from 2026-10-30T10:00:00+00:00 "
         "during a quota hold"
     ]
 
@@ -622,8 +690,8 @@ async def test_used_up_quota_warns_once_and_logs_the_end(
     await data.rooms.async_refresh()
     records = caplog.records[start:]
     assert sorted(_messages(records, logging.INFO)) == [
-        f"Polling of {TITLE} resumes after the quota hold",
-        f"Stopped serving cached rooms data of {TITLE}",
+        f"Polling of {LABEL} resumes after the quota hold",
+        f"Stopped serving cached rooms data of {LABEL}",
     ]
     assert _messages(records, logging.WARNING) == []
     assert [error.kind for error in data.telemetry.errors()] == ["quota_gate"]
@@ -676,14 +744,14 @@ async def test_removed_and_added_device_log_once(
     start = len(caplog.records)
     await _poll(freezer, devices)
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Removed VA04 VA…0106 from {TITLE}"
+        f"Removed VA04 VA…0106 from {LABEL}"
     ]
 
     room["devices"].insert(0, valve)
     start = len(caplog.records)
     await _poll(freezer, devices)
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Added VA04 VA…0106 to {TITLE}"
+        f"Added VA04 VA…0106 to {LABEL}"
     ]
 
 

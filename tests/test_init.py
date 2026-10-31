@@ -35,7 +35,14 @@ from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.util import dt as dt_util
-from tests.tado_mock import HOME_A, HOME_B, USER_ID, TadoCloudMock, entry_tokens
+from tests.tado_mock import (
+    HOME_A,
+    HOME_B,
+    HOME_NAMES,
+    USER_ID,
+    TadoCloudMock,
+    entry_tokens,
+)
 
 FORBIDDEN_LOG_WORDS = ("deprecated", "via_device", "location_name", "config_entry")
 
@@ -45,7 +52,7 @@ def entry_data(home_id: int = HOME_B, **changes: Any) -> dict[str, Any]:
     access, refresh = entry_tokens(HOME_B)
     data = {
         CONF_HOME_ID: home_id,
-        CONF_HOME_NAME: f"Haus {home_id}",
+        CONF_HOME_NAME: HOME_NAMES[home_id],
         CONF_USER_ID: USER_ID,
         CONF_ACCESS_TOKEN: access,
         CONF_REFRESH_TOKEN: refresh,
@@ -56,10 +63,14 @@ def entry_data(home_id: int = HOME_B, **changes: Any) -> dict[str, Any]:
 
 
 def make_entry(home_id: int = HOME_B, **changes: Any) -> MockConfigEntry:
-    """Return a 1.2 entry for a home; not added to hass."""
+    """Return a 1.2 entry for a home, titled by tado's home name; not added to hass.
+
+    The config flow titles every entry it creates with the name tado gives the
+    home, so the tests do too.
+    """
     return MockConfigEntry(
         domain=DOMAIN,
-        title=f"Haus {home_id}",
+        title=HOME_NAMES[home_id],
         unique_id=str(home_id),
         version=1,
         minor_version=2,
@@ -205,7 +216,7 @@ async def test_home_of_the_previous_generation(
     issue = issue_registry.async_get_issue(DOMAIN, f"not_tado_x_home_{entry.entry_id}")
     assert issue is not None
     assert issue.severity is ir.IssueSeverity.ERROR
-    assert issue.translation_placeholders == {"home": "Haus 1000001"}
+    assert issue.translation_placeholders == {"home": "Haus A"}
 
 
 async def test_migrated_entry_learns_its_account(
@@ -330,7 +341,7 @@ async def test_issues_of_the_migration(
         DOMAIN, f"duplicate_home_{entry.entry_id}"
     )
     assert duplicate is not None
-    assert duplicate.translation_placeholders == {"home": "Haus 1000002"}
+    assert duplicate.translation_placeholders == {"home": "Haus B"}
     assert not duplicate.is_fixable
     breaking = issue_registry.async_get_issue(DOMAIN, "breaking_changes_1_9")
     assert breaking is not None

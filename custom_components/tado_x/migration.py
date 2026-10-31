@@ -40,7 +40,7 @@ from .issues import (
     async_create_duplicate_home_issue,
     async_delete_duplicate_home_issue,
 )
-from .runtime import TadoXConfigEntry
+from .runtime import TadoXConfigEntry, entry_label
 
 _DAY_SECONDS: Final = 86400
 _MIN_MIGRATED_BUDGET: Final = 500
@@ -162,7 +162,7 @@ def async_finish_migration(hass: HomeAssistant, entry: TadoXConfigEntry) -> None
     if OPT_DAILY_CALL_BUDGET not in entry.options:
         options = migrate_v1_1(entry.data, entry.options).options
         hass.config_entries.async_update_entry(entry, options=options)
-        LOGGER.debug("Derived the emptied options of %s again", entry.title)
+        LOGGER.debug("Derived the emptied options of %s again", entry_label(entry))
     if entry.unique_id is None:
         unique_id = _async_unique_id(hass, entry, str(entry.data[CONF_HOME_ID]))
         if unique_id is not None:
@@ -199,7 +199,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> b
         result = migrate_v1_1(entry.data, entry.options)
     except ValueError:
         LOGGER.error(
-            "Cannot migrate the tado X entry %s without a home id", entry.title
+            "Cannot migrate the tado X entry %s without a home id", entry.entry_id
         )
         return False
     home_id: int = result.data[CONF_HOME_ID]
@@ -215,7 +215,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> b
     )
     LOGGER.debug(
         "Migrated the tado X entry %s to 1.2 with a budget of %s calls a day",
-        entry.title,
+        entry_label(entry),
         result.options[OPT_DAILY_CALL_BUDGET],
     )
     return True

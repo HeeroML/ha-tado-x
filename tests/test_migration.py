@@ -1,6 +1,7 @@
 """Tests of the config entry migration from 1.1 (v1.8.x) to 1.2."""
 
 from datetime import datetime
+import logging
 from typing import Any
 
 import pytest
@@ -451,3 +452,40 @@ async def test_naive_expiry_costs_one_lazy_refresh(
     expiry = datetime.fromisoformat(legacy_v1_entry.data[CONF_TOKEN_EXPIRY])
     assert expiry.tzinfo is not None
     assert legacy_v1_entry.data.keys() >= LEGACY_DATA_KEYS
+
+
+async def test_migration_logs_no_home_name(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    legacy_v1_entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The migration names an entry by its home label or entry id, not its title."""
+    caplog.set_level(logging.DEBUG, "custom_components.tado_x")
+    legacy_v1_entry.add_to_hass(hass)
+    assert await legacy_v1_entry.async_migrate(hass)
+    hass.config_entries.async_update_entry(legacy_v1_entry, options={})
+    assert await hass.config_entries.async_setup(legacy_v1_entry.entry_id)
+    await hass.async_block_till_done()
+    without_home = MockConfigEntry(
+        domain=DOMAIN,
+        title=legacy_v1_entry.title,
+        version=1,
+        minor_version=1,
+        data={},
+    )
+    without_home.add_to_hass(hass)
+    assert not await without_home.async_migrate(hass)
+
+    own = [
+        record.getMessage()
+        for record in caplog.records
+        if "custom_components/tado_x/" in record.pathname
+    ]
+    assert [message for message in own if legacy_v1_entry.title in message] == []
+    assert "Migrated the tado X entry home …0002 to 1.2" in caplog.text
+    assert "Derived the emptied options of home …0002 again" in caplog.text
+    assert (
+        f"Cannot migrate the tado X entry {without_home.entry_id} without a home id"
+        in caplog.text
+    )

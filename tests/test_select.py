@@ -69,7 +69,7 @@ async def test_presence_select(
 
     assert state.state == "auto"
     assert state.attributes[ATTR_OPTIONS] == ["home", "away", "auto"]
-    assert state.attributes[ATTR_FRIENDLY_NAME] == "Haus 1000002 Presence mode"
+    assert state.attributes[ATTR_FRIENDLY_NAME] == "Haus B Presence mode"
 
 
 @pytest.mark.parametrize(

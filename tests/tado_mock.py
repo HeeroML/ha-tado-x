@@ -57,7 +57,8 @@ _WEEKDAYS = (
     "SATURDAY",
     "SUNDAY",
 )
-_HOME_NAMES = {HOME_A: "Haus A", HOME_B: "Haus B", HOME_C: "Haus C"}
+HOME_NAMES = {HOME_A: "Haus A", HOME_B: "Haus B", HOME_C: "Haus C"}
+"""The names tado gives the homes; the config flow makes them the entry titles."""
 
 
 def load_fixture(name: str) -> Any:
@@ -80,7 +81,7 @@ def _home_fixture(name: str, home_id: int) -> Any:
     payload = json.loads(text)
     if name.startswith("home_") and isinstance(payload, dict):
         payload["id"] = home_id
-        payload["name"] = _HOME_NAMES[home_id]
+        payload["name"] = HOME_NAMES[home_id]
     return payload
 
 

@@ -528,7 +528,7 @@ async def test_set_temperature_offset(
     ("identifier", "name"),
     [
         (room_identifier(HOME_B, 1), "Wohnzimmer"),
-        (home_identifier(HOME_B), "Haus 1000002"),
+        (home_identifier(HOME_B), "Haus B"),
         (device_identifier("IB0000000001"), "Bridge X"),
         (mobile_identifier(5000001), "Phone"),
         (device_identifier("VA0000000199"), "Old valve"),

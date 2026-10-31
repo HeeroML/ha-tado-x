@@ -37,6 +37,7 @@ from .client import (
     Topology,
     Weather,
 )
+from .client.redact import home_label
 from .const import DOMAIN, LOGGER, MAX_STALE_DEVICES, MAX_STALE_HOME, MAX_STALE_ROOMS
 from .issues import async_create_not_tado_x_issue, format_time
 from .quota import QuotaMonitor
@@ -200,12 +201,17 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         *,
         telemetry: Telemetry,
     ) -> None:
-        """Initialize with always_update=False and a 5 s refresh debouncer."""
+        """Initialize with always_update=False and a 5 s refresh debouncer.
+
+        The name, which Home Assistant logs, holds the home label, never the
+        entry title.
+        """
+        label = home_label(api.home_id)
         super().__init__(
             hass,
             LOGGER,
             config_entry=entry,
-            name=f"{DOMAIN} {entry.title} {self.KIND}",
+            name=f"{DOMAIN} {self.KIND} {label}",
             update_interval=monitor.interval(self),
             always_update=False,
             request_refresh_debouncer=Debouncer(
@@ -213,6 +219,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             ),
         )
         self.api = api
+        self._label = label
         self._monitor = monitor
         self._telemetry = telemetry
         self._context = f"poll {self.KIND}"
@@ -254,7 +261,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         LOGGER.debug(
             "Polling %s of %s: %s",
             self.KIND,
-            self.config_entry.title,
+            self._label,
             ", ".join(sorted(due)) or "nothing is due",
         )
         try:
@@ -362,7 +369,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             LOGGER.info(
                 "Serving cached %s data of %s from %s during a quota hold",
                 self.KIND,
-                self.config_entry.title,
+                self._label,
                 at.isoformat(),
             )
         self.last_live_update = at
@@ -373,9 +380,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         if self.stale_since is None:
             return
         self.stale_since = None
-        LOGGER.info(
-            "Stopped serving cached %s data of %s", self.KIND, self.config_entry.title
-        )
+        LOGGER.info("Stopped serving cached %s data of %s", self.KIND, self._label)
 
     def _servable(self, at: datetime, began: datetime, now: datetime) -> bool:
         """Return whether data read at a time may be served during the hold.
@@ -461,14 +466,14 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         LOGGER.warning(
             "Reading %s of %s failed, keeping the last value: %s",
             key,
-            self.config_entry.title,
+            self._label,
             err,
         )
 
     def _note_success(self, key: str) -> None:
         if key in self._failing:
             self._failing.discard(key)
-            LOGGER.info("Reading %s of %s works again", key, self.config_entry.title)
+            LOGGER.info("Reading %s of %s works again", key, self._label)
 
 
 class RoomsCoordinator(TadoXCoordinator[RoomsSnapshot]):
@@ -663,7 +668,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
             LOGGER.warning(
                 "tado reports no known generation for %s; it is used as a tado X "
                 "home because the tado X API serves it",
-                self.config_entry.title,
+                self._label,
             )
         return info
 

@@ -107,3 +107,12 @@ def describe_tado_error(code: str | None, title: str | None) -> str | None:
     if title:
         parts.append(f"title={redact_text(title)}")
     return " ".join(parts) or None
+
+
+def home_label(home_id: int) -> str:
+    """Name a home in a log line by the last four digits of its id, "home …0002".
+
+    tado's name of a home is personal and is the default title of a config
+    entry, so neither is ever logged.
+    """
+    return f"home …{str(home_id)[-4:]}"

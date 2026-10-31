@@ -30,6 +30,8 @@ from .client import (
     Topology,
     Weather,
 )
+from .client.redact import home_label
+from .const import CONF_HOME_ID
 
 if TYPE_CHECKING:
     from .cache import SnapshotCache
@@ -159,3 +161,12 @@ class TadoXRuntimeData:
 
 
 type TadoXConfigEntry = ConfigEntry[TadoXRuntimeData]
+
+
+def entry_label(entry: ConfigEntry[Any]) -> str:
+    """Name the home of an entry in log lines and diagnostics, "home …0002".
+
+    The entry title is tado's name of the home unless the user renamed it,
+    so the integration never logs it.
+    """
+    return home_label(int(entry.data[CONF_HOME_ID]))

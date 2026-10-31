@@ -36,7 +36,7 @@ from .const import (
     OPT_WEATHER,
 )
 from .issues import async_sync_quota_issues
-from .runtime import DevicesSnapshot, FeatureStatus, TadoXConfigEntry
+from .runtime import DevicesSnapshot, FeatureStatus, TadoXConfigEntry, entry_label
 
 if TYPE_CHECKING:
     from .coordinator import TadoXCoordinator
@@ -79,6 +79,7 @@ class QuotaMonitor:
         """Initialize from the entry options and the quota tracker."""
         self._hass = hass
         self._entry = entry
+        self._label = entry_label(entry)
         self._quota = quota
         self._cache = cache
         options = {**DEFAULT_OPTIONS, **entry.options}
@@ -316,17 +317,17 @@ class QuotaMonitor:
         if mode is PlanMode.BLOCKED:
             LOGGER.warning(
                 "The tado API quota of %s is used up; polling pauses until %s",
-                self._entry.title,
+                self._label,
                 self._quota.blocked_until,
             )
         elif mode is PlanMode.CONSERVING:
             LOGGER.info(
                 "Only %s tado API calls are left for %s; polling slows down until the quota resets",
                 None if self.info is None else self.info.remaining,
-                self._entry.title,
+                self._label,
             )
         elif self._mode is PlanMode.CONSERVING:
-            LOGGER.info("Polling of %s is back to its plan", self._entry.title)
+            LOGGER.info("Polling of %s is back to its plan", self._label)
 
     def _hold_end(self, now: datetime) -> datetime | None:
         """Return until when the quota gate refuses polls, if it does."""
@@ -342,11 +343,11 @@ class QuotaMonitor:
             return
         self._holding = holding
         if end is None:
-            LOGGER.info("Polling of %s resumes after the quota hold", self._entry.title)
+            LOGGER.info("Polling of %s resumes after the quota hold", self._label)
         elif mode is not PlanMode.BLOCKED:
             LOGGER.info(
                 "Polling of %s holds until %s: only %s tado API calls are left",
-                self._entry.title,
+                self._label,
                 end.isoformat(),
                 None if self.info is None else self.info.remaining,
             )
