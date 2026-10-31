@@ -26,6 +26,7 @@ from custom_components.tado_x.client import (
     TadoXParseError,
     TadoXServerError,
     TadoXTransientError,
+    Telemetry,
     TokenManager,
     TokenSet,
     Transport,
@@ -36,6 +37,19 @@ from tests.tado_mock import HOME_B, HOME_C, Call, TadoCloudMock, entry_tokens
 ACCESS_B, REFRESH_B = entry_tokens(HOME_B)
 ACCESS_C, REFRESH_C = entry_tokens(HOME_C)
 ROOMS_B = f"{HOPS_API_URL}/homes/{HOME_B}/rooms"
+CLIENT_LOGGER = "custom_components.tado_x.client"
+TOKEN_REQUEST = "POST login:/oauth2/token"
+
+
+def _client_log(
+    caplog: pytest.LogCaptureFixture, minimum: int = logging.DEBUG
+) -> list[tuple[int, str]]:
+    """Return level and message of the client's records from minimum up."""
+    return [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER and record.levelno >= minimum
+    ]
 
 
 @pytest.fixture
@@ -376,6 +390,7 @@ async def test_backoff_suppresses_refreshes(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """After transient failures no POST is sent for 5, 15, 60 and 300 s."""
+    caplog.set_level(logging.DEBUG)
     mock_tado.fail("POST", TOKEN_URL, status=503)
     manager = TokenManager(session, MemoryTokenStore(_tokens(0)))
     expected_posts = 0
@@ -393,13 +408,6 @@ async def test_backoff_suppresses_refreshes(
 
     mock_tado.clear_failures()
     assert await manager.async_get_access_token() == "fake-access-token-0001"
-    # asyncio's debug mode also warns about the steps the frozen clock jumped.
-    warnings = [
-        r
-        for r in caplog.records
-        if r.levelno == logging.WARNING and r.name == "custom_components.tado_x.client"
-    ]
-    assert len(warnings) == 1
 
     mock_tado.fail("POST", TOKEN_URL, status=503)
     freezer.tick(timedelta(seconds=600))
@@ -409,6 +417,32 @@ async def test_backoff_suppresses_refreshes(
     with pytest.raises(TadoXServerError):
         await manager.async_get_access_token()
     assert len(_refreshes(mock_tado)) == expected_posts + 3
+    # Only the first failure of a series and the recovery are state changes.
+    assert _client_log(caplog, logging.INFO) == [
+        (
+            logging.INFO,
+            "Refreshing the tado access token failed (TadoXServerError, HTTP 503), "
+            "retrying in 5 s",
+        ),
+        (
+            logging.INFO,
+            "Refreshing the tado access token works again after 5 failed attempts",
+        ),
+        (
+            logging.INFO,
+            "Refreshing the tado access token failed (TadoXServerError, HTTP 503), "
+            "retrying in 5 s",
+        ),
+    ]
+    debug = [
+        message for level, message in _client_log(caplog) if level == logging.DEBUG
+    ]
+    for delay in (15, 60, 300):
+        assert (
+            "Refreshing the tado access token failed (TadoXServerError, HTTP 503), "
+            f"retrying in {delay} s" in debug
+        )
+    assert "Not refreshing the tado access token during its backoff" in debug
 
 
 @pytest.mark.parametrize(
@@ -740,3 +774,179 @@ async def test_close_gives_up_waiting(
 
     release.set()
     assert await refresh == "fake-access-token-0001"
+
+
+async def test_routine_refresh_logs_at_debug_only(
+    mock_tado: TadoCloudMock,
+    session: ClientSession,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A routine refresh is one exchange and debug lines without any token value."""
+    caplog.set_level(logging.DEBUG)
+    telemetry = Telemetry()
+    manager = TokenManager(session, MemoryTokenStore(_tokens(0)), telemetry=telemetry)
+
+    assert await manager.async_get_access_token() == "fake-access-token-0001"
+
+    expiry = (datetime.now(UTC) + timedelta(seconds=599)).isoformat()
+    log = _client_log(caplog)
+    assert log[0][0] == logging.DEBUG
+    assert log[0][1].startswith(f"{TOKEN_REQUEST} -> 200 in ")
+    assert log[1:] == [
+        (
+            logging.DEBUG,
+            f"Stored the rotated tado tokens; the access token expires at {expiry}",
+        )
+    ]
+    [exchange] = telemetry.exchanges()
+    assert (exchange.at, exchange.method, exchange.endpoint) == (
+        datetime.now(UTC),
+        "POST",
+        TOKEN_REQUEST,
+    )
+    assert (exchange.status, exchange.outcome, exchange.shape, exchange.error) == (
+        200,
+        "ok",
+        None,
+        None,
+    )
+    assert telemetry.errors() == []
+    for secret in ("fake-access-token", "fake-refresh-token", REFRESH_B):
+        assert secret not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("failure", "outcome", "error", "message"),
+    [
+        (
+            {"exc": ClientConnectorError(Mock(), OSError("dns of 192.168.100.200"))},
+            "TadoXConnectionError",
+            "ClientConnectorError",
+            "TadoXConnectionError, cannot reach login.tado.com (ClientConnectorError)",
+        ),
+        ({"status": 502}, "TadoXServerError", "HTTP 502", "TadoXServerError, HTTP 502"),
+        (
+            {"status": 200, "body": {"token_type": "Bearer"}},
+            "TadoXParseError",
+            "invalid token response",
+            "TadoXParseError, unexpected token payload at $.access_token (missing)",
+        ),
+    ],
+    ids=["connection", "server", "parse"],
+)
+async def test_failed_refresh_is_recorded_once(
+    mock_tado: TadoCloudMock,
+    session: ClientSession,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+    failure: dict[str, Any],
+    outcome: str,
+    error: str,
+    message: str,
+) -> None:
+    """A failed refresh is an info line, an exchange and one error record."""
+    caplog.set_level(logging.DEBUG)
+    telemetry = Telemetry()
+    mock_tado.fail("POST", TOKEN_URL, **failure)
+    manager = TokenManager(session, MemoryTokenStore(_tokens(0)), telemetry=telemetry)
+    transport = Transport(session, manager, QuotaTracker(), telemetry=telemetry)
+
+    for _ in range(2):
+        with pytest.raises((TadoXTransientError, TadoXParseError)) as err:
+            await transport.request("GET", ROOMS_B)
+        telemetry.record_tado_error(err.value, context="poll rooms")
+
+    assert err.value.request == TOKEN_REQUEST
+    [exchange] = telemetry.exchanges()
+    assert (exchange.endpoint, exchange.outcome, exchange.error) == (
+        TOKEN_REQUEST,
+        outcome,
+        error,
+    )
+    [record] = telemetry.errors()
+    assert (record.context, record.endpoint, record.kind) == (
+        "token refresh",
+        TOKEN_REQUEST,
+        outcome,
+    )
+    assert _client_log(caplog, logging.INFO) == [
+        (
+            logging.INFO,
+            f"Refreshing the tado access token failed ({message}), retrying in 5 s",
+        )
+    ]
+    for secret in ("fake-access-token", "fake-refresh-token", "192.168"):
+        assert secret not in caplog.text
+
+
+async def test_rejected_login_logs_its_code_only(
+    mock_tado: TadoCloudMock,
+    session: ClientSession,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An invalid_grant is one info line by its code; the login body never shows."""
+    caplog.set_level(logging.DEBUG)
+    telemetry = Telemetry()
+    mock_tado.fail(
+        "POST",
+        TOKEN_URL,
+        status=400,
+        body={
+            "error": "invalid_grant",
+            "error_description": f"{REFRESH_B} of user@example.invalid was revoked",
+        },
+    )
+    manager = TokenManager(session, MemoryTokenStore(_tokens(0)), telemetry=telemetry)
+
+    with pytest.raises(TadoXAuthError) as first:
+        await manager.async_get_access_token()
+    with pytest.raises(TadoXAuthError) as sticky:
+        await manager.async_get_access_token()
+
+    assert first.value.request == sticky.value.request == TOKEN_REQUEST
+    assert _client_log(caplog, logging.INFO) == [
+        (logging.INFO, "tado rejected the login (invalid_grant); a new login is needed")
+    ]
+    [exchange] = telemetry.exchanges()
+    assert (exchange.status, exchange.outcome, exchange.error) == (
+        400,
+        "TadoXAuthError",
+        "invalid_grant",
+    )
+    assert telemetry.last_error is not None
+    assert telemetry.last_error.message == "invalid_grant"
+    for secret in ("fake-refresh-token", "user@example", "revoked"):
+        assert secret not in caplog.text
+
+
+async def test_missing_tokens_are_recorded(
+    mock_tado: TadoCloudMock, session: ClientSession, freezer: FrozenDateTimeFactory
+) -> None:
+    """A grant without tokens is an auth error without a request."""
+    telemetry = Telemetry()
+    manager = TokenManager(session, MemoryTokenStore(), telemetry=telemetry)
+    with pytest.raises(TadoXAuthError):
+        await manager.async_get_access_token()
+    assert telemetry.exchanges() == []
+    [record] = telemetry.errors()
+    assert (record.kind, record.endpoint, record.message) == (
+        "TadoXAuthError",
+        None,
+        "no_tokens",
+    )
+
+
+async def test_401_handling_is_logged_at_debug(
+    mock_tado: TadoCloudMock,
+    session: ClientSession,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A rejected token that was replaced already needs no refresh, and says so."""
+    caplog.set_level(logging.DEBUG)
+    manager = TokenManager(session, MemoryTokenStore(_tokens(600)))
+    assert await manager.async_handle_unauthorized("an-older-token") == ACCESS_B
+    assert _client_log(caplog) == [
+        (logging.DEBUG, "tado rejected an access token that was replaced already")
+    ]

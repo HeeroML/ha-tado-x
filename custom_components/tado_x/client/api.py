@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from functools import partial
+import logging
 from typing import Any
 
 from aiohttp import ClientSession
@@ -18,6 +19,7 @@ from .const import (
     REQUEST_TIMEOUT,
 )
 from .enums import DayType, PresenceSetting, QuickAction, TariffUnit
+from .errors import TadoXError
 from .http import Transport
 from .models import (
     Account,
@@ -40,6 +42,9 @@ from .models import (
 )
 from .ratelimit import Priority, QuotaTracker
 from .schedule import validate_day
+from .telemetry import Telemetry, describe_command, describe_error, endpoint_template
+
+_LOGGER = logging.getLogger(__package__)
 
 
 def tariff_cents(tariff: float) -> int:
@@ -49,6 +54,13 @@ def tariff_cents(tariff: float) -> int:
     """
     cents = (Decimal(str(tariff)) * 100).quantize(Decimal(1), ROUND_HALF_UP)
     return int(cents)
+
+
+def _command_context(method: str, url: URL) -> str:
+    """Return "command" and the last fixed path segment, as in "command manualControl"."""
+    path = endpoint_template(method, url).partition(":")[2]
+    name = next(part for part in reversed(path.split("/")) if not part.startswith("{"))
+    return f"command {name}"
 
 
 def _utc_timestamp(value: datetime) -> str:
@@ -97,7 +109,26 @@ class TadoXHome:
         )
 
     async def _command(self, method: str, url: URL, body: Any = None) -> None:
-        await self._transport.request(method, url, json=body, priority=Priority.COMMAND)
+        """Send a write and log it for the audit trail; a failure is re-raised.
+
+        A failure is recorded in the telemetry in the context "command" plus
+        the last fixed segment of the endpoint, such as "command manualControl".
+        """
+        action = describe_command(method, url, body)
+        try:
+            exchange = await self._transport.command(method, url, json=body)
+        except TadoXError as err:
+            self._transport.telemetry.record_tado_error(
+                err, context=_command_context(method, url)
+            )
+            _LOGGER.info("Write failed: %s -> %s", action, describe_error(err))
+            raise
+        _LOGGER.info(
+            "Write: %s -> ok (HTTP %s, %s ms)",
+            action,
+            exchange.status,
+            exchange.duration_ms,
+        )
 
     def _room(self, room_id: int) -> URL:
         return self._hops / "rooms" / str(room_id)
@@ -319,7 +350,12 @@ class TadoXHome:
 
 
 class TadoXClient:
-    """Account-level client: transport, tokens and quota of one grant."""
+    """Account-level client: transport, tokens, quota and telemetry of one grant.
+
+    The client owns one Telemetry. A host that wants the token refreshes and
+    the quota gate in it as well passes the same instance to the
+    TokenManager, the QuotaTracker and this client.
+    """
 
     def __init__(
         self,
@@ -329,18 +365,30 @@ class TadoXClient:
         *,
         clock: Callable[[], datetime] = utcnow,
         timeout: float = REQUEST_TIMEOUT,
+        telemetry: Telemetry | None = None,
     ) -> None:
         """Initialize with the shared session, the grant and the quota tracker."""
         self._tokens = tokens
         self._quota = quota
+        self._telemetry = telemetry if telemetry is not None else Telemetry(clock=clock)
         self._transport = Transport(
-            session, tokens, quota, clock=clock, timeout=timeout
+            session,
+            tokens,
+            quota,
+            clock=clock,
+            timeout=timeout,
+            telemetry=self._telemetry,
         )
 
     @property
     def quota(self) -> QuotaTracker:
         """Return the quota tracker of this grant."""
         return self._quota
+
+    @property
+    def telemetry(self) -> Telemetry:
+        """Return the telemetry of this grant."""
+        return self._telemetry
 
     def set_payload_observer(
         self, cb: Callable[[int, str, Any, datetime], None] | None

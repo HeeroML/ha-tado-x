@@ -42,11 +42,11 @@ from .enums import (
     parse_enum,
 )
 from .errors import TadoXParseError
+from .telemetry import WARN_ONCE, describe_value
 
 _LOGGER = logging.getLogger(__package__)
 
 _INDEX: Final = re.compile(r"\[\d+\]")
-_warned_skips: set[tuple[str, str]] = set()
 
 _MINUTES_PER_DAY = 1440
 _DEFAULT_FLOW_MINIMUM = 20
@@ -96,7 +96,7 @@ class _Reader:
 
     def __init__(self, raw: object, endpoint: str, path: str = "$") -> None:
         if not isinstance(raw, Mapping):
-            raise TadoXParseError(endpoint, path)
+            raise TadoXParseError(endpoint, path, found=describe_value(raw))
         self._data: Mapping[str, Any] = raw
         self._endpoint = endpoint
         self._path = path
@@ -109,8 +109,16 @@ class _Reader:
     def path(self) -> str:
         return self._path
 
+    def describe(self, key: str) -> str:
+        """Describe the value of a key without revealing it; "missing" if absent."""
+        if key not in self._data:
+            return "missing"
+        return describe_value(self._data[key])
+
     def _error(self, key: str) -> TadoXParseError:
-        return TadoXParseError(self._endpoint, f"{self._path}.{key}")
+        return TadoXParseError(
+            self._endpoint, f"{self._path}.{key}", found=self.describe(key)
+        )
 
     def child(self, key: str) -> _Reader:
         return _Reader(self._data.get(key), self._endpoint, f"{self._path}.{key}")
@@ -194,16 +202,24 @@ class _Reader:
 
 def _require_list(raw: object, endpoint: str) -> list[object]:
     if not isinstance(raw, list):
-        raise TadoXParseError(endpoint, "$")
+        raise TadoXParseError(endpoint, "$", found=describe_value(raw))
     return raw
 
 
 def _log_skip(err: TadoXParseError) -> None:
-    """Log a skipped item; the first of each endpoint and path is a warning."""
-    kind = (err.endpoint, _INDEX.sub("[]", err.path))
-    level = logging.DEBUG if kind in _warned_skips else logging.WARNING
-    _warned_skips.add(kind)
-    _LOGGER.log(level, "Skipping a malformed %s item: %s", err.endpoint, err)
+    """Log a skipped item by its path and what was found there, never the value.
+
+    The first skip of each endpoint and path is a warning, repeats are debug
+    messages.
+    """
+    kind = ("skip", err.endpoint, _INDEX.sub("[]", err.path))
+    _LOGGER.log(
+        logging.WARNING if WARN_ONCE.should_warn(kind) else logging.DEBUG,
+        "Skipping a malformed %s item: %s is %s",
+        err.endpoint,
+        err.path,
+        err.found or "invalid",
+    )
 
 
 def _parse_items[T](
@@ -501,7 +517,7 @@ def _devices(
     path = f"{reader.path}.{key}"
     items = reader.data.get(key)
     if not isinstance(items, list):
-        _log_skip(TadoXParseError("topology", path))
+        _log_skip(TadoXParseError("topology", path, found=reader.describe(key)))
         skipped.append(path)
         return ()
     return tuple(
