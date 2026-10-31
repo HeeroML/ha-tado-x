@@ -421,15 +421,16 @@ class ErrorRecord:
     count: int = 1
     last_at: datetime | None = None
 
-    def repeats(self, other: ErrorRecord) -> bool:
-        """Return True if other is the same error in the same context."""
-        return (
-            self.kind,
-            self.context,
-            self.endpoint,
-            self.status,
-            self.message,
-        ) == (other.kind, other.context, other.endpoint, other.status, other.message)
+
+def _error_key(record: ErrorRecord) -> tuple[object, ...]:
+    """Return what makes two records the same error in the same context."""
+    return (
+        record.kind,
+        record.context,
+        record.endpoint,
+        record.status,
+        record.message,
+    )
 
 
 class WarnOnce:
@@ -584,7 +585,7 @@ class Telemetry:
             message=redact_text(message),
         )
         newest = self.last_error
-        if newest is not None and newest.repeats(record):
+        if newest is not None and _error_key(newest) == _error_key(record):
             self._errors[-1] = replace(
                 newest, count=newest.count + 1, last_at=record.at
             )

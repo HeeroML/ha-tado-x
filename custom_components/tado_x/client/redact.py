@@ -45,8 +45,8 @@ def mask_serial(serial: str) -> str:
 def home_label(home_id: int) -> str:
     """Return the neutral name of a home in logs, such as "home …0002".
 
-    It keeps the last four digits of the home id. The entry title is no
-    choice: it is the home's name from tado unless the user renamed it.
+    It keeps the last four digits of the home id. It stands in for the entry
+    title, which is the home's name from tado unless the user renamed it.
     """
     return f"home …{str(home_id)[-4:]}"
 
