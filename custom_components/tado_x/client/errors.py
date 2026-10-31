@@ -41,7 +41,16 @@ class TadoXTransientError(TadoXError):
 
 
 class TadoXConnectionError(TadoXTransientError):
-    """No HTTP response arrived: network, DNS, TLS or timeout."""
+    """No HTTP response arrived: network, DNS, TLS or timeout.
+
+    cause is the class name of the aiohttp or timeout error. That error is
+    not chained, because its text can hold the request URL with ids.
+    """
+
+    def __init__(self, message: str, *, cause: str | None = None) -> None:
+        """Initialize with a safe message and the class name of the cause."""
+        super().__init__(message)
+        self.cause = cause
 
 
 class TadoXServerError(TadoXTransientError):

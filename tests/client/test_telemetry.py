@@ -702,8 +702,7 @@ def test_record_tado_error_maps_the_taxonomy(
 
 def test_connection_error_names_its_cause() -> None:
     """A connection error tells which exception caused it, not its text."""
-    err = TadoXConnectionError("cannot reach hops.tado.com")
-    err.__cause__ = TimeoutError("connect to 192.168.100.200 timed out")
+    err = TadoXConnectionError("cannot reach hops.tado.com", cause="TimeoutError")
     assert describe_error(err) == (
         "TadoXConnectionError: cannot reach hops.tado.com (TimeoutError)"
     )

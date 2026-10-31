@@ -314,8 +314,8 @@ def error_details(err: TadoXError) -> tuple[int | None, str | None]:
             return None, safe_code(err.reason)
         case TadoXParseError() if err.found is not None:
             return None, redact_text(f"{err} ({err.found})")
-        case TadoXConnectionError() if err.__cause__ is not None:
-            return None, redact_text(f"{err} ({type(err.__cause__).__name__})")
+        case TadoXConnectionError(cause=str() as cause):
+            return None, redact_text(f"{err} ({cause})")
     return None, redact_text(str(err))
 
 

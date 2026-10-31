@@ -61,7 +61,9 @@ async def _post_form(
             status = response.status
             raw = await response.read()
     except (ClientError, TimeoutError) as err:
-        raise TadoXConnectionError("cannot reach login.tado.com") from err
+        raise TadoXConnectionError(
+            "cannot reach login.tado.com", cause=type(err).__name__
+        ) from None
     try:
         body = json.loads(raw)
     except ValueError:
@@ -105,8 +107,8 @@ def _login_error(status: int | None, err: TadoXError) -> str:
     """Return the Exchange.error text of a failed token request; never its body."""
     if isinstance(err, TadoXAuthError):
         return _reason(err)
-    if status is None and err.__cause__ is not None:
-        return type(err.__cause__).__name__
+    if isinstance(err, TadoXConnectionError):
+        return err.cause or type(err).__name__
     if isinstance(err, TadoXParseError):
         return "invalid token response"
     return f"HTTP {status}"

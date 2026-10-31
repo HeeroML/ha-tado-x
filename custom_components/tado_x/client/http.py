@@ -48,8 +48,8 @@ def _decode(raw: bytes, endpoint: str) -> Any:
         return None
     try:
         return json.loads(raw)
-    except ValueError as err:
-        raise TadoXParseError(endpoint, "$") from err
+    except ValueError:
+        raise TadoXParseError(endpoint, "$") from None
 
 
 def _first_error(raw: bytes) -> tuple[str | None, str | None]:
@@ -181,7 +181,8 @@ class Transport:
     ) -> Any:
         """Send one request and return the parsed JSON body, or None if empty.
 
-        endpoint names the payload in a parse error; the URL path is the default.
+        endpoint names the payload in a parse error; the endpoint template is
+        the default, so the error never holds an id or a serial number.
         """
         data, _ = await self._exchange(
             method, URL(url), json, params, priority, endpoint
@@ -212,7 +213,7 @@ class Transport:
         )
         try:
             return await self._attempts(
-                method, url, template, body, params, priority, endpoint or url.path
+                method, url, template, body, params, priority, endpoint or template
             )
         except TadoXError as err:
             if err.request is None:
@@ -313,7 +314,9 @@ class Transport:
                     error=type(err).__name__,
                 )
             )
-            raise TadoXConnectionError(f"cannot reach {url.host}") from err
+            raise TadoXConnectionError(
+                f"cannot reach {url.host}", cause=type(err).__name__
+            ) from None
         duration_ms = _elapsed_ms(started)
         info = parse_rate_limit(response_headers, self._clock())
         self._quota.observe(info, status=status, ticket=ticket)

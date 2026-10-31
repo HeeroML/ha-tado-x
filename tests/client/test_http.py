@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 import logging
 import re
+import traceback
 from typing import Any
 
 from aiohttp import ClientConnectionError, ClientSession
@@ -41,6 +42,7 @@ from tests.tado_mock import HOME_A, HOME_B, TadoCloudMock, entry_tokens
 
 ACCESS_B, REFRESH_B = entry_tokens(HOME_B)
 ROOMS_B = f"{HOPS_API_URL}/homes/{HOME_B}/rooms"
+DEVICE_B = f"{HOPS_API_URL}/homes/{HOME_B}/roomsAndDevices/devices/VA0000000101"
 STATE_B = f"{MY_API_URL}/homes/{HOME_B}/state"
 ROOMS = "GET hops:/homes/{home}/rooms"
 CLIENT_LOGGER = "custom_components.tado_x.client"
@@ -311,6 +313,24 @@ async def test_connection_errors(
         await transport.request("GET", ROOMS_B)
     assert str(err.value) == "cannot reach hops.tado.com"
     assert quota.calls.total(datetime.now(UTC)) == 1
+
+
+async def test_connection_error_does_not_chain_its_cause(
+    mock_tado: TadoCloudMock, transport: Transport
+) -> None:
+    """The aiohttp error, whose text holds the URL, is kept by its class name only."""
+    secret = f"Connection timeout to host {DEVICE_B}"
+    mock_tado.fail("PATCH", DEVICE_B, exc=ClientConnectionError(secret))
+
+    with pytest.raises(TadoXConnectionError) as err:
+        await transport.command("PATCH", DEVICE_B, json={"childLockEnabled": True})
+
+    assert err.value.cause == "ClientConnectionError"
+    assert err.value.__cause__ is None
+    trace = "".join(traceback.format_exception(err.value))
+    assert "ClientConnectionError" not in trace
+    for leaked in ("VA0000000101", str(HOME_B), "Connection timeout"):
+        assert leaked not in trace
 
 
 def _client_log(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
@@ -590,7 +610,7 @@ async def test_unusual_error_bodies(
 
 @pytest.mark.parametrize(
     ("name", "endpoint"),
-    [("rooms", "rooms"), (None, f"/homes/{HOME_B}/rooms")],
+    [("rooms", "rooms"), (None, ROOMS)],
 )
 async def test_invalid_json_is_a_parse_error(
     aioclient_mock: AiohttpClientMocker,
@@ -598,11 +618,33 @@ async def test_invalid_json_is_a_parse_error(
     name: str | None,
     endpoint: str,
 ) -> None:
-    """A 2xx whose body is not JSON fails as a parse error named by its endpoint."""
+    """A 2xx whose body is not JSON fails as a parse error named by its endpoint.
+
+    Without an endpoint key the template names it, never the URL path.
+    """
     aioclient_mock.get(ROOMS_B, text="[{]")
     with pytest.raises(TadoXParseError) as err:
         await transport.request("GET", ROOMS_B, endpoint=name)
     assert err.value.endpoint == endpoint
+    assert err.value.__cause__ is None
+    assert "JSONDecodeError" not in "".join(traceback.format_exception(err.value))
+
+
+async def test_parse_error_of_a_write_holds_no_ids(
+    aioclient_mock: AiohttpClientMocker, transport: Transport
+) -> None:
+    """A device write answered with a page instead of JSON names no serial or home."""
+    aioclient_mock.patch(DEVICE_B, text="<html>OK</html>")
+
+    with pytest.raises(TadoXParseError) as err:
+        await transport.command("PATCH", DEVICE_B, json={"childLockEnabled": True})
+
+    template = "PATCH hops:/homes/{home}/roomsAndDevices/devices/{serial}"
+    assert (err.value.endpoint, err.value.path) == (template, "$")
+    assert str(err.value) == f"unexpected {template} payload at $"
+    trace = "".join(traceback.format_exception(err.value))
+    for secret in ("VA0000000101", "0000000101", str(HOME_B)):
+        assert secret not in trace
 
 
 async def test_publish(
