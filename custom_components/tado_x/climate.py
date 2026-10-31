@@ -38,6 +38,7 @@ from .const import (
     DEFAULT_OPTIONS,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
+    LOGGER,
     MAX_TEMP,
     MIN_TEMP,
     OPT_MANUAL_TERMINATION,
@@ -263,10 +264,15 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
         """Return the termination of a manual change per the options (#94)."""
         options = {**DEFAULT_OPTIONS, **self._entry.options}
         if off and not options[OPT_OFF_FOLLOWS_POLICY]:
+            LOGGER.debug(
+                "Termination of room %s: off -> MANUAL (off_follows_policy is off)",
+                self._room_id,
+            )
             return Termination.manual()
         topology = self._entry.runtime_data.devices.data.topology
         room = topology.rooms.get(self._room_id)
         return resolve_termination(
+            room_id=self._room_id,
             policy=TerminationPolicy(options[OPT_MANUAL_TERMINATION]),
             timer=dt.timedelta(minutes=int(options[OPT_TIMER_MINUTES])),
             room_default=None if room is None else room.manual_termination_default,
@@ -275,15 +281,22 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
 
     def _heat_temperature(self) -> float:
         """Return the target for turning on: current, last seen, next schedule, 21 °C."""
+        temperature, source = self._heat_target()
+        LOGGER.debug(
+            "Room %s heats to %s °C, the %s", self._room_id, temperature, source
+        )
+        return temperature
+
+    def _heat_target(self) -> tuple[float, str]:
         room = self._room
         if room is not None and room.setting.temperature is not None:
-            return room.setting.temperature
+            return room.setting.temperature, "current target"
         if self._last_target is not None:
-            return self._last_target
+            return self._last_target, "last target seen"
         change = None if room is None else room.next_schedule_change
         if change is not None and change.setting.temperature is not None:
-            return change.setting.temperature
-        return DEFAULT_TARGET_TEMP
+            return change.setting.temperature, "next schedule target"
+        return DEFAULT_TARGET_TEMP, "default target"
 
     async def _async_set_manual(
         self, setting: Setting, termination: Termination
@@ -365,10 +378,12 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
         """Set a temperature; duration in minutes means a timer (v1 compatible)."""
         await self._async_heat(temperature, termination_override(duration, termination))
 
-    @handle_tado_errors
     async def async_get_schedule(self) -> ServiceResponse:
         """Return the weekly schedule of the room."""
-        schedule = await self.coordinator.api.async_get_schedule(self._room_id)
+        try:
+            schedule = await self.coordinator.api.async_get_schedule(self._room_id)
+        except TadoXError as err:
+            raise_for_tado_error(err, self._entry, context="service get_schedule")
         return schedule_response(schedule)
 
     async def async_set_schedule(
@@ -381,6 +396,11 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
         """
         chosen = {DayType(day.upper()) for day in days}
         plan = {day: schedule_blocks(day, blocks) for day in DayType if day in chosen}
+        LOGGER.debug(
+            "Writing the schedule of room %s for %s, one request per day",
+            self._room_id,
+            ", ".join(day.lower() for day in plan),
+        )
         done: list[str] = []
         for day, day_blocks in plan.items():
             try:
@@ -389,7 +409,9 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
                 )
             except TadoXError as err:
                 if not done:
-                    raise_for_tado_error(err, self._entry)
+                    raise_for_tado_error(
+                        err, self._entry, context="service set_schedule"
+                    )
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="schedule_partially_written",
@@ -404,6 +426,7 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
         """Return the summary and the raw day report; today in the home's zone by default."""
         devices = self._entry.runtime_data.devices.data
         day = date or home_today(devices.home_info)
+        LOGGER.debug("Reading the day report of room %s for %s", self._room_id, day)
         try:
             report = await self.coordinator.api.async_get_day_report(self._room_id, day)
         except TadoXForbiddenError as err:
@@ -411,7 +434,7 @@ class TadoXClimate(TadoXEntity[RoomsCoordinator], ClimateEntity):
                 translation_domain=DOMAIN, translation_key="day_report_forbidden"
             ) from err
         except TadoXError as err:
-            raise_for_tado_error(err, self._entry)
+            raise_for_tado_error(err, self._entry, context="service get_day_report")
         return {
             "summary": asdict(summarize_day_report(report)),
             "report": dict(report.raw),

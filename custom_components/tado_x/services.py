@@ -44,12 +44,14 @@ from .client import (
     Termination,
     TerminationType,
     format_clock,
+    mask_serial,
     parse_clock,
     tariff_cents,
     validate_day,
 )
 from .const import (
     DOMAIN,
+    LOGGER,
     MAX_TEMP,
     MAX_TERMINATION_TIMER_MINUTES,
     MIN_TEMP,
@@ -60,7 +62,7 @@ from .const import (
 from .coordinator import home_today
 from .entity import raise_for_tado_error
 from .number import async_set_offset
-from .runtime import DevicesSnapshot, TadoXConfigEntry
+from .runtime import DevicesSnapshot, TadoXConfigEntry, entry_label
 
 SERVICE_SET_CLIMATE_TIMER: Final = "set_climate_timer"
 SERVICE_GET_SCHEDULE: Final = "get_schedule"
@@ -170,6 +172,7 @@ def termination_override(
     """Return the termination of a set_climate_timer call; None means the policy."""
     if termination is None:
         if duration is None:
+            LOGGER.debug("set_climate_timer: no duration, so the policy decides")
             return None
         return Termination.timer(dt.timedelta(minutes=duration))
     kind = TerminationType(termination.upper())
@@ -292,6 +295,7 @@ async def _async_set_temperature_offset(call: ServiceCall) -> None:
                 "device": device.name_by_user or device.name or device.id
             },
         )
+    LOGGER.debug("set_temperature_offset: writing to device %s", mask_serial(serial))
     await async_set_offset(entry, serial, call.data[ATTR_OFFSET])
 
 
@@ -300,10 +304,11 @@ async def _async_add_meter_reading(call: ServiceCall) -> None:
     entry = _energy_iq_entry(call)
     data = entry.runtime_data
     day = call.data.get(ATTR_DATE) or home_today(data.devices.data.home_info)
+    LOGGER.debug("add_meter_reading: reading of %s for %s", day, entry_label(entry))
     try:
         await data.api.async_add_meter_reading(call.data[ATTR_READING], day)
     except TadoXError as err:
-        raise_for_tado_error(err, entry)
+        raise_for_tado_error(err, entry, context=f"service {SERVICE_ADD_METER_READING}")
 
 
 async def _async_set_eiq_tariff(call: ServiceCall) -> None:
@@ -314,24 +319,38 @@ async def _async_set_eiq_tariff(call: ServiceCall) -> None:
     entry = _energy_iq_entry(call)
     data = entry.runtime_data
     start = call.data.get(ATTR_START_DATE) or home_today(data.devices.data.home_info)
+    end = call.data.get(ATTR_END_DATE)
+    LOGGER.debug(
+        "set_eiq_tariff: whole cents per %s from %s until %s for %s",
+        call.data[ATTR_UNIT],
+        start,
+        end or "open end",
+        entry_label(entry),
+    )
     try:
         await data.api.async_add_tariff(
             cents=tariff_cents(call.data[ATTR_TARIFF]),
             unit=TARIFF_UNITS[call.data[ATTR_UNIT]],
             start=start,
-            end=call.data.get(ATTR_END_DATE),
+            end=end,
         )
     except TadoXError as err:
-        raise_for_tado_error(err, entry)
+        raise_for_tado_error(err, entry, context=f"service {SERVICE_SET_EIQ_TARIFF}")
 
 
-def _raise_holiday_error(err: TadoXError, entry: TadoXConfigEntry) -> NoReturn:
-    """Raise the translated error of a holiday mode request."""
+def _raise_holiday_error(
+    err: TadoXError, entry: TadoXConfigEntry, service_name: str
+) -> NoReturn:
+    """Raise the translated error of a holiday mode request.
+
+    A home without holiday mode is an answer, not an API problem, so only
+    the other errors are recorded.
+    """
     if isinstance(err, TadoXForbiddenError | TadoXNotFoundError):
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="holiday_mode_unavailable"
         ) from err
-    raise_for_tado_error(err, entry)
+    raise_for_tado_error(err, entry, context=f"service {service_name}")
 
 
 def _iso(value: dt.datetime | None) -> str | None:
@@ -344,7 +363,7 @@ async def _async_get_holiday_mode(call: ServiceCall) -> ServiceResponse:
     try:
         holiday = await entry.runtime_data.api.async_read_holiday_mode()
     except TadoXError as err:
-        _raise_holiday_error(err, entry)
+        _raise_holiday_error(err, entry, SERVICE_GET_HOLIDAY_MODE)
     return {
         ATTR_ENABLED: holiday.enabled,
         ATTR_ACTIVE: holiday.active,
@@ -395,10 +414,17 @@ async def _async_set_holiday_mode(call: ServiceCall) -> None:
     start = None if start is None else dt_util.as_utc(start)
     end = None if end is None else dt_util.as_utc(end)
     data = entry.runtime_data
+    LOGGER.debug(
+        "set_holiday_mode: enabled=%s, start %s, end %s for %s",
+        enabled,
+        "kept" if start is None else start.isoformat(),
+        "kept" if end is None else end.isoformat(),
+        entry_label(entry),
+    )
     try:
         await data.api.async_set_holiday_mode(enabled=enabled, start=start, end=end)
     except TadoXError as err:
-        _raise_holiday_error(err, entry)
+        _raise_holiday_error(err, entry, SERVICE_SET_HOLIDAY_MODE)
     data.devices.async_apply_optimistic(
         {"holiday_mode": _holiday_patch(enabled, start, end, dt_util.utcnow())}
     )

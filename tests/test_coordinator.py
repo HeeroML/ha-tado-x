@@ -4,6 +4,7 @@ from collections.abc import Callable
 import copy
 from datetime import UTC, datetime, timedelta
 import logging
+import re
 from typing import Any
 
 from aiohttp import ClientConnectionError
@@ -60,6 +61,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 from tests.tado_mock import HOME_B, TadoCloudMock
 from tests.test_climate import climate_id, entity_id, state_of
 from tests.test_init import make_entry, setup_entry
@@ -75,6 +77,9 @@ RUNNING_TIMES = "/v1/homes/1000002/runningTimes"
 FLOW = "/homes/1000002/settings/flowTemperatureOptimization"
 HOLIDAY = "/homes/1000002/settings/holidayMode"
 OFF = Setting(power=Power.OFF, temperature=None)
+ROOMS_REQUEST = "GET hops:/homes/{home}/rooms"
+DEVICE_PATH = "/homes/1000002/roomsAndDevices/devices/VA0000000101"
+DEVICE_REQUEST = "PATCH hops:/homes/{home}/roomsAndDevices/devices/{serial}"
 RESET = datetime(2026, 10, 30, 10, 0, tzinfo=UTC)
 
 
@@ -425,10 +430,17 @@ async def test_network_error_makes_data_unavailable(
     ("status", "body", "key", "placeholders"),
     [
         (503, None, "server_error", {"status": "503"}),
-        (422, None, "api_error", None),
-        (200, {"not": "a list"}, "api_error", None),
+        (
+            422,
+            {"errors": [{"code": "not.allowed", "title": "Wohnzimmer of Haus B"}]},
+            "request_rejected",
+            {"status": "422", "code": "not.allowed"},
+        ),
+        (422, b"", "request_rejected", {"status": "422", "code": "-"}),
+        (200, {"not": "a list"}, "api_error", {"error": "rooms"}),
+        (200, b"<html>maintenance</html>", "api_error", {"error": ROOMS_REQUEST}),
     ],
-    ids=["server", "request", "parse"],
+    ids=["server", "request", "request_without_body", "parse", "not_json"],
 )
 async def test_failures_of_a_required_endpoint(
     hass: HomeAssistant,
@@ -439,7 +451,11 @@ async def test_failures_of_a_required_endpoint(
     key: str,
     placeholders: dict[str, str] | None,
 ) -> None:
-    """Server, request and parse errors are translated update failures."""
+    """Server, request and parse errors are translated update failures.
+
+    The message names tado's error code or the endpoint template, never the
+    error title, a home id or the JSON path.
+    """
     data = await _setup(hass, freezer)
     mock_tado.fail("GET", ROOMS, status=status, body=body, times=1)
 
@@ -448,8 +464,7 @@ async def test_failures_of_a_required_endpoint(
     error = data.rooms.last_exception
     assert isinstance(error, UpdateFailed)
     assert error.translation_key == key
-    if placeholders is not None:
-        assert error.translation_placeholders == placeholders
+    assert error.translation_placeholders == placeholders
 
 
 async def test_optional_failure_keeps_the_previous_value(
@@ -480,7 +495,7 @@ async def test_optional_failure_keeps_the_previous_value(
 
     assert data.home.data.weather is not None
     assert data.home.data.weather.outdoor_temperature == 1.0
-    assert "Reading weather of Haus 1000002 works again" in caplog.text
+    assert "Reading weather of home …0002 works again" in caplog.text
 
 
 async def test_optional_rate_limit_is_not_swallowed(
@@ -646,7 +661,7 @@ async def test_low_quota_tier_issue(
     issue = issue_registry.async_get_issue(DOMAIN, f"low_quota_tier_{entry_id}")
     assert issue is not None
     assert issue.translation_placeholders == {
-        "home": "Haus 1000002",
+        "home": "Haus B",
         "limit": "100",
         "rooms_minutes": str(round(data.monitor.plan.rooms.total_seconds() / 60)),
     }
@@ -703,7 +718,15 @@ async def test_optimistic_patch_needs_data(
     """A coordinator without data ignores a patch."""
     data = await _setup(hass, freezer)
     entry = data.rooms.config_entry
-    rooms = RoomsCoordinator(hass, entry, data.api, data.monitor, None)
+    rooms = RoomsCoordinator(
+        hass,
+        entry,
+        data.api,
+        data.monitor,
+        None,
+        telemetry=data.telemetry,
+        reauth=data.reauth,
+    )
 
     rooms.async_apply_optimistic({1: lambda snapshot: snapshot})
 
@@ -713,15 +736,53 @@ async def test_optimistic_patch_needs_data(
 async def test_refresh_before_anything_is_due_sends_nothing(
     hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A refresh of the plan only reads endpoints whose period has passed."""
+    """A refresh of the plan only reads endpoints whose period has passed.
+
+    Nothing came from tado, so the update times stay as they are.
+    """
     data = await _setup(hass, freezer)
     before = data.rooms.data
+    updated = {
+        coordinator.KIND: coordinator.last_live_update
+        for coordinator in (data.rooms, data.home, data.devices)
+    }
     mock_tado.clear_calls()
+    freezer.tick(timedelta(seconds=30))
 
-    await data.rooms.async_refresh()
+    for coordinator in (data.rooms, data.home, data.devices):
+        await coordinator.async_refresh()
 
     assert mock_tado.calls() == []
     assert data.rooms.data is before
+    assert {
+        coordinator.KIND: coordinator.last_live_update
+        for coordinator in (data.rooms, data.home, data.devices)
+    } == updated
+
+
+async def test_a_longer_interval_leaves_a_tick_that_changes_no_update_time(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """The timer armed before the plan slowed down sends nothing and moves nothing.
+
+    Home Assistant arms the next poll before the quota monitor lengthens the
+    interval, so one tick at the old interval finds nothing due.
+    """
+    data = await _setup(hass, freezer)
+    updated = entity_id(hass, "sensor", f"{HOME_B}_data_updated")
+    mock_tado.set_quota(remaining=900)
+    await _tick(hass, freezer, 45)
+    assert _mode(data) is PlanMode.CONSERVING
+    assert data.rooms.update_interval == timedelta(hours=1)
+    fetched = data.rooms.last_live_update
+    assert fetched == dt_util.utcnow()
+    mock_tado.clear_calls()
+
+    await _tick(hass, freezer, 45)
+
+    assert mock_tado.calls() == []
+    assert data.rooms.last_live_update == fetched
+    assert state_of(hass, updated).state == fetched.isoformat()
 
 
 async def test_poll_floor_without_reset_fails_setup(
@@ -736,6 +797,12 @@ async def test_poll_floor_without_reset_fails_setup(
 
     assert entry.state is ConfigEntryState.SETUP_RETRY
     assert entry.error_reason_translation_key == "quota_exhausted_unknown_reset"
+
+
+def _sent(err: TadoXError) -> TadoXError:
+    """Tag an error with its request, as the transport does."""
+    err.request = DEVICE_REQUEST
+    return err
 
 
 class _Probe(TadoXEntity[RoomsCoordinator]):
@@ -772,20 +839,26 @@ class _Probe(TadoXEntity[RoomsCoordinator]):
         ),
         (TadoXConnectionError("down"), "cannot_connect", None),
         (TadoXServerError(502), "cannot_connect", None),
-        (TadoXHomeNotXError(HOME_B), "not_tado_x_home", {"home": "Haus 1000002"}),
+        (TadoXHomeNotXError(HOME_B), "not_tado_x_home", {"home": "Haus B"}),
         (TadoXNotFoundError(404), "not_found", None),
         (
-            TadoXForbiddenError(403, "forbidden", "Not allowed"),
+            TadoXForbiddenError(403, "forbidden", "Not allowed in Haus B"),
             "request_rejected",
-            {"status": "403", "title": "Not allowed"},
+            {"status": "403", "code": "forbidden"},
         ),
-        (TadoXRequestError(422), "request_rejected", {"status": "422", "title": ""}),
+        (TadoXRequestError(422), "request_rejected", {"status": "422", "code": "-"}),
         (
-            TadoXParseError("rooms", "$.id"),
-            "api_error",
-            {"error": "rooms $.id"},
+            TadoXRequestError(422, "Haus B 1000002", None),
+            "request_rejected",
+            {"status": "422", "code": "<str len=14>"},
         ),
-        (TadoXError("odd"), "api_error", {"error": "odd"}),
+        (TadoXParseError("rooms", "$.id"), "api_error", {"error": "rooms"}),
+        (
+            _sent(TadoXParseError(DEVICE_PATH, "$")),
+            "api_error",
+            {"error": DEVICE_REQUEST},
+        ),
+        (TadoXError("odd"), "api_error", {"error": "TadoXError"}),
     ],
     ids=[
         "quota",
@@ -796,7 +869,9 @@ class _Probe(TadoXEntity[RoomsCoordinator]):
         "not_found",
         "forbidden",
         "request",
+        "odd_code",
         "parse",
+        "parse_after_request",
         "other",
     ],
 )
@@ -1146,3 +1221,157 @@ async def test_home_details_of_the_previous_generation_fail_setup(
 
     assert entry.state is ConfigEntryState.SETUP_ERROR
     assert issue_registry.async_get_issue(DOMAIN, f"not_tado_x_home_{entry.entry_id}")
+
+
+async def test_poll_errors_are_recorded_once_with_their_context(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Failed polls are recorded as "poll <kind>"; answers and holds are not.
+
+    The 404 of a home without flow temperature is an answer, and a token
+    refresh that fails a poll keeps the context of the refresh.
+    """
+    data = await _setup(hass, freezer)
+    assert data.telemetry.errors() == []
+    mock_tado.fail("GET", ROOMS, status=503, times=1)
+    mock_tado.fail("GET", WEATHER, status=500, times=2)
+
+    await _poll(freezer, data.rooms)
+    for _ in range(2):
+        freezer.tick(timedelta(seconds=900))
+        await data.home.async_refresh()
+    freezer.tick(timedelta(minutes=10))
+    mock_tado.fail("POST", "/oauth2/token", exc=ClientConnectionError(), times=1)
+    await data.rooms.async_refresh()
+
+    assert not data.rooms.last_update_success
+    assert [
+        (error.context, error.kind, error.endpoint, error.status, error.count)
+        for error in data.telemetry.errors()
+    ] == [
+        ("poll rooms", "TadoXServerError", "GET hops:/homes/{home}/rooms", 503, 1),
+        ("poll home", "TadoXServerError", "GET my:/homes/{home}/weather", 500, 2),
+        ("token refresh", "TadoXConnectionError", "POST login:/oauth2/token", None, 1),
+    ]
+
+
+async def test_an_outage_of_every_poll_keeps_older_errors(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """The three polls take turns failing; each repeat counts in its own record.
+
+    None of the repeats is like the newest record, so counting only there
+    would fill the ring with them and drop the failed write before them. The
+    timers of the coordinators poll as well, so the counts follow the calls.
+    """
+    data = await _setup(hass, freezer)
+    mock_tado.fail("POST", "/manualControl", status=422, times=1)
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_TEMPERATURE,
+            {ATTR_ENTITY_ID: climate_id(hass, 1), ATTR_TEMPERATURE: 21},
+            blocking=True,
+        )
+    mock_tado.fail(
+        None, re.compile(r"//(hops|my)\.tado\.com/"), exc=ClientConnectionError()
+    )
+
+    mock_tado.clear_calls()
+
+    for _ in range(60):
+        freezer.tick(timedelta(minutes=15))
+        for coordinator in (data.rooms, data.home, data.devices):
+            await coordinator.async_refresh()
+
+    calls = {path: _count(mock_tado, path) for path in (ROOMS, STATE, TOPOLOGY)}
+    assert min(calls.values()) >= 60
+    write, *polls = data.telemetry.errors()
+    assert (write.context, write.kind, write.count) == (
+        "command manualControl",
+        "TadoXRequestError",
+        1,
+    )
+    assert {poll.context: (poll.kind, poll.endpoint, poll.count) for poll in polls} == {
+        "poll rooms": (
+            "TadoXConnectionError",
+            "GET hops:/homes/{home}/rooms",
+            calls[ROOMS],
+        ),
+        "poll home": (
+            "TadoXConnectionError",
+            "GET my:/homes/{home}/state",
+            calls[STATE],
+        ),
+        "poll devices": (
+            "TadoXConnectionError",
+            "GET hops:/homes/{home}/roomsAndDevices",
+            calls[TOPOLOGY],
+        ),
+    }
+    assert data.telemetry.errors_by_kind() == {
+        "TadoXConnectionError": sum(calls.values()),
+        "TadoXRequestError": 1,
+    }
+
+
+async def test_quota_holds_record_the_gate_once(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A 429 and the refusals after it are one quota_gate error, not one per poll."""
+    data = await _setup(hass, freezer)
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=1))
+
+    for _ in range(3):
+        await _poll(freezer, data.rooms)
+
+    assert data.rooms.stale_since is not None
+    assert [(error.kind, error.context) for error in data.telemetry.errors()] == [
+        ("quota_gate", "quota")
+    ]
+
+
+async def test_entity_action_errors_are_recorded_as_commands(
+    hass: HomeAssistant, mock_tado: TadoCloudMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """An entity action records an error the client did not, by the entity key."""
+    data = await _setup(hass, freezer)
+    probe = _Probe(data.rooms, TadoXServerError(502))
+
+    with pytest.raises(HomeAssistantError):
+        await probe.async_act(1)
+
+    error = data.telemetry.last_error
+    assert error is not None
+    assert (error.context, error.kind, error.status) == (
+        "command probe",
+        "TadoXServerError",
+        502,
+    )
+
+
+async def test_optimistic_patches_are_logged_without_ids(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Applying and dropping a patch is logged by its target name only."""
+    caplog.set_level(logging.DEBUG)
+    data = await _setup(hass, freezer)
+    rooms = data.rooms
+
+    rooms.async_apply_optimistic(
+        {("control", 1): lambda snapshot: snapshot.with_room(1, humidity=99.0)},
+        ttl=timedelta(seconds=30),
+    )
+    await _poll(freezer, rooms)
+
+    assert (
+        "Applied the optimistic control change of the rooms data for up to 30 s"
+        in caplog.text
+    )
+    assert (
+        "Dropped the optimistic control change of the rooms data: "
+        "tado did not confirm it in time" in caplog.text
+    )

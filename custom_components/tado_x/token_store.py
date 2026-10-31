@@ -6,8 +6,8 @@ from typing import Final, override
 from homeassistant.core import HomeAssistant
 
 from .client import TokenSet, TokenStore
-from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_TOKEN_EXPIRY
-from .runtime import TadoXConfigEntry
+from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_TOKEN_EXPIRY, LOGGER
+from .runtime import TadoXConfigEntry, entry_label
 
 EXPIRED: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -31,13 +31,15 @@ class ConfigEntryTokenStore(TokenStore):
     """Keep the tokens in access_token, refresh_token and token_expiry of entry.data.
 
     The three keys are always written together; token_expiry is aware UTC
-    ISO 8601, and a naive or unreadable expiry loads as expired.
+    ISO 8601, and a naive or unreadable expiry loads as expired. Only the
+    expiry is ever logged, never a token.
     """
 
     def __init__(self, hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
         """Initialize for one config entry."""
         self._hass = hass
         self._entry = entry
+        self._label = entry_label(entry)
 
     @override
     def load(self) -> TokenSet | None:
@@ -46,16 +48,28 @@ class ConfigEntryTokenStore(TokenStore):
         access = data.get(CONF_ACCESS_TOKEN)
         refresh = data.get(CONF_REFRESH_TOKEN)
         if not isinstance(access, str) or not isinstance(refresh, str) or not refresh:
+            LOGGER.debug("The config entry of %s holds no tokens", self._label)
             return None
+        expires_at = parse_expiry(data.get(CONF_TOKEN_EXPIRY))
+        if expires_at is EXPIRED:
+            LOGGER.debug(
+                "The token expiry of %s is missing, naive or unreadable; "
+                "the access token is refreshed first",
+                self._label,
+            )
         return TokenSet(
-            access_token=access,
-            refresh_token=refresh,
-            expires_at=parse_expiry(data.get(CONF_TOKEN_EXPIRY)),
+            access_token=access, refresh_token=refresh, expires_at=expires_at
         )
 
     @override
     async def async_save(self, tokens: TokenSet) -> None:
         """Write the tokens into the entry data in one update."""
+        LOGGER.debug(
+            "Writing the rotated tado tokens of %s into its config entry; "
+            "the access token expires at %s",
+            self._label,
+            tokens.expires_at.isoformat(),
+        )
         self._hass.config_entries.async_update_entry(
             self._entry,
             data={

@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main, "rewrite/**"]
+    branches: [main, "rewrite/**", "feat/**"]
   pull_request:
   schedule:
     # Weekly pytest-next run against the newest Home Assistant.

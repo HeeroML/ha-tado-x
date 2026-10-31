@@ -6,9 +6,11 @@ from datetime import datetime, timedelta
 from http import HTTPStatus
 import json
 import logging
+import time
 from typing import Any, Final, Protocol, override
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
+from yarl import URL
 
 from .const import (
     CLIENT_ID,
@@ -33,9 +35,11 @@ from .errors import (
     TadoXTransientError,
 )
 from .models import DeviceAuthorization, TokenSet, utcnow
+from .telemetry import Exchange, Telemetry, endpoint_template, error_details
 
 _LOGGER = logging.getLogger(__package__)
 
+_TOKEN_REQUEST: Final = endpoint_template("POST", URL(TOKEN_URL))
 _LOGIN_TIMEOUT: Final = ClientTimeout(total=REQUEST_TIMEOUT, connect=CONNECT_TIMEOUT)
 # RFC 6749 5.2 errors that reject the grant or the client. Any other 4xx, for
 # example a proxy or CDN page, leaves the refresh token valid.
@@ -57,7 +61,9 @@ async def _post_form(
             status = response.status
             raw = await response.read()
     except (ClientError, TimeoutError) as err:
-        raise TadoXConnectionError("cannot reach login.tado.com") from err
+        raise TadoXConnectionError(
+            "cannot reach login.tado.com", cause=type(err).__name__
+        ) from None
     try:
         body = json.loads(raw)
     except ValueError:
@@ -79,6 +85,33 @@ def _is_transient(status: int) -> bool:
 def _oauth_error(body: Mapping[str, Any]) -> str | None:
     error = body.get("error")
     return error if isinstance(error, str) and error else None
+
+
+def _reason(err: TadoXAuthError) -> str:
+    """Return the reason of an auth error if it looks like an OAuth code."""
+    return error_details(err)[1] or "unknown"
+
+
+def _failure(err: TadoXError) -> str:
+    """Return the class, the status and the safe message of a refresh failure."""
+    status, message = error_details(err)
+    parts = [type(err).__name__]
+    if status is not None:
+        parts.append(f"HTTP {status}")
+    if message:
+        parts.append(message)
+    return ", ".join(parts)
+
+
+def _login_error(status: int | None, err: TadoXError) -> str:
+    """Return the Exchange.error text of a failed token request; never its body."""
+    if isinstance(err, TadoXAuthError):
+        return _reason(err)
+    if isinstance(err, TadoXConnectionError):
+        return err.cause or type(err).__name__
+    if isinstance(err, TadoXParseError):
+        return "invalid token response"
+    return f"HTTP {status}"
 
 
 def _retrieve_outcome(task: asyncio.Task[TokenSet]) -> None:
@@ -131,6 +164,9 @@ class TokenManager:
     win over its rotation and over its rejection. Transient refresh failures
     back off and never count as auth failures; an auth failure is sticky
     until the entry reloads.
+
+    Every token request is recorded in the telemetry, and failed refreshes
+    are recorded as errors in the context "token refresh".
     """
 
     BACKOFF: Final = (5, 15, 60, 300)
@@ -142,6 +178,7 @@ class TokenManager:
         *,
         clock: Callable[[], datetime] = utcnow,
         create_task: RefreshTaskFactory = asyncio.create_task,
+        telemetry: Telemetry | None = None,
     ) -> None:
         """Initialize from the persisted tokens; nothing is refreshed yet.
 
@@ -152,6 +189,7 @@ class TokenManager:
         self._store = store
         self._clock = clock
         self._create_task = create_task
+        self._telemetry = telemetry if telemetry is not None else Telemetry(clock=clock)
         self._persisted = store.load()
         self._tokens = self._persisted
         self._lock = asyncio.Lock()
@@ -193,7 +231,9 @@ class TokenManager:
             if tokens.access_token != rejected_access_token and tokens.is_fresh(
                 self._clock()
             ):
+                _LOGGER.debug("tado rejected an access token that was replaced already")
                 return tokens.access_token
+            _LOGGER.debug("tado rejected the access token; refreshing it")
             return await self._refresh(tokens, force=True)
 
     async def async_close(self, timeout: float = 10.0) -> None:
@@ -210,8 +250,10 @@ class TokenManager:
             _LOGGER.debug("Closed the tado client while a token refresh was running")
 
     def _raise_if_auth_failed(self) -> None:
-        if self._auth_error is not None:
-            raise TadoXAuthError(self._auth_error.reason)
+        if (failure := self._auth_error) is not None:
+            err = TadoXAuthError(failure.reason, status=failure.status)
+            err.request = failure.request
+            raise err
 
     def _adopt_persisted(self) -> TokenSet:
         """Return the current tokens, taking those another writer stored.
@@ -236,6 +278,7 @@ class TokenManager:
     async def _refresh(self, tokens: TokenSet, *, force: bool) -> str:
         """Join or start the refresh; on a transient failure use a still valid token."""
         if self._backoff is not None and self._clock() < self._backoff[0]:
+            _LOGGER.debug("Not refreshing the tado access token during its backoff")
             return self._fallback(tokens, self._backoff[1], force=force)
         task = self._refresh_task
         if task is None or task.done():
@@ -283,7 +326,16 @@ class TokenManager:
             _LOGGER.exception("Storing the rotated tado tokens failed")
         else:
             self._persisted = new
+            _LOGGER.debug(
+                "Stored the rotated tado tokens; the access token expires at %s",
+                new.expires_at.isoformat(),
+            )
         self._tokens = new
+        if self._failures:
+            _LOGGER.info(
+                "Refreshing the tado access token works again after %s failed attempts",
+                self._failures,
+            )
         self._failures = 0
         self._backoff = None
         return new
@@ -295,24 +347,60 @@ class TokenManager:
         return await self._async_rotate(stored, stored)
 
     async def _post_refresh(self, tokens: TokenSet) -> TokenSet:
+        """POST the refresh token, record the exchange and tag any error with it."""
         sent_at = self._clock()
-        status, body = await _post_form(
-            self._session,
-            TOKEN_URL,
-            {
-                "client_id": CLIENT_ID,
-                "grant_type": GRANT_TYPE_REFRESH_TOKEN,
-                "refresh_token": tokens.refresh_token,
-            },
-        )
+        started = time.monotonic()
+        status: int | None = None
+        try:
+            status, body = await _post_form(
+                self._session,
+                TOKEN_URL,
+                {
+                    "client_id": CLIENT_ID,
+                    "grant_type": GRANT_TYPE_REFRESH_TOKEN,
+                    "refresh_token": tokens.refresh_token,
+                },
+            )
+            new = self._token_result(status, body, sent_at, tokens)
+        except TadoXError as err:
+            err.request = _TOKEN_REQUEST
+            self._record(sent_at, started, status, err)
+            raise
+        self._record(sent_at, started, status, None)
+        return new
+
+    @staticmethod
+    def _token_result(
+        status: int, body: Mapping[str, Any], sent_at: datetime, tokens: TokenSet
+    ) -> TokenSet:
+        """Return the rotated tokens of a token answer, or raise its error."""
         if _is_success(status):
             return TokenSet.from_token_response(
                 body, sent_at=sent_at, previous_refresh=tokens.refresh_token
             )
         error = _oauth_error(body)
         if error in _GRANT_REJECTED and not _is_transient(status):
-            raise TadoXAuthError(error)
+            raise TadoXAuthError(error, status=status)
         raise TadoXServerError(status)
+
+    def _record(
+        self,
+        sent_at: datetime,
+        started: float,
+        status: int | None,
+        err: TadoXError | None,
+    ) -> None:
+        self._telemetry.record_exchange(
+            Exchange(
+                at=sent_at,
+                method="POST",
+                endpoint=_TOKEN_REQUEST,
+                status=status,
+                duration_ms=round((time.monotonic() - started) * 1000),
+                outcome="ok" if err is None else type(err).__name__,
+                error=None if err is None else _login_error(status, err),
+            )
+        )
 
     def _fallback(self, tokens: TokenSet, err: TadoXError, *, force: bool) -> str:
         if not force and self._clock() < tokens.expires_at:
@@ -323,17 +411,19 @@ class TokenManager:
         delay = self.BACKOFF[min(self._failures, len(self.BACKOFF) - 1)]
         self._failures += 1
         self._backoff = (self._clock() + timedelta(seconds=delay), err)
-        if self._failures == 1:
-            _LOGGER.warning(
-                "Refreshing the tado access token failed, retrying in %s s: %s",
-                delay,
-                err,
-            )
+        self._telemetry.record_tado_error(err, context="token refresh")
+        _LOGGER.log(
+            logging.INFO if self._failures == 1 else logging.DEBUG,
+            "Refreshing the tado access token failed (%s), retrying in %s s",
+            _failure(err),
+            delay,
+        )
 
     def _fail(self, err: TadoXAuthError) -> TadoXAuthError:
         self._auth_error = err
-        _LOGGER.warning(
-            "tado rejected the login (%s); a new login is needed", err.reason
+        self._telemetry.record_tado_error(err, context="token refresh")
+        _LOGGER.info(
+            "tado rejected the login (%s); a new login is needed", _reason(err)
         )
         return err
 
@@ -413,4 +503,4 @@ class DeviceCodeFlow:
                 case "access_denied":
                     raise TadoXDeviceFlowError("denied")
                 case error:
-                    raise TadoXAuthError(error or f"http_{status}")
+                    raise TadoXAuthError(error or f"http_{status}", status=status)

@@ -1,10 +1,10 @@
 """HTTP transport of the tado X client: gate, bearer, headers, retry and errors."""
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 import json
-import logging
 import time
 from typing import Any, Final
 
@@ -25,10 +25,15 @@ from .errors import (
     TadoXRequestError,
     TadoXServerError,
 )
-from .models import utcnow
+from .models import RateLimitInfo, utcnow
 from .ratelimit import Priority, QuotaTracker, parse_rate_limit
-
-_LOGGER = logging.getLogger(__package__)
+from .telemetry import (
+    Exchange,
+    Telemetry,
+    describe_tado_error,
+    endpoint_template,
+    shape,
+)
 
 _HOPS_HOST: Final = URL(HOPS_API_URL).host
 _ENERGY_IQ_HOST: Final = URL(ENERGY_IQ_API_URL).host
@@ -43,8 +48,8 @@ def _decode(raw: bytes, endpoint: str) -> Any:
         return None
     try:
         return json.loads(raw)
-    except ValueError as err:
-        raise TadoXParseError(endpoint, "$") from err
+    except ValueError:
+        raise TadoXParseError(endpoint, "$") from None
 
 
 def _first_error(raw: bytes) -> tuple[str | None, str | None]:
@@ -74,6 +79,39 @@ def _not_x_home_id(url: URL, title: str | None) -> int | None:
     return None
 
 
+def _total_seconds(info: RateLimitInfo | None) -> int | None:
+    if info is None or info.reset_in is None:
+        return None
+    return int(info.reset_in.total_seconds())
+
+
+def _elapsed_ms(started: float) -> int:
+    return round((time.monotonic() - started) * 1000)
+
+
+def _answer_error(status: int, err: TadoXError) -> str:
+    """Return the Exchange.error text of an answer that raised err."""
+    if isinstance(err, TadoXParseError):
+        return "invalid JSON"
+    if isinstance(err, TadoXRequestError) and (
+        text := describe_tado_error(err.code, err.title)
+    ):
+        return text
+    return f"HTTP {status}"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Answer:
+    """The answer to one attempt, with its rate limit headers and timing."""
+
+    at: datetime
+    attempt: int
+    status: int
+    raw: bytes
+    info: RateLimitInfo | None
+    duration_ms: int
+
+
 def _is_energy_iq_refusal(url: URL, data: Any) -> bool:
     """Return True for an Energy IQ 2xx that carries a message and no id (API §5.2)."""
     return (
@@ -89,7 +127,9 @@ class Transport:
 
     The quota gate is checked first, rate limit headers are observed before
     any status handling, a 401 is retried once with a refreshed token, and
-    any 2xx is a success, except an Energy IQ refusal.
+    any 2xx is a success, except an Energy IQ refusal. Every attempt is
+    recorded in the telemetry, and every error raised is tagged with the
+    endpoint template of its request unless it names one already.
     """
 
     def __init__(
@@ -100,6 +140,7 @@ class Transport:
         *,
         clock: Callable[[], datetime] = utcnow,
         timeout: float = REQUEST_TIMEOUT,
+        telemetry: Telemetry | None = None,
     ) -> None:
         """Initialize with the shared session, the grant and the quota tracker."""
         self._session = session
@@ -107,7 +148,13 @@ class Transport:
         self._quota = quota
         self._clock = clock
         self._timeout = ClientTimeout(total=timeout, connect=CONNECT_TIMEOUT)
+        self._telemetry = telemetry if telemetry is not None else Telemetry(clock=clock)
         self._observer: PayloadObserver | None = None
+
+    @property
+    def telemetry(self) -> Telemetry:
+        """Return the telemetry the attempts are recorded in."""
+        return self._telemetry
 
     def set_payload_observer(self, cb: PayloadObserver | None) -> None:
         """Set the callback that receives (home_id, key, raw, at) of cached reads."""
@@ -134,21 +181,91 @@ class Transport:
     ) -> Any:
         """Send one request and return the parsed JSON body, or None if empty.
 
-        endpoint names the payload in a parse error; the URL path is the default.
+        endpoint names the payload in a parse error; the endpoint template is
+        the default, so the error never holds an id or a serial number.
         """
-        target = URL(url)
+        data, _ = await self._exchange(
+            method, URL(url), json, params, priority, endpoint
+        )
+        return data
+
+    async def command(
+        self, method: str, url: str | URL, *, json: Any = None
+    ) -> Exchange:
+        """Send a write with command priority and return its final exchange."""
+        _, exchange = await self._exchange(
+            method, URL(url), json, None, Priority.COMMAND, None
+        )
+        return exchange
+
+    async def _exchange(
+        self,
+        method: str,
+        url: URL,
+        body: Any,
+        params: Mapping[str, str] | None,
+        priority: Priority,
+        endpoint: str | None,
+    ) -> tuple[Any, Exchange]:
+        """Run a request; tag the error it raises with its endpoint template."""
+        template = endpoint_template(
+            method, url.update_query(params) if params else url
+        )
+        try:
+            return await self._attempts(
+                method, url, template, body, params, priority, endpoint or template
+            )
+        except TadoXError as err:
+            if err.request is None:
+                err.request = template
+            raise
+
+    async def _attempts(
+        self,
+        method: str,
+        url: URL,
+        template: str,
+        body: Any,
+        params: Mapping[str, str] | None,
+        priority: Priority,
+        endpoint: str,
+    ) -> tuple[Any, Exchange]:
+        """Pass the gate, send, retry once after a 401 and map the final answer."""
         self._quota.check(priority)
         token = await self._tokens.async_get_access_token()
-        status, raw = await self._send(method, target, token, json, params)
-        if status == HTTPStatus.UNAUTHORIZED:
+        answer = await self._send(method, url, template, token, body, params, 1)
+        if answer.status == HTTPStatus.UNAUTHORIZED:
+            self._record(method, template, answer, outcome="retried", error="HTTP 401")
             token = await self._tokens.async_handle_unauthorized(token)
-            status, raw = await self._send(method, target, token, json, params)
-            if status == HTTPStatus.UNAUTHORIZED:
-                raise TadoXAuthError("unauthorized_after_refresh")
+            answer = await self._send(method, url, template, token, body, params, 2)
+        try:
+            data = self._result(method, url, answer, endpoint)
+        except TadoXError as err:
+            self._record(
+                method,
+                template,
+                answer,
+                outcome=type(err).__name__,
+                error=_answer_error(answer.status, err),
+            )
+            raise
+        exchange = self._record(
+            method,
+            template,
+            answer,
+            shape=None if data is None else shape(data),
+        )
+        return data, exchange
+
+    def _result(self, method: str, url: URL, answer: _Answer, endpoint: str) -> Any:
+        """Return the parsed body of a 2xx answer; raise the error of any other."""
+        status = answer.status
+        if status == HTTPStatus.UNAUTHORIZED:
+            raise TadoXAuthError("unauthorized_after_refresh", status=status)
         if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
-            raise self._error(method, target, status, raw)
-        data = _decode(raw, endpoint or target.path)
-        if _is_energy_iq_refusal(target, data):
+            raise self._error(method, url, status, answer.raw)
+        data = _decode(answer.raw, endpoint)
+        if _is_energy_iq_refusal(url, data):
             message = data["message"]
             raise TadoXRequestError(
                 status, None, message if isinstance(message, str) else None
@@ -159,15 +276,18 @@ class Transport:
         self,
         method: str,
         url: URL,
+        template: str,
         token: str,
         body: Any,
         params: Mapping[str, str] | None,
-    ) -> tuple[int, bytes]:
+        attempt: int,
+    ) -> _Answer:
         """Send one attempt, count it and observe its rate limit headers."""
         headers = {"Authorization": f"Bearer {token}"}
         if body is not None:
             headers["Content-Type"] = "application/json"
         ticket = self._quota.record_call()
+        at = self._clock()
         started = time.monotonic()
         try:
             async with self._session.request(
@@ -182,30 +302,64 @@ class Transport:
                 response_headers = response.headers
                 raw = await response.read()
         except (ClientError, TimeoutError) as err:
-            raise TadoXConnectionError(f"cannot reach {url.host}") from err
+            self._telemetry.record_exchange(
+                Exchange(
+                    at=at,
+                    method=method,
+                    endpoint=template,
+                    status=None,
+                    duration_ms=_elapsed_ms(started),
+                    attempt=attempt,
+                    outcome=TadoXConnectionError.__name__,
+                    error=type(err).__name__,
+                )
+            )
+            raise TadoXConnectionError(
+                f"cannot reach {url.host}", cause=type(err).__name__
+            ) from None
+        duration_ms = _elapsed_ms(started)
         info = parse_rate_limit(response_headers, self._clock())
         self._quota.observe(info, status=status, ticket=ticket)
-        _LOGGER.debug(
-            "%s %s%s: HTTP %s, r=%s, %.2f s",
-            method,
-            url.host,
-            url.path,
-            status,
-            None if info is None else info.remaining,
-            time.monotonic() - started,
+        return _Answer(
+            at=at,
+            attempt=attempt,
+            status=status,
+            raw=raw,
+            info=info,
+            duration_ms=duration_ms,
         )
-        return status, raw
+
+    def _record(
+        self,
+        method: str,
+        template: str,
+        answer: _Answer,
+        *,
+        outcome: str = "ok",
+        error: str | None = None,
+        shape: object | None = None,
+    ) -> Exchange:
+        """Record the exchange of an answer; never with its body."""
+        info = answer.info
+        exchange = Exchange(
+            at=answer.at,
+            method=method,
+            endpoint=template,
+            status=answer.status,
+            duration_ms=answer.duration_ms,
+            attempt=answer.attempt,
+            limit=None if info is None else info.limit,
+            remaining=None if info is None else info.remaining,
+            reset_in_s=_total_seconds(info),
+            outcome=outcome,
+            shape=shape,
+            error=error,
+        )
+        self._telemetry.record_exchange(exchange)
+        return exchange
 
     def _error(self, method: str, url: URL, status: int, raw: bytes) -> TadoXError:
         """Map a non-2xx answer other than 401 to the error taxonomy."""
-        _LOGGER.debug(
-            "%s %s%s failed with HTTP %s: %.300s",
-            method,
-            url.host,
-            url.path,
-            status,
-            raw.decode(errors="replace"),
-        )
         if status == HTTPStatus.TOO_MANY_REQUESTS:
             return TadoXRateLimitError(
                 self._quota.latest, self._quota.blocked_until, local=False

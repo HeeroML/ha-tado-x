@@ -7,9 +7,9 @@ unknown value to None instead of failing the whole payload.
 from enum import StrEnum
 import logging
 
-_LOGGER = logging.getLogger(__package__)
+from .telemetry import WARN_ONCE, describe_value
 
-_warned: set[tuple[str, str]] = set()
+_LOGGER = logging.getLogger(__package__)
 
 
 class Power(StrEnum):
@@ -166,8 +166,10 @@ class TariffUnit(StrEnum):
 def parse_enum[E: StrEnum](cls: type[E], raw: object, *, field: str) -> E | None:
     """Parse an open enum value from the API.
 
-    Return None for null and for unknown values. An unknown value logs one
-    warning per (field, value) for the lifetime of the process.
+    Return None for null and for unknown values. An unknown value is logged
+    with describe_value(), which keeps only enum-like constants, so a value
+    that is no constant is never logged. The first unknown value of a field
+    is a warning, any later one a debug message.
     """
     if raw is None:
         return None
@@ -176,12 +178,10 @@ def parse_enum[E: StrEnum](cls: type[E], raw: object, *, field: str) -> E | None
             return cls(raw)
         except ValueError:
             pass
-    key = (field, repr(raw))
-    if key not in _warned:
-        _warned.add(key)
-        _LOGGER.warning(
-            "Unknown value %r for %s from the tado API; it is treated as unknown",
-            raw,
-            field,
-        )
+    _LOGGER.log(
+        logging.WARNING if WARN_ONCE.should_warn(("enum", field)) else logging.DEBUG,
+        "Unknown value %s for %s from the tado API; it is treated as unknown",
+        describe_value(raw),
+        field,
+    )
     return None

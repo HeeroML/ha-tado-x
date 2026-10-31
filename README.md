@@ -9,7 +9,7 @@ This repository is a fork of [exabird/ha-tado-x](https://github.com/exabird/ha-t
 
 Homes of the previous tado generation (V3+ and older) are not supported here. Use the [core tado integration](https://www.home-assistant.io/integrations/tado/) for them. Both integrations can run side by side on the same tado account (see [Coexistence](#coexistence-with-the-core-tado-integration)).
 
-> **Status.** 1.9.0 is tested against a simulated tado cloud over HTTP, not yet against a live home. [Known limitations and risks](#known-limitations-and-risks) lists what still needs a live check. Features that rest on a single source are marked experimental.
+> **Status.** 1.9 is tested against a simulated tado cloud over HTTP, not yet against a live home. [Known limitations and risks](#known-limitations-and-risks) lists what still needs a live check. Features that rest on a single source are marked experimental.
 
 ## Contents
 
@@ -76,7 +76,7 @@ Other changes:
 - Three coordinators poll each endpoint at its own pace.
 - The tado client is a separate package with no Home Assistant imports.
 - The German translation is complete.
-- A 6-room home gets 216 entities, 51 of them disabled by default.
+- A 6-room home gets 221 entities, 51 of them disabled by default.
 
 The [breaking changes](CHANGELOG.md#breaking-changes) are listed in the changelog.
 
@@ -235,9 +235,9 @@ The hold, the time it began, and the last data are saved. Calls during the hold,
 
 ### API sensors
 
-All are on the home device, in the diagnostic category:
+All are on the home device, in the diagnostic category, and enabled unless marked disabled:
 
-| Sensor | Meaning |
+| Entity | Meaning |
 |---|---|
 | API calls used (account) | limit minus remaining: everything the account used today, including the core integration and the apps |
 | API calls by this integration (24 h) | this entry's own calls over the last 24 hours |
@@ -246,11 +246,18 @@ All are on the home device, in the diagnostic category:
 | API quota used (disabled) | used calls as a percentage of the limit |
 | API quota reset | from `t=`, or the end of a hold; `unknown` otherwise |
 | API status | `ok`, `throttled`, `conserving` or `rate_limited` |
-| Data updated | the last time room data came live from tado |
+| Rooms updated | the last time room data came live from tado; called "Data updated" before 1.9.1 |
+| Home updated | the same for presence, weather, air comfort and phones |
+| Devices updated | the same for rooms and devices, home info, heating time, flow temperature and holiday mode |
+| Last API error | the newest error as a short text, for example `HTTP 503 GET hops:/homes/{home}/rooms`, `connection error GET my:/homes/{home}/state` or `token refresh: TadoXServerError HTTP 502`; `unknown` until the first error after a start or reload |
+| Last API error time | when that error happened |
+| Cached data (binary sensor) | on while any of the three coordinators shows cached data during a [quota hold](#quota-hold) |
+
+The error sensors keep the last error after tado recovers. Compare "Last API error time" with the three "… updated" sensors: if data came in after the error, the problem is over.
 
 ## Entities
 
-For the 6-room home above, a new installation creates 216 entities, 165 of them enabled. Phones add two each when the option is on. Upgraded installations keep the enabled state of their existing entities.
+For the 6-room home above, a new installation creates 221 entities, 170 of them enabled. Phones add two each when the option is on. Upgraded installations keep the enabled state of their existing entities.
 
 **Home device**
 
@@ -262,7 +269,8 @@ For the 6-room home above, a new installation creates 216 entities, 165 of them 
 | Buttons: boost all rooms, turn off all rooms, resume all schedules | tado quick actions |
 | Maximum flow temperature number, flow temperature auto-adaptation switch | only if the home has OpenTherm boiler control |
 | Holiday mode binary sensor | option Holiday mode |
-| API sensors | see [API sensors](#api-sensors) |
+| API sensors; rooms, home and devices updated; last API error and its time | diagnostic, see [API sensors](#api-sensors) |
+| Cached data binary sensor | diagnostic, on while cached data is shown during a quota hold |
 
 **Room device** (one per room)
 
@@ -534,27 +542,23 @@ What it writes, also when the run stops early at a 429, on Ctrl-C or on an error
 
 ## Diagnostics and privacy
 
-Select **Download diagnostics** on the integration page (per entry) or on a device page. Diagnostics contain:
+Diagnostics are downloaded per entry or per device; see [Reporting a problem](#reporting-a-problem). They contain:
 
-- the options;
+- the entry's options, and instead of its title the home label (`home …0002`, see below);
 - token metadata only: the expiry and whether a refresh token exists;
 - the quota and the polling plan;
 - the state of each coordinator;
-- the last raw payloads of rooms, devices, home state, weather and air comfort.
+- the last payloads of rooms, devices, home state, weather and air comfort, without names. Numbers, constants such as `ON`, timestamps, clock times and version numbers stay; any other text is replaced by its length, such as `<str len=19>`, also where tado sends text in place of a number;
+- the telemetry of the entry since its last start: the last 50 HTTP requests (method, path with ids replaced by placeholders, status, duration, quota numbers and the structure of the answer without its values), the last 20 errors with what the integration was doing at the time (an error that repeats is counted in one entry, also when other errors came in between), and the requests per endpoint and errors per kind over the last 24 hours;
+- for a device, its entry from the device list.
 
-Tokens, codes, user id, e-mail, address and coordinates are removed. Serial numbers are shortened to the type and the last four characters. Phone data is never included.
+Removed from diagnostics: tokens, codes, user id, e-mail, address, coordinates, contact details, device metadata, the entry's title, the names of the home and its rooms, and free text in the payloads and the device entry. Serial numbers are shortened to the type and the last four characters (`VA…0101`). Phone data is never included.
 
-At no log level do the logs contain tokens, device or user codes, the sign-in link, the `Authorization` header, login responses or your e-mail. A test enforces this.
+At no log level do the logs contain tokens, the `Authorization` header, device or user codes, the sign-in link, login responses, your e-mail, user name, address, coordinates or contact details, phone names, room or home names from tado, full serial numbers, or response bodies. Rooms appear as `room 3` (tado's room id), devices by their shortened serial, and request paths with placeholders such as `/homes/{home}/rooms/{room}`. A tado error appears by its error code; its title, which can contain names, only as a length such as `<str len=37>`, except a few known titles without personal data, which are shown with every run of four or more digits replaced by `#`. Errors shown in Home Assistant, such as "tado rejected the request (HTTP 422, error code not.allowed)", follow the same rule. Tests enforce this.
 
-The cache in `.storage/tado_x.<entry_id>` holds the last raw payloads that passed validation and the quota state. It never holds phone data, and of the home details it keeps only the fields the integration reads, not the owner's name, e-mail, phone number, address or location. It is deleted with the entry.
+The home appears as `home …0002`, the last four digits of its tado id, in the integration's log lines, in the names of its coordinators, in the error that stops a home tado no longer serves as tado X ("home …0002 is not a tado X home") and in diagnostics. The entry's title is not used there, because it is the home's name from tado unless you renamed the entry. Home Assistant's own lines about the entry, such as "Config entry 'Haus B' for tado_x integration not ready yet", still contain the title, and so do the integration page, the home device, repair issues and the error of an action on such a home, which Home Assistant shows in the UI and logs under its own logger ("Error during service call to …"). Rename the entry on the integration page if you share logs and do not want that name in them.
 
-To log every request (method, host, path, status and remaining calls):
-
-```yaml
-logger:
-  logs:
-    custom_components.tado_x: debug
-```
+The cache in `.storage/tado_x.<entry_id>` holds the last raw payloads that passed validation and the quota state. It never holds phone data, and of the home details it keeps only the fields the integration reads, not the owner's name, e-mail, phone number, address or location. It is deleted with the entry. The telemetry is kept in memory only.
 
 ## Troubleshooting
 
@@ -563,7 +567,7 @@ logger:
 | "This tado account has no tado X home" | The account has only older homes. Use the core tado integration for them. |
 | Repair issue "… is not a tado X home" | An entry from v1.8 points at a V3+ home (upstream #40). Remove the entry and add that home with the core tado integration. |
 | Repair issue "… is set up twice" | Two entries control the same home, which v1.8 allowed. Remove one. |
-| Home Assistant asks you to sign in again | tado rejected the stored sign-in, for example because the refresh token was revoked, not used for 30 days after a long shutdown, or rotated less than a second before Home Assistant crashed. Sign in again with the same account. Network problems never cause this. |
+| Home Assistant asks you to sign in again | tado rejected the stored sign-in, for example because the refresh token was revoked, not used for 30 days after a long shutdown, or rotated less than a second before Home Assistant crashed; or tado refuses requests even with a freshly refreshed token, for example because the account lost access to the home. The log says which at INFO, by reason code only: `tado rejected the login (invalid_grant)` or `tado no longer accepts the login of home …0002 (unauthorized_after_refresh)`. Sign in again with the same account. Network problems never cause this. |
 | Entities unavailable, and the log says tado is unreachable | A network or tado outage. The integration retries on its own. |
 | `api_status` is `rate_limited` | The account's quota is used up; see [Quota hold](#quota-hold). Compare "API calls used (account)" with "API calls by this integration (24 h)". If the first is much higher, the core integration or the apps use most of the quota. Lower the budget or raise the reserve. |
 | `api_status` is `conserving` or `throttled` | The account is close to its limit. Values update more slowly; commands still work. |
@@ -573,13 +577,67 @@ logger:
 | Presence `auto` fails | Geofencing needs Auto-Assist. |
 | Past day reports fail | tado serves past days only with Auto-Assist. |
 | A phone tracker says `home` for the wrong home | Home Assistant's home zone is another place. Create a zone for this home and choose it in the option "Zone of this home", or use the at-home binary sensor. |
+| Values look old | Check the home device: "Rooms updated", "Home updated" and "Devices updated" show when each kind of data last came live from tado, and "Cached data" is on while cached data is shown during a quota hold. |
+| "Last API error" shows `HTTP 5xx` or `connection error` | tado or the network failed at that time. If the "… updated" sensors are newer than "Last API error time", it has recovered. If the error keeps coming back, turn on debug logging (below). |
+| "Last API error" shows `HTTP 4xx` | tado refused a request. The error names the request, for example `HTTP 422 POST hops:/homes/{home}/rooms/{room}/manualControl`. Report it with a debug log. |
 
-When you report a bug, attach the diagnostics and, if you can, a debug log. Both are free of secrets.
+### Log levels
+
+The integration logs under `custom_components.tado_x`. Home Assistant shows warnings and errors by default.
+
+| Level | What it shows |
+|---|---|
+| ERROR | unexpected errors in the setup dialog, and a failure to store the rotated tokens |
+| WARNING (default) | the quota is used up and polling stops; an optional endpoint fails (once, until it works again); tado sends a field or value the integration cannot read (once per field); the sign-in in the setup dialog fails |
+| INFO | changes of state, each once: setup, a failing token refresh and its recovery, a rejected sign-in or a new sign-in that tado demands (reason code only), quota hold and conserving mode starting and ending, cached data shown and stopped, devices and rooms added or removed; and one line per command you send, with its result, for example `Write: manualControl room 3: ON 21.0 °C until TIMER 3600 s -> ok (HTTP 204, 312 ms)`; a command that tado declines as expected, such as open window mode without a detected open window, says `Write refused` and does not count as an API error. The home is called `home …0002` (the last four digits of its id), never by its name |
+| DEBUG | one line per HTTP request, such as `GET hops:/homes/{home}/rooms -> 200 in 182 ms, quota 18342/20000 left, reset in 7082 s`, plus the decisions behind it: retries after a 401, backoff, requests refused locally during a quota hold, the endpoints due per poll, the termination chosen for a manual change, token and cache writes (never their values) |
+
+INFO is meant to stay quiet. Normal polling and the routine token refresh about every 10 minutes log nothing at INFO; a test runs six hours of polling and checks this. You only see INFO lines when something changes or you send a command, so INFO is a good level to leave on. A quota hold that is already on when the entry is set up again, after a reload, a restart or a setup retry, is not announced again; only its end is.
+
+### Debug logging
+
+From the UI: on **Settings → Devices & services → Tado X**, open the menu (⋮) and choose **Enable debug logging**. Reproduce the problem, then choose **Disable debug logging**. Your browser then downloads the log of that period.
+
+As an action, without a restart, in **Developer tools → Actions** in YAML mode:
+
+```yaml
+action: logger.set_level
+data:
+  custom_components.tado_x: debug
+```
+
+Set it back with the same action and `custom_components.tado_x: warning`, or restart Home Assistant.
+
+Permanently, in `configuration.yaml`; this takes effect after a restart:
+
+```yaml
+logger:
+  logs:
+    custom_components.tado_x: info
+```
+
+Use `debug` there instead of `info` to log every request. At the default budget that is several thousand lines a day, so turn it off again when you are done.
+
+### Reporting a problem
+
+Download the diagnostics:
+
+- of the entry: **Settings → Devices & services → Tado X**, open the entry's menu (⋮) and choose **Download diagnostics**;
+- of a device, if the problem concerns one valve, sensor or room: open the device page, open its menu (⋮) and choose **Download diagnostics**.
+
+Open an [issue](https://github.com/HeeroML/ha-tado-x/issues) and attach:
+
+1. the diagnostics file;
+2. a log excerpt at debug level from a few minutes before to a few minutes after the problem;
+3. the time of the problem, with your time zone;
+4. the Home Assistant version (**Settings → About**) and the integration version (shown in HACS, or `version` in `custom_components/tado_x/manifest.json`).
+
+Diagnostics and logs leave out tokens, codes, account data, names and full serial numbers; [Diagnostics and privacy](#diagnostics-and-privacy) lists what is removed. Home Assistant's own log lines about the entry contain its title. Read both before you post.
 
 ## Known limitations and risks
 
 - **Not yet verified against a live home.** The tests simulate the tado cloud from the shapes in [docs/API.md](docs/API.md). Some behaviour rests on a single source and may fail on a real home: writing the room's termination setting (select and timer number), the identify button, holiday mode, the meter reading and tariff responses, and whether heating time ids match room ids. Each of these fails with a translated error instead of breaking the integration, and the [probe](#live-api-probe) checks most of them without writing anything.
-- **A quota hold serves old data.** During a hold that ends at a reset time from tado, values are kept until that reset, which can be most of a day away; without a reset time they can be up to 6 h old for rooms (12 h for home data, 48 h for devices). Entities stay available meanwhile. Automations that must not act on old values can check `api_status` and "Data updated".
+- **A quota hold serves old data.** During a hold that ends at a reset time from tado, values are kept until that reset, which can be most of a day away; without a reset time they can be up to 6 h old for rooms (12 h for home data, 48 h for devices). Entities stay available meanwhile. Automations that must not act on old values can check `api_status`, "Cached data" and "Rooms updated".
 - **The reset time is often unknown.** tado documents `t=` only for a used-up quota. Without it, the reset sensor is `unknown` and throttling assumes a whole day is still ahead.
 - **Login calls.** It is unknown whether token refreshes at login.tado.com count against the quota. The plan leaves room for them.
 - **Power loss right after a token rotation.** Home Assistant writes the config entry about 1 s after a change. If the power fails in that second, the new refresh token is lost and you have to sign in again. Home Assistant's own OAuth helper has the same exposure.

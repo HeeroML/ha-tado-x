@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, override
+from typing import Any, Final, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -28,12 +28,16 @@ from .client import (
     BatteryState,
     ControlMode,
     Device,
+    ErrorRecord,
     HumidityLevel,
     NextScheduleChange,
     Power,
     RateLimitInfo,
     RoomComfort,
     RoomState,
+    TadoXConnectionError,
+    TadoXParseError,
+    TadoXRateLimitError,
     TemperatureLevel,
     TerminationType,
     WeatherState,
@@ -51,6 +55,15 @@ from .quota import ApiStatus
 from .runtime import HomeSnapshot, TadoXConfigEntry, TadoXRuntimeData
 
 PARALLEL_UPDATES = 0
+
+MAX_STATE_LENGTH: Final = 255
+TOKEN_REFRESH: Final = "token refresh"
+# What an error without an HTTP status is called before its endpoint.
+_ERROR_WORDS: Final = {
+    TadoXConnectionError.__name__: "connection error",
+    TadoXParseError.__name__: "invalid data",
+    TadoXRateLimitError.__name__: "rate limited",
+}
 
 type SensorValue = StateType | datetime
 
@@ -83,6 +96,37 @@ def _usage_percentage(info: RateLimitInfo | None) -> float | None:
     if used is None or info is None or not info.limit:
         return None
     return round(min(used / info.limit, 1.0) * 100, 1)
+
+
+def error_text(record: ErrorRecord) -> str:
+    """Return the short text of a recorded error, at most 255 characters.
+
+    For example "HTTP 503 GET hops:/homes/{home}/rooms", "connection error
+    GET my:/homes/{home}/state" or "token refresh: TadoXServerError HTTP 502".
+    An error without an API request is named by its context.
+    """
+    if record.endpoint is None or record.context == TOKEN_REFRESH:
+        detail = record.kind
+        if record.status is not None:
+            detail = f"{detail} HTTP {record.status}"
+        if record.message:
+            detail = f"{detail} {record.message}"
+        text = f"{record.context}: {detail}"
+    elif record.status is not None:
+        text = f"HTTP {record.status} {record.endpoint}"
+    else:
+        text = f"{_ERROR_WORDS.get(record.kind, record.kind)} {record.endpoint}"
+    return text[:MAX_STATE_LENGTH]
+
+
+def _last_error(data: TadoXRuntimeData) -> str | None:
+    record = data.telemetry.last_error
+    return None if record is None else error_text(record)
+
+
+def _last_error_time(data: TadoXRuntimeData) -> datetime | None:
+    record = data.telemetry.last_error
+    return None if record is None else record.last_at or record.at
 
 
 def _next_change(room: RoomState) -> NextScheduleChange | None:
@@ -176,6 +220,33 @@ STATUS_SENSORS: tuple[TadoXStatusSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda data: data.rooms.last_live_update,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="home_data_updated",
+        translation_key="home_data_updated",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data: data.home.last_live_update,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="devices_data_updated",
+        translation_key="devices_data_updated",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data: data.devices.last_live_update,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="last_api_error",
+        translation_key="last_api_error",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_last_error,
+    ),
+    TadoXStatusSensorEntityDescription(
+        key="last_api_error_time",
+        translation_key="last_api_error_time",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=_last_error_time,
     ),
 )
 

@@ -143,13 +143,16 @@ def test_main_writes_the_notes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The workflow passes the notes file on to gh release create."""
+    manifest = ROOT / "custom_components" / "tado_x" / "manifest.json"
+    version = json.loads(manifest.read_text(encoding="utf-8"))["version"]
     notes = tmp_path / "notes.md"
-    assert release_check.main(["v1.9.0", "--notes", str(notes)]) == 0
+    assert release_check.main([f"v{version}", "--notes", str(notes)]) == 0
     text = notes.read_text(encoding="utf-8")
-    assert text.startswith("A rewrite of v1.8.11.")
-    assert "### Breaking changes" in text
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert text == release_check.release_notes(changelog, version) + "\n"
+    assert text.strip()
     assert not re.search(r"^## ", text, re.MULTILINE)
-    assert "v1.9.0" in capsys.readouterr().out
+    assert f"v{version}" in capsys.readouterr().out
 
 
 def test_main_reports_errors_for_github(capsys: pytest.CaptureFixture[str]) -> None:

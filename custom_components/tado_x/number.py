@@ -75,7 +75,7 @@ async def async_set_offset(entry: TadoXConfigEntry, serial: str, offset: float) 
     try:
         await data.api.async_update_device(serial, temperature_offset=offset)
     except TadoXError as err:
-        raise_for_tado_error(err, entry)
+        raise_for_tado_error(err, entry, context="command temperature_offset")
     data.devices.async_apply_optimistic(
         {
             ("temperature_offset", serial): lambda snapshot: snapshot.with_device(

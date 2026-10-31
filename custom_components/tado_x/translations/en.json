@@ -72,6 +72,9 @@
       "boost": {
         "name": "Boost"
       },
+      "cache_fallback": {
+        "name": "Cached data"
+      },
       "connectivity": {
         "name": "Connectivity"
       },
@@ -227,10 +230,13 @@
         }
       },
       "data_updated": {
-        "name": "Data updated"
+        "name": "Rooms updated"
       },
       "device_temperature": {
         "name": "Device temperature"
+      },
+      "devices_data_updated": {
+        "name": "Devices updated"
       },
       "heating_power": {
         "name": "Heating power"
@@ -238,8 +244,17 @@
       "heating_time_today": {
         "name": "Heating time today"
       },
+      "home_data_updated": {
+        "name": "Home updated"
+      },
       "humidity": {
         "name": "Humidity"
+      },
+      "last_api_error": {
+        "name": "Last API error"
+      },
+      "last_api_error_time": {
+        "name": "Last API error time"
       },
       "manual_control_end": {
         "name": "Manual control ends"
@@ -365,7 +380,7 @@
       "message": "The tado API quota for this account is used up. tado did not say when it resets."
     },
     "request_rejected": {
-      "message": "tado rejected the request (HTTP {status}): {title}"
+      "message": "tado rejected the request (HTTP {status}, error code {code})."
     },
     "schedule_partially_written": {
       "message": "Only part of the schedule was written. Days already saved: {done_days}"

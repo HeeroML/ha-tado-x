@@ -16,6 +16,8 @@ them, but read them before you post.
 
 <!-- What you did, what you expected, and what happened instead. -->
 
+When did it happen (date, time and time zone):
+
 ## Versions
 
 - Home Assistant:
@@ -32,17 +34,17 @@ them, but read them before you post.
 
 <!--
 Settings → Devices & services → Tado X → ⋮ → Download diagnostics.
-Attach the file here.
+For a problem with one device or room, its device page → ⋮ → Download
+diagnostics instead. Attach the file here.
 -->
 
 ## Log
 
 <!--
-Enable debug logging with
-  logger:
-    logs:
-      custom_components.tado_x: debug
-reproduce the problem and paste the relevant lines, including any traceback.
+Enable debug logging (Tado X → ⋮ → Enable debug logging, or the action
+logger.set_level with data  custom_components.tado_x: debug), reproduce the
+problem and paste the lines from a few minutes before to a few minutes after
+it, including any traceback. See "Debug logging" in the README.
 -->
 
 ```text

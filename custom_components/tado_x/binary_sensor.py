@@ -11,6 +11,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .client import ConnectionState, Device, RoomState
@@ -21,8 +22,8 @@ from .devices import (
     mobile_identifier,
     room_identifier,
 )
-from .entity import TadoXEntity, async_add_dynamic_entities
-from .runtime import TadoXConfigEntry
+from .entity import TadoXEntity, TadoXStatusEntity, async_add_dynamic_entities
+from .runtime import TadoXConfigEntry, TadoXRuntimeData
 
 PARALLEL_UPDATES = 0
 
@@ -104,6 +105,11 @@ AT_HOME = BinarySensorEntityDescription(
     key="at_home",
     translation_key="at_home",
     device_class=BinarySensorDeviceClass.PRESENCE,
+)
+CACHE_FALLBACK = BinarySensorEntityDescription(
+    key="cache_fallback",
+    translation_key="cache_fallback",
+    entity_category=EntityCategory.DIAGNOSTIC,
 )
 
 
@@ -227,6 +233,29 @@ class TadoXAtHomeBinarySensor(TadoXEntity[HomeCoordinator], BinarySensorEntity):
         return phone.at_home
 
 
+class TadoXCacheFallbackBinarySensor(TadoXStatusEntity, BinarySensorEntity):
+    """Whether any coordinator serves cached data during a quota hold."""
+
+    entity_description = CACHE_FALLBACK
+
+    def __init__(self, data: TadoXRuntimeData) -> None:
+        """Initialize a binary sensor of the home device."""
+        self._data = data
+        home_id = data.api.home_id
+        self._attr_unique_id = f"{home_id}_{CACHE_FALLBACK.key}"
+        self._attr_device_info = DeviceInfo(identifiers={home_identifier(home_id)})
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return True while cached data is shown instead of live data."""
+        data = self._data
+        return any(
+            coordinator.stale_since is not None
+            for coordinator in (data.rooms, data.home, data.devices)
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TadoXConfigEntry,
@@ -234,6 +263,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up the binary sensors of a tado X home."""
     data = entry.runtime_data
+    async_add_entities([TadoXCacheFallbackBinarySensor(data)])
     if data.monitor.enabled("holiday_mode"):
         async_add_entities([TadoXHolidayBinarySensor(data.devices)])
 

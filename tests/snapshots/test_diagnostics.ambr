@@ -41,7 +41,7 @@
       'duration': None,
       'type': 'NEXT_TIME_BLOCK',
     }),
-    'name': 'Wohnzimmer',
+    'name': '**REDACTED**',
   })
 # ---
 # name: test_device_diagnostics[valve]
@@ -60,6 +60,50 @@
     'type': 'VA04',
     'type_raw': 'VA04',
   })
+# ---
+# name: test_diagnostics_after_errors_hold_no_secret[errors]
+  list([
+    dict({
+      'at': '2026-10-30T10:00:00+00:00',
+      'context': 'command manualControl',
+      'count': 1,
+      'endpoint': 'POST hops:/homes/{home}/rooms/{room}/manualControl',
+      'kind': 'TadoXRequestError',
+      'last_at': None,
+      'message': 'code=not.allowed title=<str len=68>',
+      'status': 422,
+    }),
+    dict({
+      'at': '2026-10-30T10:01:00+00:00',
+      'context': 'poll rooms',
+      'count': 1,
+      'endpoint': 'GET hops:/homes/{home}/rooms',
+      'kind': 'TadoXRequestError',
+      'last_at': None,
+      'message': 'code=not.allowed title=<str len=68>',
+      'status': 422,
+    }),
+    dict({
+      'at': '2026-10-30T10:02:00+00:00',
+      'context': 'poll rooms',
+      'count': 1,
+      'endpoint': 'GET hops:/homes/{home}/rooms',
+      'kind': 'TadoXServerError',
+      'last_at': None,
+      'message': None,
+      'status': 503,
+    }),
+    dict({
+      'at': '2026-10-30T10:07:00+00:00',
+      'context': 'poll home',
+      'count': 1,
+      'endpoint': 'GET my:/homes/{home}/state',
+      'kind': 'TadoXConnectionError',
+      'last_at': None,
+      'message': 'cannot reach my.tado.com (ClientConnectionError)',
+      'status': None,
+    }),
+  ])
 # ---
 # name: test_entry_diagnostics
   dict({
@@ -119,7 +163,7 @@
       'data': dict({
         'access_token': '**REDACTED**',
         'home_id': 1000002,
-        'home_name': 'Haus 1000002',
+        'home_name': '**REDACTED**',
         'refresh_token': '**REDACTED**',
         'token_expiry': '**REDACTED**',
         'user_id': '**REDACTED**',
@@ -137,7 +181,7 @@
         'timer_minutes': 60,
         'weather': True,
       }),
-      'title': 'Haus 1000002',
+      'title': 'home …0002',
       'version': '1.2',
     }),
     'flow_status': 'absent',
@@ -222,7 +266,7 @@
             }),
             'id': 1,
             'manualControlTermination': None,
-            'name': 'Wohnzimmer',
+            'name': '**REDACTED**',
             'nextScheduleChange': dict({
               'setting': dict({
                 'power': 'ON',
@@ -266,7 +310,7 @@
               'remainingTimeInSeconds': 2710,
               'type': 'TIMER',
             }),
-            'name': 'Kueche',
+            'name': '**REDACTED**',
             'nextScheduleChange': dict({
               'setting': dict({
                 'power': 'ON',
@@ -310,7 +354,7 @@
               'remainingTimeInSeconds': None,
               'type': 'MANUAL',
             }),
-            'name': 'Schlafzimmer',
+            'name': '**REDACTED**',
             'nextScheduleChange': None,
             'nextTimeBlock': dict({
               'start': '2026-10-30T20:00:00Z',
@@ -344,7 +388,7 @@
               'remainingTimeInSeconds': 25200,
               'type': 'NEXT_TIME_BLOCK',
             }),
-            'name': 'Kinderzimmer',
+            'name': '**REDACTED**',
             'nextScheduleChange': dict({
               'setting': dict({
                 'power': 'ON',
@@ -384,7 +428,7 @@
             }),
             'id': 5,
             'manualControlTermination': None,
-            'name': 'Bad',
+            'name': '**REDACTED**',
             'nextScheduleChange': dict({
               'setting': dict({
                 'power': 'ON',
@@ -431,7 +475,7 @@
             }),
             'id': 6,
             'manualControlTermination': None,
-            'name': 'Arbeitszimmer',
+            'name': '**REDACTED**',
             'nextScheduleChange': dict({
               'setting': dict({
                 'power': 'ON',
@@ -502,7 +546,7 @@
               ]),
               'roomId': 1,
               'roomLinkAvailable': True,
-              'roomName': 'Wohnzimmer',
+              'roomName': '**REDACTED**',
               'zoneControllerAssignable': False,
               'zoneControllers': list([
               ]),
@@ -540,7 +584,7 @@
               ]),
               'roomId': 2,
               'roomLinkAvailable': True,
-              'roomName': 'Kueche',
+              'roomName': '**REDACTED**',
               'zoneControllerAssignable': False,
               'zoneControllers': list([
               ]),
@@ -578,7 +622,7 @@
               ]),
               'roomId': 3,
               'roomLinkAvailable': True,
-              'roomName': 'Schlafzimmer',
+              'roomName': '**REDACTED**',
               'zoneControllerAssignable': False,
               'zoneControllers': list([
               ]),
@@ -616,7 +660,7 @@
               ]),
               'roomId': 4,
               'roomLinkAvailable': True,
-              'roomName': 'Kinderzimmer',
+              'roomName': '**REDACTED**',
               'zoneControllerAssignable': False,
               'zoneControllers': list([
               ]),
@@ -654,7 +698,7 @@
               ]),
               'roomId': 5,
               'roomLinkAvailable': True,
-              'roomName': 'Bad',
+              'roomName': '**REDACTED**',
               'zoneControllerAssignable': False,
               'zoneControllers': list([
               ]),
@@ -692,7 +736,7 @@
               ]),
               'roomId': 6,
               'roomLinkAvailable': True,
-              'roomName': 'Arbeitszimmer',
+              'roomName': '**REDACTED**',
               'zoneControllerAssignable': False,
               'zoneControllers': list([
               ]),
@@ -754,6 +798,309 @@
       }),
       'reset_at': None,
       'status': 'ok',
+    }),
+    'telemetry': dict({
+      'errors': list([
+      ]),
+      'errors_by_kind_24h': dict({
+      }),
+      'exchanges': list([
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET hops:/homes/{home}/roomsAndDevices',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17832,
+          'reset_in_s': None,
+          'shape': dict({
+            'otherDevices': dict({
+              'item': dict({
+                'connection': 'dict[1]',
+                'firmwareVersion': '<str len=5>',
+                'serialNumber': 'IB…0001',
+                'type': 'IB02',
+              }),
+              'list': 1,
+            }),
+            'rooms': dict({
+              'item': dict({
+                'deviceManualControlTermination': 'dict[2]',
+                'devices': 'list[2]',
+                'roomId': 'int',
+                'roomLinkAvailable': 'bool',
+                'roomName': '**REDACTED**',
+                'zoneControllerAssignable': 'bool',
+                'zoneControllers': 'list[0]',
+              }),
+              'list': 6,
+            }),
+          }),
+          'status': 200,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET my:/homes/{home}',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17831,
+          'reset_in_s': None,
+          'shape': dict({
+            'address': '**REDACTED**',
+            'awayRadiusInMeters': 'float',
+            'christmasModeEnabled': 'bool',
+            'consentGrantSkippable': 'bool',
+            'contactDetails': '**REDACTED**',
+            'dateCreated': '<str len=24>',
+            'dateTimeZone': '<str len=13>',
+            'enabledFeatures': dict({
+              'list': 0,
+            }),
+            'generation': 'LINE_X',
+            'geolocation': '**REDACTED**',
+            'id': 'int',
+            'incidentDetection': dict({
+              'enabled': 'bool',
+              'supported': 'bool',
+            }),
+            'installationCompleted': 'bool',
+            'isAirComfortEligible': 'bool',
+            'isBalanceAcEligible': 'bool',
+            'isBalanceHpEligible': 'bool',
+            'isEnergyIqEligible': 'bool',
+            'language': '<str len=2>',
+            'name': '**REDACTED**',
+            'partner': 'null',
+            'showAutoAssistReminders': 'bool',
+            'simpleSmartScheduleEnabled': 'bool',
+            'skills': dict({
+              'item': 'AUTO_ASSIST',
+              'list': 1,
+            }),
+            'temperatureUnit': 'CELSIUS',
+            'zonesCount': 'int',
+            '…': '+3 keys',
+          }),
+          'status': 200,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET minder:/homes/{home}/runningTimes?from&to',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17830,
+          'reset_in_s': None,
+          'shape': dict({
+            'lastUpdated': '<str len=20>',
+            'runningTimes': dict({
+              'item': dict({
+                'endTime': '<str len=19>',
+                'runningTimeInSeconds': 'int',
+                'startTime': '<str len=19>',
+                'zones': 'list[6]',
+              }),
+              'list': 1,
+            }),
+            'summary': dict({
+              'endTime': '<str len=19>',
+              'meanInSecondsPerDay': 'int',
+              'startTime': '<str len=19>',
+              'totalRunningTimeInSeconds': 'int',
+            }),
+          }),
+          'status': 200,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET hops:/homes/{home}/settings/flowTemperatureOptimization',
+          'error': 'code=not.found title=<str len=24>',
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'TadoXNotFoundError',
+          'remaining': 17829,
+          'reset_in_s': None,
+          'shape': None,
+          'status': 404,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET hops:/homes/{home}/rooms',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17828,
+          'reset_in_s': None,
+          'shape': dict({
+            'item': dict({
+              'balanceControl': 'null',
+              'boostMode': 'null',
+              'connection': dict({
+                'state': 'CONNECTED',
+              }),
+              'heatingPower': dict({
+                'percentage': 'int',
+              }),
+              'id': 'int',
+              'manualControlTermination': 'null',
+              'name': '**REDACTED**',
+              'nextScheduleChange': dict({
+                'setting': 'dict[2]',
+                'start': '<str len=20>',
+              }),
+              'nextTimeBlock': dict({
+                'start': '<str len=20>',
+              }),
+              'openWindow': 'null',
+              'sensorDataPoints': dict({
+                'humidity': 'dict[1]',
+                'insideTemperature': 'dict[1]',
+              }),
+              'setting': dict({
+                'power': 'ON',
+                'temperature': 'dict[1]',
+              }),
+            }),
+            'list': 6,
+          }),
+          'status': 200,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET my:/homes/{home}/state',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17827,
+          'reset_in_s': None,
+          'shape': dict({
+            'presence': 'HOME',
+            'presenceLocked': 'bool',
+          }),
+          'status': 200,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET my:/homes/{home}/weather',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17826,
+          'reset_in_s': None,
+          'shape': dict({
+            'outsideTemperature': dict({
+              'celsius': 'float',
+              'fahrenheit': 'float',
+              'precision': dict({
+                'celsius': 'float',
+                'fahrenheit': 'float',
+              }),
+              'timestamp': '<str len=24>',
+              'type': 'TEMPERATURE',
+            }),
+            'solarIntensity': dict({
+              'percentage': 'float',
+              'timestamp': '<str len=24>',
+              'type': 'PERCENTAGE',
+            }),
+            'weatherState': dict({
+              'timestamp': '<str len=24>',
+              'type': 'WEATHER_STATE',
+              'value': 'CLOUDY_PARTLY',
+            }),
+          }),
+          'status': 200,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET hops:/homes/{home}/airComfort',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17825,
+          'reset_in_s': None,
+          'shape': dict({
+            'comfort': dict({
+              'item': dict({
+                'coordinate': 'dict[2]',
+                'humidityLevel': 'COMFY',
+                'roomId': 'int',
+                'temperatureLevel': 'COMFY',
+              }),
+              'list': 6,
+            }),
+            'freshness': dict({
+              'lastOpenWindow': '<str len=20>',
+              'value': 'FAIR',
+            }),
+          }),
+          'status': 200,
+        }),
+        dict({
+          'at': '2026-10-30T10:00:00+00:00',
+          'attempt': 1,
+          'duration_ms': 0,
+          'endpoint': 'GET my:/homes/{home}/mobileDevices',
+          'error': None,
+          'limit': 20000,
+          'method': 'GET',
+          'outcome': 'ok',
+          'remaining': 17824,
+          'reset_in_s': None,
+          'shape': dict({
+            'item': dict({
+              'deviceMetadata': '**REDACTED**',
+              'id': 'int',
+              'location': '<redacted>',
+              'name': '**REDACTED**',
+              'settings': dict({
+                'geoTrackingEnabled': 'bool',
+                'onDemandLogRetrievalEnabled': 'bool',
+                'pushNotifications': 'dict[1]',
+                'specialOffersEnabled': 'bool',
+              }),
+            }),
+            'list': 3,
+          }),
+          'status': 200,
+        }),
+      ]),
+      'last_error': None,
+      'requests_by_endpoint_24h': dict({
+        'GET hops:/homes/{home}/airComfort': 1,
+        'GET hops:/homes/{home}/rooms': 1,
+        'GET hops:/homes/{home}/roomsAndDevices': 1,
+        'GET hops:/homes/{home}/settings/flowTemperatureOptimization': 1,
+        'GET minder:/homes/{home}/runningTimes?from&to': 1,
+        'GET my:/homes/{home}': 1,
+        'GET my:/homes/{home}/mobileDevices': 1,
+        'GET my:/homes/{home}/state': 1,
+        'GET my:/homes/{home}/weather': 1,
+      }),
     }),
     'tokens': dict({
       'auth_failed': False,

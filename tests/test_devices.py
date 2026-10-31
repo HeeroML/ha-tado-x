@@ -600,3 +600,46 @@ async def test_status_entities_outside_an_entry_do_not_listen(
     await platform.async_add_entities([status])
 
     assert status.writes == 1
+
+
+async def test_device_changes_are_logged_without_names(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    device_registry: dr.DeviceRegistry,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Changes after the setup are logged by room id, type and masked serial."""
+    entry = make_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "mobile_devices": True}
+    )
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={device_identifier("VA0000000999")},
+    )
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    home = mock_tado.home(HOME_B)
+    home.topology["rooms"].pop()
+    home.mobile_devices.pop()
+
+    await _tick(hass, freezer, 900)
+
+    changes = [
+        (record.levelname, record.getMessage())
+        for record in caplog.records
+        if record.name == "custom_components.tado_x"
+        and record.getMessage().startswith(("Added", "Removed"))
+    ]
+    assert ("DEBUG", "Added room 1 to home …0002") in changes
+    assert ("DEBUG", "Added a phone to home …0002") in changes
+    assert ("DEBUG", "Added IB02 IB…0001 to home …0002") in changes
+    assert sorted(message for level, message in changes if level != "DEBUG") == [
+        "Removed SU04 SU…0106 from home …0002",
+        "Removed VA04 VA…0106 from home …0002",
+        "Removed a phone from home …0002",
+        "Removed device VA…0999 from home …0002",
+        "Removed room 6 from home …0002",
+    ]

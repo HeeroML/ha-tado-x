@@ -7,6 +7,12 @@
           "off": "mdi:rocket-launch-outline"
         }
       },
+      "cache_fallback": {
+        "default": "mdi:database-clock",
+        "state": {
+          "off": "mdi:database-check"
+        }
+      },
       "holiday_mode": {
         "default": "mdi:beach",
         "state": {
@@ -128,11 +134,23 @@
       "data_updated": {
         "default": "mdi:update"
       },
+      "devices_data_updated": {
+        "default": "mdi:update"
+      },
       "heating_power": {
         "default": "mdi:radiator"
       },
       "heating_time_today": {
         "default": "mdi:clock-outline"
+      },
+      "home_data_updated": {
+        "default": "mdi:update"
+      },
+      "last_api_error": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "last_api_error_time": {
+        "default": "mdi:clock-alert-outline"
       },
       "manual_control_end": {
         "default": "mdi:timer-sand"
