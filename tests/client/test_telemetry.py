@@ -51,6 +51,7 @@ from custom_components.tado_x.client import (
     describe_tado_error,
     describe_value,
     endpoint_template,
+    home_label,
     mask_serial,
     redact_text,
     safe_title,
@@ -262,6 +263,14 @@ def test_redact_text_is_cut_to_the_limit() -> None:
 def test_describe_value(value: object, expected: str) -> None:
     """Only types, lengths, constants and masked serials are described."""
     assert describe_value(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("home_id", "label"), [(HOME_B, "home …0002"), (815, "home …815")]
+)
+def test_home_label(home_id: int, label: str) -> None:
+    """A home is named by the last four digits of its id, never by its name."""
+    assert home_label(home_id) == label
 
 
 def test_mask_serial() -> None:

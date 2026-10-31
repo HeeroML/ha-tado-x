@@ -30,6 +30,15 @@ def mask_serial(serial: str) -> str:
     return f"{serial[:2]}…{serial[-4:]}"
 
 
+def home_label(home_id: int) -> str:
+    """Return the neutral name of a home in logs, such as "home …0002".
+
+    It keeps the last four digits of the home id. The entry title is no
+    choice: it is the home's name from tado unless the user renamed it.
+    """
+    return f"home …{str(home_id)[-4:]}"
+
+
 def _secret_run(match: re.Match[str]) -> str:
     """Blank a long run that looks like a token or a UUID, not like a word."""
     run = match.group()
