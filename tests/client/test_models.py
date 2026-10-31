@@ -935,6 +935,7 @@ def test_unusable_optional_fields_warn_once_per_field(
     raw[2]["heatingPower"] = {"percentage": 12.5}
     raw[3]["nextTimeBlock"] = {"start": "Mike's birthday"}
     raw[4]["nextScheduleChange"]["setting"] = {"temperature": {"value": 20.0}}
+    raw[5]["nextTimeBlock"] = {"start": 1793000000}
     caplog.set_level(logging.DEBUG)
 
     rooms = RoomState.list_from_api(raw)
@@ -947,6 +948,7 @@ def test_unusable_optional_fields_warn_once_per_field(
     assert rooms[3].heating_power is None
     assert rooms[4].next_time_block is None
     assert rooms[5].next_schedule_change is None
+    assert rooms[6].next_time_block is None
     paths = [
         ("$[0].sensorDataPoints.insideTemperature.value", "<str len=13>"),
         ("$[0].sensorDataPoints.humidity.percentage", "list[1]"),
@@ -955,8 +957,10 @@ def test_unusable_optional_fields_warn_once_per_field(
         ("$[2].heatingPower.percentage", "float"),
         ("$[3].nextTimeBlock.start", "<str len=15>"),
         ("$[4].nextScheduleChange.setting.power", "missing"),
+        ("$[5].nextTimeBlock.start", "int"),
     ]
     first = [logging.WARNING] * 3 + [logging.DEBUG] + [logging.WARNING] * 3
+    first.append(logging.DEBUG)
     assert [
         (record.levelno, record.getMessage())
         for record in caplog.records
