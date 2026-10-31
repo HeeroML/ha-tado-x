@@ -33,6 +33,7 @@ from .client import (
     TadoXNotFoundError,
     TadoXRateLimitError,
     TadoXServerError,
+    Telemetry,
     Topology,
     Weather,
 )
@@ -118,6 +119,11 @@ class _Patch[S]:
     expires: datetime
 
 
+def _target_name(target: Hashable) -> str:
+    """Return the name of a patch target without its room id or serial."""
+    return str(target[0] if isinstance(target, tuple) else target)
+
+
 class _PendingPatches[S]:
     """Optimistic patches by target, re-applied until the server agrees.
 
@@ -126,7 +132,8 @@ class _PendingPatches[S]:
     even when it changes less, as a resume does after a manual target.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, kind: str) -> None:
+        self._kind = kind
         self._patches: dict[Hashable, _Patch[S]] = {}
 
     def add(self, target: Hashable, patch: Callable[[S], S], expires: datetime) -> None:
@@ -138,14 +145,24 @@ class _PendingPatches[S]:
         kept: dict[Hashable, _Patch[S]] = {}
         for target, patch in self._patches.items():
             if now >= patch.expires:
+                self._log_drop(target, "tado did not confirm it in time")
                 continue
             patched = patch.apply(data)
             if patched == data:
+                self._log_drop(target, "tado reports it")
                 continue
             data = patched
             kept[target] = patch
         self._patches = kept
         return data
+
+    def _log_drop(self, target: Hashable, reason: str) -> None:
+        LOGGER.debug(
+            "Dropped the optimistic %s change of the %s data: %s",
+            _target_name(target),
+            self._kind,
+            reason,
+        )
 
 
 class TadoXCoordinator[S](DataUpdateCoordinator[S]):
@@ -155,6 +172,11 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
     sent, or for up to MAX_STALE without one; network, server and parse
     errors make the entities unavailable as usual. stale_since is when the
     hold that the served snapshot waits out began.
+
+    A failed poll is recorded in the telemetry as "poll <kind>". Refusals
+    and 429 answers during a quota hold are not: the quota tracker records
+    the closing of the gate once. An error the client recorded already, such
+    as a failed token refresh, keeps its own context.
     """
 
     config_entry: TadoXConfigEntry
@@ -175,6 +197,8 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         api: TadoXHome,
         monitor: QuotaMonitor,
         seed: CacheSeed | None,
+        *,
+        telemetry: Telemetry,
     ) -> None:
         """Initialize with always_update=False and a 5 s refresh debouncer."""
         super().__init__(
@@ -190,10 +214,12 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         )
         self.api = api
         self._monitor = monitor
+        self._telemetry = telemetry
+        self._context = f"poll {self.KIND}"
         self.last_fetched = {}
         self.last_live_update = None
         self.stale_since = None
-        self._pending: _PendingPatches[S] = _PendingPatches()
+        self._pending: _PendingPatches[S] = _PendingPatches(self.KIND)
         self._failing: set[str] = set()
         self._refresh_requested = False
         self._refreshed_at: datetime | None = None
@@ -225,17 +251,24 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         if previous is None or self._refresh_requested:
             due |= self.REQUIRED
         self._refresh_requested = False
+        LOGGER.debug(
+            "Polling %s of %s: %s",
+            self.KIND,
+            self.config_entry.title,
+            ", ".join(sorted(due)) or "nothing is due",
+        )
         try:
             data = await self._async_fetch(previous, due)
         except TadoXRateLimitError as err:
             return self._serve_stale(err, now)
         except TadoXError as err:
+            self._telemetry.record_tado_error(err, context=self._context)
             # tado answered, so a quota hold is over even when the answer is an error.
-            self.stale_since = None
+            self._end_stale()
             raise self._translate(err) from err
         self.last_fetched.update(dict.fromkeys(due, now))
         self.last_live_update = now
-        self.stale_since = None
+        self._end_stale()
         return self._pending.apply(data, now)
 
     def _translate(self, err: TadoXError) -> Exception:
@@ -302,6 +335,12 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         for target, patch in patches.items():
             self._pending.add(target, patch, expires)
             data = patch(data)
+        LOGGER.debug(
+            "Applied the optimistic %s change of the %s data for up to %s s",
+            ", ".join(sorted({_target_name(target) for target in patches})),
+            self.KIND,
+            int(ttl.total_seconds()),
+        )
         self.data = data
         self.async_update_listeners()
 
@@ -320,9 +359,23 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             raise _quota_failed(reset, now, setup=setup) from err
         if self.stale_since is None:
             self.stale_since = began
-            LOGGER.debug("Serving cached %s data of %s", self.KIND, at)
+            LOGGER.info(
+                "Serving cached %s data of %s from %s during a quota hold",
+                self.KIND,
+                self.config_entry.title,
+                at.isoformat(),
+            )
         self.last_live_update = at
         return data
+
+    def _end_stale(self) -> None:
+        """Stop serving the snapshot of a quota hold."""
+        if self.stale_since is None:
+            return
+        self.stale_since = None
+        LOGGER.info(
+            "Stopped serving cached %s data of %s", self.KIND, self.config_entry.title
+        )
 
     def _servable(self, at: datetime, began: datetime, now: datetime) -> bool:
         """Return whether data read at a time may be served during the hold.
@@ -399,11 +452,10 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         return False
 
     def _note_failure(self, key: str, err: TadoXError) -> None:
-        if (
-            self._refused(key, err)
-            or self._expected_failure(key, err)
-            or key in self._failing
-        ):
+        if self._refused(key, err) or self._expected_failure(key, err):
+            return
+        self._telemetry.record_tado_error(err, context=self._context)
+        if key in self._failing:
             return
         self._failing.add(key)
         LOGGER.warning(
@@ -525,6 +577,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         monitor: QuotaMonitor,
         seed: CacheSeed | None,
         *,
+        telemetry: Telemetry,
         client: TadoXClient,
     ) -> None:
         """Initialize, and tell the monitor what the cached home details say.
@@ -534,7 +587,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         """
         self._client = client
         self._generation_warned = False
-        super().__init__(hass, entry, api, monitor, seed)
+        super().__init__(hass, entry, api, monitor, seed, telemetry=telemetry)
         if self._seed_data is not None:
             monitor.async_note_devices(self._seed_data)
 

@@ -7,8 +7,9 @@ from typing import Any, Final
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, LOGGER
 from .runtime import FeatureStatus
 
 SCHEMA: Final = 1
@@ -63,6 +64,17 @@ def _calls(raw: object) -> list[int]:
     return list(raw)
 
 
+def _ages(payloads: Mapping[str, tuple[datetime, Any]], now: datetime) -> str:
+    """Describe the slices of a cache by key and age, never by content."""
+    return (
+        ", ".join(
+            f"{key} {int((now - at).total_seconds())} s"
+            for key, (at, _) in sorted(payloads.items())
+        )
+        or "no slices"
+    )
+
+
 def _flow_status(raw: object) -> FeatureStatus | None:
     try:
         return FeatureStatus(raw) if isinstance(raw, str) else None
@@ -79,6 +91,7 @@ class SnapshotCache:
     def __init__(self, hass: HomeAssistant, entry_id: str, home_id: int) -> None:
         """Initialize the Store of one entry."""
         self._store = _store(hass, entry_id)
+        self._key = f"{DOMAIN}.{entry_id}"
         self._home_id = home_id
         self._payloads: dict[str, tuple[datetime, Any]] = {}
         self._quota: Mapping[str, Any] = {}
@@ -96,8 +109,14 @@ class SnapshotCache:
             or stored.get("schema") != SCHEMA
             or stored.get("home_id") != self._home_id
         ):
+            LOGGER.debug("No usable cache in %s", self._key)
             return None
         self._payloads = _payloads(stored.get("payloads"))
+        LOGGER.debug(
+            "Loaded the cache %s: %s",
+            self._key,
+            _ages(self._payloads, dt_util.utcnow()),
+        )
         quota = stored.get("quota")
         self._quota = dict(quota) if isinstance(quota, Mapping) else {}
         self._calls = _calls(stored.get("calls"))
@@ -180,6 +199,11 @@ class SnapshotCache:
         """Return the Store content; called when the Store writes."""
         self._save_scheduled = False
         self._dirty = False
+        LOGGER.debug(
+            "Writing the cache %s: %s",
+            self._key,
+            _ages(self._payloads, dt_util.utcnow()),
+        )
         return {
             "schema": SCHEMA,
             "home_id": self._home_id,

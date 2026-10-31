@@ -13,7 +13,14 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from .cache import SnapshotCache
-from .client import QuotaTracker, TadoXClient, TadoXError, TokenManager, TokenSet
+from .client import (
+    QuotaTracker,
+    TadoXClient,
+    TadoXError,
+    Telemetry,
+    TokenManager,
+    TokenSet,
+)
 from .const import CONF_HOME_ID, CONF_USER_ID, DOMAIN, LOGGER
 from .coordinator import DevicesCoordinator, HomeCoordinator, RoomsCoordinator
 from .devices import async_is_current_device, async_setup_device_registry
@@ -53,6 +60,7 @@ async def _async_store_user_id(
     try:
         account = await client.async_get_account()
     except TadoXError as err:
+        client.telemetry.record_tado_error(err, context="setup")
         LOGGER.debug("Reading the tado account failed: %s", err)
         return
     hass.config_entries.async_update_entry(
@@ -68,7 +76,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
     cache = SnapshotCache(hass, entry.entry_id, home_id)
     entry.async_on_unload(cache.async_close)
     seed = await cache.async_load()
-    quota = QuotaTracker(clock=dt_util.utcnow)
+    # One telemetry per entry, so refreshes, the quota gate and requests share it.
+    telemetry = Telemetry(clock=dt_util.utcnow)
+    quota = QuotaTracker(clock=dt_util.utcnow, telemetry=telemetry)
     if seed is not None:
         # A persisted closed gate makes setup retries during a quota hold free.
         quota.restore(seed.quota)
@@ -85,8 +95,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
         ConfigEntryTokenStore(hass, entry),
         clock=dt_util.utcnow,
         create_task=create_refresh_task,
+        telemetry=telemetry,
     )
-    client = TadoXClient(session, tokens, quota, clock=dt_util.utcnow)
+    client = TadoXClient(
+        session, tokens, quota, clock=dt_util.utcnow, telemetry=telemetry
+    )
     entry.async_on_unload(client.async_close)
     # Shutdown jobs run before Home Assistant cancels the polls, and the
     # rotation they persist is written to disk in the final write stage.
@@ -96,9 +109,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
     client.set_payload_observer(cache.record)
     api = client.home(home_id)
     monitor = QuotaMonitor(hass, entry, quota, cache)
-    devices = DevicesCoordinator(hass, entry, api, monitor, seed, client=client)
-    rooms = RoomsCoordinator(hass, entry, api, monitor, seed)
-    home = HomeCoordinator(hass, entry, api, monitor, seed)
+    devices = DevicesCoordinator(
+        hass, entry, api, monitor, seed, telemetry=telemetry, client=client
+    )
+    rooms = RoomsCoordinator(hass, entry, api, monitor, seed, telemetry=telemetry)
+    home = HomeCoordinator(hass, entry, api, monitor, seed, telemetry=telemetry)
 
     if CONF_USER_ID not in entry.data:
         await _async_store_user_id(hass, entry, client)
@@ -108,6 +123,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
 
     entry.runtime_data = TadoXRuntimeData(
         client=client,
+        telemetry=telemetry,
         api=api,
         rooms=rooms,
         home=home,

@@ -1,5 +1,7 @@
 """Tests for the binary sensor platform."""
 
+from datetime import timedelta
+
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -218,4 +220,26 @@ async def test_optional_sensors_follow_the_options(
     binary_sensors = unique_ids(entity_registry, config_entry, "binary_sensor")
     assert f"{HOME_B}_holiday_mode" not in binary_sensors
     assert not [unique_id for unique_id in binary_sensors if "mobile" in unique_id]
-    assert len(binary_sensors) == 6 * 4 + 12 * 2 + 1
+    assert len(binary_sensors) == 6 * 4 + 12 * 2 + 2
+
+
+async def test_cache_fallback(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Cached data is on while a quota hold serves old values, then off again."""
+    await setup_entry(hass, config_entry)
+    assert state_of(hass, f"{HOME}_cached_data") == STATE_OFF
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=2))
+
+    await tick(hass, freezer, 45)
+
+    assert state_of(hass, f"{HOME}_cached_data") == STATE_ON
+    assert state_of(hass, "sensor.wohnzimmer_temperature") == "21.1"
+
+    await tick(hass, freezer, 2 * 3600 + 60)
+    await tick(hass, freezer, 45)
+
+    assert state_of(hass, f"{HOME}_cached_data") == STATE_OFF

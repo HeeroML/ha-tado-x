@@ -20,7 +20,11 @@ def test_override_wins(
     """A per-call termination beats every policy and the room default."""
     assert (
         resolve_termination(
-            policy=policy, timer=TIMER, room_default=room_default, override=OVERRIDE
+            room_id=1,
+            policy=policy,
+            timer=TIMER,
+            room_default=room_default,
+            override=OVERRIDE,
         )
         == OVERRIDE
     )
@@ -39,7 +43,9 @@ def test_fixed_policy_beats_room_default(
 ) -> None:
     """A fixed policy ignores the tado app setting of the room."""
     assert (
-        resolve_termination(policy=policy, timer=TIMER, room_default=ROOM_TIMER)
+        resolve_termination(
+            room_id=1, policy=policy, timer=TIMER, room_default=ROOM_TIMER
+        )
         == expected
     )
 
@@ -52,7 +58,10 @@ def test_follow_app_uses_room_default(room_default: Termination) -> None:
     """follow_app sends the tado app setting of the room."""
     assert (
         resolve_termination(
-            policy=TerminationPolicy.FOLLOW_APP, timer=TIMER, room_default=room_default
+            room_id=1,
+            policy=TerminationPolicy.FOLLOW_APP,
+            timer=TIMER,
+            room_default=room_default,
         )
         == room_default
     )
@@ -62,7 +71,10 @@ def test_follow_app_without_room_default() -> None:
     """An unknown app setting falls back to the next time block, never a timer."""
     assert (
         resolve_termination(
-            policy=TerminationPolicy.FOLLOW_APP, timer=TIMER, room_default=None
+            room_id=1,
+            policy=TerminationPolicy.FOLLOW_APP,
+            timer=TIMER,
+            room_default=None,
         )
         == Termination.next_time_block()
     )
@@ -71,6 +83,7 @@ def test_follow_app_without_room_default() -> None:
 def test_timer_option_body() -> None:
     """The timer option with 45 minutes sends 2,700 seconds."""
     termination = resolve_termination(
+        room_id=1,
         policy=TerminationPolicy.TIMER,
         timer=timedelta(minutes=45),
         room_default=None,
