@@ -130,7 +130,14 @@ class TadoXHomeNotXError(TadoXNotFoundError):
 
 
 class TadoXParseError(TadoXError):
-    """A 2xx payload failed boundary validation."""
+    """A 2xx payload failed boundary validation.
+
+    logged is True when the parser logged the cause already, such as an
+    unknown value of a required enum, so that skipping the item that holds
+    it is not warned about a second time.
+    """
+
+    logged: bool = False
 
     def __init__(self, endpoint: str, path: str, *, found: str | None = None) -> None:
         """Initialize with the endpoint key, the JSON path that failed and what was there.

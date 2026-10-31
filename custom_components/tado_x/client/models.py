@@ -112,15 +112,20 @@ def _to_seconds(value: object) -> timedelta | None:
         return None
 
 
-def _log_unusable(endpoint: str, path: str, found: str) -> None:
+def _log_unusable(
+    endpoint: str, path: str, found: str, *, logged: bool = False
+) -> None:
     """Log an optional value that cannot be used, by its path and description.
 
     The first of each endpoint and path is a warning, repeats are debug
-    messages; the value itself is never logged.
+    messages, and so is a value whose cause is logged already; the value
+    itself is never logged.
     """
     kind = ("field", endpoint, _INDEX.sub("[]", path))
     _LOGGER.log(
-        logging.WARNING if WARN_ONCE.should_warn(kind) else logging.DEBUG,
+        logging.WARNING
+        if not logged and WARN_ONCE.should_warn(kind)
+        else logging.DEBUG,
         "Ignoring an unusable %s field: %s is %s",
         endpoint,
         path,
@@ -252,7 +257,10 @@ class _Reader:
 
     def req_enum[E: StrEnum](self, cls: type[E], key: str, *, field: str) -> E:
         if (value := self.enum(cls, key, field=field)) is None:
-            raise self._error(key)
+            err = self._error(key)
+            # parse_enum logged a present value it does not know, once per field.
+            err.logged = self._data.get(key) is not None
+            raise err
         return value
 
 
@@ -266,11 +274,13 @@ def _log_skip(err: TadoXParseError) -> None:
     """Log a skipped item by its path and what was found there, never the value.
 
     The first skip of each endpoint and path is a warning, repeats are debug
-    messages.
+    messages, and so is a skip whose cause is logged already.
     """
     kind = ("skip", err.endpoint, _INDEX.sub("[]", err.path))
     _LOGGER.log(
-        logging.WARNING if WARN_ONCE.should_warn(kind) else logging.DEBUG,
+        logging.WARNING
+        if not err.logged and WARN_ONCE.should_warn(kind)
+        else logging.DEBUG,
         "Skipping a malformed %s item: %s is %s",
         err.endpoint,
         err.path,
@@ -444,7 +454,7 @@ def _next_schedule_change(reader: _Reader | None) -> NextScheduleChange | None:
     try:
         return NextScheduleChange(start=start, setting=_setting(setting))
     except TadoXParseError as err:
-        _log_unusable(err.endpoint, err.path, err.found or "invalid")
+        _log_unusable(err.endpoint, err.path, err.found or "invalid", logged=err.logged)
         return None
 
 

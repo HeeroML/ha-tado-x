@@ -95,6 +95,14 @@ def _topology() -> Topology:
     return Topology.from_api(load_fixture("rooms_and_devices.json"))
 
 
+def _client_records(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER and record.levelno == level
+    ]
+
+
 def _unknown_value_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [
         record.getMessage()
@@ -920,6 +928,81 @@ def test_unknown_values_warn_once_per_field(caplog: pytest.LogCaptureFixture) ->
         (logging.DEBUG, message.format("ODD_TEST", "room.power")),
         (logging.DEBUG, message.format("ODD_TEST", "room.power")),
         (logging.WARNING, message.format("<str len=1>", "device.power")),
+    ]
+
+
+def _unknown_power(raw: list[Any]) -> None:
+    for room in raw[:2]:
+        room["setting"]["power"] = "STANDBY_TEST"
+    RoomState.list_from_api(raw)
+
+
+def _unknown_next_power(raw: list[Any]) -> None:
+    for room in raw[:2]:
+        room["nextScheduleChange"]["setting"]["power"] = "STANDBY_TEST"
+    RoomState.list_from_api(raw)
+
+
+def _unknown_day(raw: dict[str, Any]) -> None:
+    for block in raw["schedule"][:2]:
+        block["dayType"] = "MONDAY_TO_FRIDAY"
+    RoomSchedule.from_api(raw, room_id=1)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "change", "warning", "skip"),
+    [
+        (
+            "rooms.json",
+            _unknown_power,
+            "Unknown value STANDBY_TEST for setting.power",
+            "Skipping a malformed rooms item: $[0].setting.power is STANDBY_TEST",
+        ),
+        (
+            "rooms.json",
+            _unknown_next_power,
+            "Unknown value STANDBY_TEST for setting.power",
+            "Ignoring an unusable rooms field: "
+            "$[0].nextScheduleChange.setting.power is STANDBY_TEST",
+        ),
+        (
+            "schedule.json",
+            _unknown_day,
+            "Unknown value MONDAY_TO_FRIDAY for schedule.dayType",
+            "Skipping a malformed schedule item: "
+            "$.schedule[0].dayType is MONDAY_TO_FRIDAY",
+        ),
+    ],
+    ids=["room_setting", "next_change", "schedule_day"],
+)
+def test_unknown_value_of_a_required_enum_warns_once(
+    caplog: pytest.LogCaptureFixture,
+    fixture: str,
+    change: Callable[[Any], None],
+    warning: str,
+    skip: str,
+) -> None:
+    """The unknown value is the one warning; skipping its item is a debug line."""
+    caplog.set_level(logging.DEBUG)
+
+    change(load_fixture(fixture))
+
+    warnings = _client_records(caplog, logging.WARNING)
+    assert len(warnings) == 1
+    assert warnings[0].startswith(warning)
+    assert skip in _client_records(caplog, logging.DEBUG)
+
+
+def test_missing_required_enum_warns_at_the_skip(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A missing required value has no unknown value to warn about; the skip warns."""
+    raw = load_fixture("rooms.json")
+    del raw[0]["setting"]["power"]
+
+    assert 1 not in RoomState.list_from_api(raw)
+    assert _client_records(caplog, logging.WARNING) == [
+        "Skipping a malformed rooms item: $[0].setting.power is missing"
     ]
 
 
