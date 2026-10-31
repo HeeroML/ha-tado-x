@@ -182,6 +182,31 @@ def test_endpoint_template(method: str, url: str, expected: str) -> None:
         ("id 00000000-0000-4000-8000-000000000001", "id <redacted>"),
         ("$.maxFlowTemperatureConstraints.min", "$.maxFlowTemperatureConstraints.min"),
         ("unauthorized_after_refresh", "unauthorized_after_refresh"),
+        ("token ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef", "token <redacted>"),
+        ("key AbcdEFGHijklMNOPqrstUVWXyzab+cdef/gh==", "key <redacted>"),
+        (
+            "$.supportsFlowTemperatureOptimization",
+            "$.supportsFlowTemperatureOptimization",
+        ),
+        ("showSwitchToAutoGeofencingButton", "showSwitchToAutoGeofencingButton"),
+        (
+            "GET hops:/homes/{home}/settings/flowTemperatureOptimization",
+            "GET hops:/homes/{home}/settings/flowTemperatureOptimization",
+        ),
+        ("refresh_token=abcdefgh&client_id=x", "refresh_token=<redacted>&client_id=x"),
+        ("grant_type=refresh_token", "grant_type=refresh_token"),
+        ("www.example.com/path?token=abc", "www.example.com/path?token=<redacted>"),
+        ('{"access_token": "abc", "a": 1}', '{"access_token": "<redacted>", "a": 1}'),
+        ("Device_Code: xyz", "Device_Code: <redacted>"),
+        ("callback?code=abc&state=x", "callback?code=<redacted>&state=x"),
+        ("code=not.found title=Room", "code=not.found title=Room"),
+        (
+            "visit tado.com/device?user_code=ABCDEF",
+            "visit tado.com/device?user_code=<redacted>",
+        ),
+        ("user code WDJB-MJHT entered", "user code <redacted> entered"),
+        ("code 7LXZ-G2AB", "code <redacted>"),
+        ("a real-time long-term view", "a real-time long-term view"),
     ],
 )
 def test_redact_text(text: str | None, expected: str | None) -> None:
