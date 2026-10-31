@@ -44,12 +44,14 @@ from .client import (
     Termination,
     TerminationType,
     format_clock,
+    mask_serial,
     parse_clock,
     tariff_cents,
     validate_day,
 )
 from .const import (
     DOMAIN,
+    LOGGER,
     MAX_TEMP,
     MAX_TERMINATION_TIMER_MINUTES,
     MIN_TEMP,
@@ -170,6 +172,7 @@ def termination_override(
     """Return the termination of a set_climate_timer call; None means the policy."""
     if termination is None:
         if duration is None:
+            LOGGER.debug("set_climate_timer: no duration, so the policy decides")
             return None
         return Termination.timer(dt.timedelta(minutes=duration))
     kind = TerminationType(termination.upper())
@@ -292,6 +295,7 @@ async def _async_set_temperature_offset(call: ServiceCall) -> None:
                 "device": device.name_by_user or device.name or device.id
             },
         )
+    LOGGER.debug("set_temperature_offset: writing to device %s", mask_serial(serial))
     await async_set_offset(entry, serial, call.data[ATTR_OFFSET])
 
 
@@ -300,6 +304,7 @@ async def _async_add_meter_reading(call: ServiceCall) -> None:
     entry = _energy_iq_entry(call)
     data = entry.runtime_data
     day = call.data.get(ATTR_DATE) or home_today(data.devices.data.home_info)
+    LOGGER.debug("add_meter_reading: reading of %s for %s", day, entry.title)
     try:
         await data.api.async_add_meter_reading(call.data[ATTR_READING], day)
     except TadoXError as err:
@@ -314,12 +319,20 @@ async def _async_set_eiq_tariff(call: ServiceCall) -> None:
     entry = _energy_iq_entry(call)
     data = entry.runtime_data
     start = call.data.get(ATTR_START_DATE) or home_today(data.devices.data.home_info)
+    end = call.data.get(ATTR_END_DATE)
+    LOGGER.debug(
+        "set_eiq_tariff: whole cents per %s from %s until %s for %s",
+        call.data[ATTR_UNIT],
+        start,
+        end or "open end",
+        entry.title,
+    )
     try:
         await data.api.async_add_tariff(
             cents=tariff_cents(call.data[ATTR_TARIFF]),
             unit=TARIFF_UNITS[call.data[ATTR_UNIT]],
             start=start,
-            end=call.data.get(ATTR_END_DATE),
+            end=end,
         )
     except TadoXError as err:
         raise_for_tado_error(err, entry, context=f"service {SERVICE_SET_EIQ_TARIFF}")
@@ -401,6 +414,13 @@ async def _async_set_holiday_mode(call: ServiceCall) -> None:
     start = None if start is None else dt_util.as_utc(start)
     end = None if end is None else dt_util.as_utc(end)
     data = entry.runtime_data
+    LOGGER.debug(
+        "set_holiday_mode: enabled=%s, start %s, end %s for %s",
+        enabled,
+        "kept" if start is None else start.isoformat(),
+        "kept" if end is None else end.isoformat(),
+        entry.title,
+    )
     try:
         await data.api.async_set_holiday_mode(enabled=enabled, start=start, end=end)
     except TadoXError as err:

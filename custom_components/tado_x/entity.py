@@ -32,7 +32,7 @@ from .client import (
     TadoXTransientError,
     redact_text,
 )
-from .const import DOMAIN
+from .const import DOMAIN, LOGGER
 from .coordinator import TadoXCoordinator
 from .issues import format_time
 from .runtime import TadoXConfigEntry
@@ -199,6 +199,7 @@ def async_add_dynamic_entities(
         new = [entity for entity in build() if entity.unique_id not in known]
         if new:
             known.update((entity.unique_id, entity.device_identifier) for entity in new)
+            LOGGER.debug("Adding %s new entities of %s", len(new), entry.title)
             async_add_entities(new)
 
     _async_add_new()

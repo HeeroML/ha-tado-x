@@ -62,7 +62,12 @@ class ApiStatus(StrEnum):
 
 
 class QuotaMonitor:
-    """Plan and throttle the coordinators of one entry from the shared quota."""
+    """Plan and throttle the coordinators of one entry from the shared quota.
+
+    Each change of the plan mode and each start and end of a quota hold is
+    logged once: a used-up quota as a warning, because nothing is sent until
+    the reset, everything else at info level.
+    """
 
     def __init__(
         self,
@@ -89,6 +94,7 @@ class QuotaMonitor:
         self._mode = PlanMode.OK
         self._checked_at: datetime | None = None
         self._conserving_since: datetime | None = None
+        self._holding = False
         self._unsub_reset: CALLBACK_TYPE | None = None
         entry.async_on_unload(quota.add_listener(self._async_on_quota))
         entry.async_on_unload(self._async_unwatch_reset)
@@ -267,6 +273,7 @@ class QuotaMonitor:
             now=now,
         )
         self._log_transition(mode)
+        self._log_hold(self._hold_end(now), mode)
         self._mode = mode
         if mode is PlanMode.CONSERVING:
             self._conserving_since = self._conserving_since or now
@@ -303,6 +310,7 @@ class QuotaMonitor:
         self._async_update(now, force=True)
 
     def _log_transition(self, mode: PlanMode) -> None:
+        """Log a change of the plan mode; the end of a block is a hold's end."""
         if mode is self._mode:
             return
         if mode is PlanMode.BLOCKED:
@@ -312,13 +320,36 @@ class QuotaMonitor:
                 self._quota.blocked_until,
             )
         elif mode is PlanMode.CONSERVING:
-            LOGGER.warning(
+            LOGGER.info(
                 "Only %s tado API calls are left for %s; polling slows down until the quota resets",
                 None if self.info is None else self.info.remaining,
                 self._entry.title,
             )
-        elif self._mode in (PlanMode.BLOCKED, PlanMode.CONSERVING):
+        elif self._mode is PlanMode.CONSERVING:
             LOGGER.info("Polling of %s is back to its plan", self._entry.title)
+
+    def _hold_end(self, now: datetime) -> datetime | None:
+        """Return until when the quota gate refuses polls, if it does."""
+        return self._quota.known_hold_end(now) or self._blocked_until(now)
+
+    def _log_hold(self, end: datetime | None, mode: PlanMode) -> None:
+        """Log the start and the end of a quota hold.
+
+        A hold that starts with a used-up quota has its warning already.
+        """
+        holding = end is not None
+        if holding is self._holding:
+            return
+        self._holding = holding
+        if end is None:
+            LOGGER.info("Polling of %s resumes after the quota hold", self._entry.title)
+        elif mode is not PlanMode.BLOCKED:
+            LOGGER.info(
+                "Polling of %s holds until %s: only %s tado API calls are left",
+                self._entry.title,
+                end.isoformat(),
+                None if self.info is None else self.info.remaining,
+            )
 
     def _blocked_until(self, now: datetime) -> datetime | None:
         blocked = self._quota.blocked_until

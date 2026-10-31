@@ -1216,3 +1216,30 @@ async def test_entity_action_errors_are_recorded_as_commands(
         "TadoXServerError",
         502,
     )
+
+
+async def test_optimistic_patches_are_logged_without_ids(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Applying and dropping a patch is logged by its target name only."""
+    caplog.set_level(logging.DEBUG)
+    data = await _setup(hass, freezer)
+    rooms = data.rooms
+
+    rooms.async_apply_optimistic(
+        {("control", 1): lambda snapshot: snapshot.with_room(1, humidity=99.0)},
+        ttl=timedelta(seconds=30),
+    )
+    await _poll(freezer, rooms)
+
+    assert (
+        "Applied the optimistic control change of the rooms data for up to 30 s"
+        in caplog.text
+    )
+    assert (
+        "Dropped the optimistic control change of the rooms data: "
+        "tado did not confirm it in time" in caplog.text
+    )

@@ -3,19 +3,24 @@
 Devices are registered centrally before the platforms load, in the order
 home, bridge, rooms, physical devices, phones; entities carry identifiers
 only.
+
+Every device added after the setup and every device removed is logged at
+info level, named by its type and masked serial, "room <id>" or "a phone".
+The devices of a new entry are logged at debug level only.
 """
 
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
-from typing import Final
+import logging
+from typing import Any, Final
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry, DeviceEntryType
 
-from .client import Device, DeviceType, MobileDevice, Topology
-from .const import CONFIGURATION_URL, DOMAIN, MANUFACTURER
+from .client import Device, DeviceType, MobileDevice, Topology, describe_value
+from .const import CONFIGURATION_URL, DOMAIN, LOGGER, MANUFACTURER
 from .runtime import TadoXConfigEntry
 
 HOME_MODEL: Final = "tado X home"
@@ -34,6 +39,7 @@ DEVICE_TYPES: Final[Mapping[DeviceType, tuple[str, str]]] = {
 }
 
 _MOBILE_PREFIX: Final = "mobile_"
+_PHONE: Final = "a phone"
 
 
 def home_identifier(home_id: int) -> tuple[str, str]:
@@ -101,8 +107,51 @@ def _current_identifiers(entry: TadoXConfigEntry) -> Iterator[tuple[str, str]]:
     yield from (mobile_identifier(mobile_id) for mobile_id in _phones(entry))
 
 
+def _device_label(type_raw: str | None, serial: str) -> str:
+    """Name a physical device in a log line by its type and masked serial."""
+    kind = "device" if type_raw is None else describe_value(type_raw)
+    return f"{kind} {describe_value(serial)}"
+
+
+def _removed_label(home_id: int, value: str, model_id: str | None) -> str:
+    """Name a removed device by its identifier, without names or full serials."""
+    if value.startswith(_MOBILE_PREFIX):
+        return _PHONE
+    room = value.removeprefix(f"{home_id}_")
+    if room != value and room.isdecimal():
+        return f"room {room}"
+    return _device_label(model_id, value)
+
+
 @callback
-def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
+def _async_ensure(
+    registry: dr.DeviceRegistry,
+    entry: TadoXConfigEntry,
+    identifier: tuple[str, str],
+    label: str,
+    *,
+    announce: bool,
+    **fields: Any,
+) -> DeviceEntry:
+    """Create or update a device of the entry; log it when it is new."""
+    new = registry.async_get_device_by_identifier(identifier, entry.entry_id) is None
+    device = registry.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={identifier}, **fields
+    )
+    if new:
+        LOGGER.log(
+            logging.INFO if announce else logging.DEBUG,
+            "Added %s to %s",
+            label,
+            entry.title,
+        )
+    return device
+
+
+@callback
+def _async_register(
+    hass: HomeAssistant, entry: TadoXConfigEntry, *, announce: bool
+) -> None:
     """Register or update every device, parents first."""
     registry = dr.async_get(hass)
     data = entry.runtime_data
@@ -119,9 +168,12 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
     topology = data.devices.data.topology
     parent = home.id
     if (bridge := topology.bridge) is not None:
-        parent = registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={device_identifier(bridge.serial)},
+        parent = _async_ensure(
+            registry,
+            entry,
+            device_identifier(bridge.serial),
+            _device_label(bridge.type_raw, bridge.serial),
+            announce=announce,
             translation_key=BRIDGE_KEY,
             manufacturer=MANUFACTURER,
             model=BRIDGE_MODEL,
@@ -131,9 +183,12 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
             via_device_id=home.id,
         ).id
     for room in topology.rooms.values():
-        registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={room_identifier(home_id, room.id)},
+        _async_ensure(
+            registry,
+            entry,
+            room_identifier(home_id, room.id),
+            f"room {room.id}",
+            announce=announce,
             name=room.name,
             manufacturer=MANUFACTURER,
             model=ROOM_MODEL,
@@ -144,9 +199,12 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
         if bridge is not None and serial == bridge.serial:
             continue
         key, model = _type_key(device)
-        registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={device_identifier(serial)},
+        _async_ensure(
+            registry,
+            entry,
+            device_identifier(serial),
+            _device_label(device.type_raw, serial),
+            announce=announce,
             translation_key=key,
             translation_placeholders=names[serial],
             manufacturer=MANUFACTURER,
@@ -157,9 +215,12 @@ def _async_register(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
             via_device_id=parent,
         )
     for mobile_id, phone in _phones(entry).items():
-        registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={mobile_identifier(mobile_id)},
+        _async_ensure(
+            registry,
+            entry,
+            mobile_identifier(mobile_id),
+            _PHONE,
+            announce=announce,
             name=phone.name,
             model=" ".join(part for part in (phone.platform, phone.model) if part)
             or None,
@@ -188,7 +249,8 @@ def _async_remove_stale(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
         return
     registry = dr.async_get(hass)
     current = set(_current_identifiers(entry))
-    home = home_identifier(data.api.home_id)
+    home_id = data.api.home_id
+    home = home_identifier(home_id)
     for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
         ours = {item for item in device.identifiers if item[0] == DOMAIN}
         if not ours or ours & current or home in ours:
@@ -196,22 +258,30 @@ def _async_remove_stale(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
         is_phone = any(value.startswith(_MOBILE_PREFIX) for _, value in ours)
         if phones_live if is_phone else devices_live:
             registry.async_remove_device(device.id)
+            value = min(value for _, value in ours)
+            LOGGER.info(
+                "Removed %s from %s",
+                _removed_label(home_id, value, device.model_id),
+                entry.title,
+            )
 
 
 @callback
-def _async_sync(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
-    _async_register(hass, entry)
+def _async_sync(
+    hass: HomeAssistant, entry: TadoXConfigEntry, *, announce: bool
+) -> None:
+    _async_register(hass, entry, announce=announce)
     _async_remove_stale(hass, entry)
 
 
 @callback
 def async_setup_device_registry(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
     """Register every device now and keep the registry in sync with the data."""
-    _async_sync(hass, entry)
+    _async_sync(hass, entry, announce=False)
 
     @callback
     def _async_on_update() -> None:
-        _async_sync(hass, entry)
+        _async_sync(hass, entry, announce=True)
 
     data = entry.runtime_data
     entry.async_on_unload(data.devices.async_add_listener(_async_on_update))

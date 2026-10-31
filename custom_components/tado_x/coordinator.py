@@ -119,6 +119,11 @@ class _Patch[S]:
     expires: datetime
 
 
+def _target_name(target: Hashable) -> str:
+    """Return the name of a patch target without its room id or serial."""
+    return str(target[0] if isinstance(target, tuple) else target)
+
+
 class _PendingPatches[S]:
     """Optimistic patches by target, re-applied until the server agrees.
 
@@ -127,7 +132,8 @@ class _PendingPatches[S]:
     even when it changes less, as a resume does after a manual target.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, kind: str) -> None:
+        self._kind = kind
         self._patches: dict[Hashable, _Patch[S]] = {}
 
     def add(self, target: Hashable, patch: Callable[[S], S], expires: datetime) -> None:
@@ -139,14 +145,24 @@ class _PendingPatches[S]:
         kept: dict[Hashable, _Patch[S]] = {}
         for target, patch in self._patches.items():
             if now >= patch.expires:
+                self._log_drop(target, "tado did not confirm it in time")
                 continue
             patched = patch.apply(data)
             if patched == data:
+                self._log_drop(target, "tado reports it")
                 continue
             data = patched
             kept[target] = patch
         self._patches = kept
         return data
+
+    def _log_drop(self, target: Hashable, reason: str) -> None:
+        LOGGER.debug(
+            "Dropped the optimistic %s change of the %s data: %s",
+            _target_name(target),
+            self._kind,
+            reason,
+        )
 
 
 class TadoXCoordinator[S](DataUpdateCoordinator[S]):
@@ -203,7 +219,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         self.last_fetched = {}
         self.last_live_update = None
         self.stale_since = None
-        self._pending: _PendingPatches[S] = _PendingPatches()
+        self._pending: _PendingPatches[S] = _PendingPatches(self.KIND)
         self._failing: set[str] = set()
         self._refresh_requested = False
         self._refreshed_at: datetime | None = None
@@ -235,6 +251,12 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         if previous is None or self._refresh_requested:
             due |= self.REQUIRED
         self._refresh_requested = False
+        LOGGER.debug(
+            "Polling %s of %s: %s",
+            self.KIND,
+            self.config_entry.title,
+            ", ".join(sorted(due)) or "nothing is due",
+        )
         try:
             data = await self._async_fetch(previous, due)
         except TadoXRateLimitError as err:
@@ -242,11 +264,11 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         except TadoXError as err:
             self._telemetry.record_tado_error(err, context=self._context)
             # tado answered, so a quota hold is over even when the answer is an error.
-            self.stale_since = None
+            self._end_stale()
             raise self._translate(err) from err
         self.last_fetched.update(dict.fromkeys(due, now))
         self.last_live_update = now
-        self.stale_since = None
+        self._end_stale()
         return self._pending.apply(data, now)
 
     def _translate(self, err: TadoXError) -> Exception:
@@ -313,6 +335,12 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         for target, patch in patches.items():
             self._pending.add(target, patch, expires)
             data = patch(data)
+        LOGGER.debug(
+            "Applied the optimistic %s change of the %s data for up to %s s",
+            ", ".join(sorted({_target_name(target) for target in patches})),
+            self.KIND,
+            int(ttl.total_seconds()),
+        )
         self.data = data
         self.async_update_listeners()
 
@@ -331,9 +359,23 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             raise _quota_failed(reset, now, setup=setup) from err
         if self.stale_since is None:
             self.stale_since = began
-            LOGGER.debug("Serving cached %s data of %s", self.KIND, at)
+            LOGGER.info(
+                "Serving cached %s data of %s from %s during a quota hold",
+                self.KIND,
+                self.config_entry.title,
+                at.isoformat(),
+            )
         self.last_live_update = at
         return data
+
+    def _end_stale(self) -> None:
+        """Stop serving the snapshot of a quota hold."""
+        if self.stale_since is None:
+            return
+        self.stale_since = None
+        LOGGER.info(
+            "Stopped serving cached %s data of %s", self.KIND, self.config_entry.title
+        )
 
     def _servable(self, at: datetime, began: datetime, now: datetime) -> bool:
         """Return whether data read at a time may be served during the hold.
