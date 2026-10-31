@@ -5,7 +5,7 @@ Bug reports, translations and pull requests are welcome in [HeeroML/ha-tado-x](h
 ## Reporting a bug
 
 1. Check the [troubleshooting table](README.md#troubleshooting) and the [open issues](https://github.com/HeeroML/ha-tado-x/issues).
-2. Open an issue with the bug template. Attach the diagnostics of the entry (**Settings → Devices & services → Tado X → ⋮ → Download diagnostics**) and, if you can, a debug log. Both are free of tokens and account data; still read them before you post.
+2. Open an issue with the bug template. Attach what [Reporting a problem](README.md#reporting-a-problem) lists: the diagnostics, a debug log excerpt around the problem, its time, and the Home Assistant and integration versions. Diagnostics and logs are free of tokens, account data and names other than the entry's title; still read them before you post.
 3. Never post tokens, sign-in codes, the sign-in link or the unredacted output of the live probe.
 
 ## Development setup
@@ -40,7 +40,7 @@ docker run --rm -v "$PWD":/github/workspace ghcr.io/home-assistant/hassfest
 - Write code the way Home Assistant core does: typed (mypy strict), small functions, `EntityDescription` with value functions, docstrings on public symbols, comments only for a non-obvious reason.
 - No `from __future__ import annotations`. Use `probatio` for schemas, not `voluptuous`.
 - `custom_components/tado_x/client/` must not import Home Assistant or its parent package; `budget.py` and `termination.py` must not import Home Assistant. `tests/test_architecture.py` checks this.
-- Never log tokens, codes, the sign-in link, the `Authorization` header or account data. `tests/test_logging.py` checks the main paths.
+- Follow the logging rules in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#observability): nothing personal in logs, diagnostics, entity states or exception messages (rooms as `room <id>`, serials masked, tado text redacted, no bodies), INFO only for changes of state and writes, DEBUG for the rest. `tests/test_logging.py` checks the main paths.
 - Every API call must fit the budget model: a new polled endpoint needs an entry in `budget.py`, an option if it is optional, and its calls per day in the option description.
 - Keep entity unique ids stable. Changing one loses the user's history.
 
