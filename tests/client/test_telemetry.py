@@ -1,31 +1,50 @@
 """Tests for the telemetry of the tado X client."""
 
+import asyncio
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 import json
 import logging
+import re
 from typing import Any
 
+from aiohttp import ClientSession
 from freezegun.api import FrozenDateTimeFactory
 import pytest
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 from yarl import URL
 
 from custom_components.tado_x.client import (
     SENSITIVE_KEYS,
     WARN_ONCE,
+    DayType,
     ErrorRecord,
     Exchange,
+    MemoryTokenStore,
+    Power,
+    PresenceSetting,
+    QuickAction,
+    QuotaTracker,
+    ScheduleBlock,
+    Setting,
     TadoXAuthError,
+    TadoXClient,
     TadoXConnectionError,
     TadoXDeviceFlowError,
     TadoXError,
     TadoXForbiddenError,
+    TadoXHome,
     TadoXHomeNotXError,
     TadoXParseError,
     TadoXRateLimitError,
     TadoXRequestError,
     TadoXServerError,
+    TariffUnit,
     Telemetry,
+    Termination,
+    TokenManager,
+    TokenSet,
     WarnOnce,
     describe_command,
     describe_error,
@@ -43,7 +62,7 @@ from custom_components.tado_x.client.const import (
     TOKEN_URL,
 )
 from custom_components.tado_x.client.telemetry import safe_code
-from tests.tado_mock import HOME_B, load_fixture
+from tests.tado_mock import HOME_B, TadoCloudMock, entry_tokens, load_fixture
 
 NOW = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
 HOPS_B = f"{HOPS_API_URL}/homes/{HOME_B}"
@@ -62,6 +81,16 @@ def _exchange(
         duration_ms=182,
     )
     return replace(exchange, **changes)
+
+
+def _client_messages(
+    caplog: pytest.LogCaptureFixture, level: int | None = None
+) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER and (level is None or record.levelno == level)
+    ]
 
 
 @pytest.mark.parametrize(
@@ -338,6 +367,244 @@ def test_describe_command_uses_allow_listed_fields(
 ) -> None:
     """Missing fields read as null, other fields and unknown writes stay hidden."""
     assert describe_command(method, URL(url), body) == expected
+
+
+async def _schedule(home: TadoXHome) -> None:
+    blocks = [
+        ScheduleBlock(
+            day=DayType.MONDAY,
+            start_minute=start,
+            end_minute=end,
+            setting=Setting(power=Power.ON, temperature=temperature),
+        )
+        for start, end, temperature in ((0, 390, 18.0), (390, 1440, 21.0))
+    ]
+    await home.async_set_day_schedule(1, DayType.MONDAY, blocks)
+
+
+type Write = Callable[[TadoXHome], Awaitable[None]]
+
+WRITES: list[tuple[Write, str, int]] = [
+    (
+        lambda home: home.async_set_manual_control(
+            3,
+            Setting(power=Power.ON, temperature=21.0),
+            Termination.timer(timedelta(hours=1)),
+        ),
+        "manualControl room 3: ON 21.0 °C until TIMER 3600 s",
+        204,
+    ),
+    (
+        lambda home: home.async_set_manual_control(
+            3, Setting(power=Power.OFF), Termination.manual()
+        ),
+        "manualControl room 3: OFF until MANUAL",
+        204,
+    ),
+    (
+        lambda home: home.async_set_manual_control(
+            2,
+            Setting(power=Power.ON, temperature=19.5),
+            Termination.next_time_block(),
+        ),
+        "manualControl room 2: ON 19.5 °C until NEXT_TIME_BLOCK",
+        204,
+    ),
+    (lambda home: home.async_resume_schedule(3), "resume schedule room 3", 204),
+    (
+        lambda home: home.async_set_open_window(5, active=True),
+        "open window room 5: on",
+        204,
+    ),
+    (
+        lambda home: home.async_set_open_window(5, active=False),
+        "open window room 5: off",
+        204,
+    ),
+    (
+        lambda home: home.async_quick_action(QuickAction.BOOST),
+        "quick action boost",
+        200,
+    ),
+    (
+        lambda home: home.async_quick_action(QuickAction.ALL_OFF),
+        "quick action allOff",
+        200,
+    ),
+    (
+        lambda home: home.async_quick_action(QuickAction.RESUME_SCHEDULE),
+        "quick action resumeSchedule",
+        200,
+    ),
+    (
+        lambda home: home.async_set_presence(PresenceSetting.HOME),
+        "presence HOME",
+        204,
+    ),
+    (
+        lambda home: home.async_set_presence(PresenceSetting.AWAY),
+        "presence AWAY",
+        204,
+    ),
+    (
+        lambda home: home.async_set_presence(PresenceSetting.AUTO),
+        "presence AUTO",
+        204,
+    ),
+    (
+        lambda home: home.async_update_device("VA0000000101", temperature_offset=-0.5),
+        "device VA…0101: temperatureOffset=-0.5",
+        204,
+    ),
+    (
+        lambda home: home.async_update_device("VA0000000101", child_lock=True),
+        "device VA…0101: childLockEnabled=True",
+        204,
+    ),
+    (
+        lambda home: home.async_update_device(
+            "VA0000000102", temperature_offset=0.0, child_lock=False
+        ),
+        "device VA…0102: temperatureOffset=0.0, childLockEnabled=False",
+        204,
+    ),
+    (
+        lambda home: home.async_identify_device("SU0000000102"),
+        "identify SU…0102",
+        204,
+    ),
+    (
+        lambda home: home.async_set_room_termination_default(
+            6, Termination.timer(timedelta(minutes=30))
+        ),
+        "room 6 termination default TIMER 1800 s",
+        204,
+    ),
+    (
+        lambda home: home.async_set_room_termination_default(
+            1, Termination.next_time_block()
+        ),
+        "room 1 termination default NEXT_TIME_BLOCK",
+        204,
+    ),
+    (_schedule, "schedule room 1 MONDAY: 2 blocks", 200),
+    (
+        lambda home: home.async_set_holiday_mode(
+            enabled=True,
+            start=datetime(2026, 12, 24, tzinfo=UTC),
+            end=datetime(2026, 12, 27, tzinfo=UTC),
+        ),
+        "holiday mode enabled=True",
+        204,
+    ),
+    (
+        lambda home: home.async_set_flow_temperature(maximum=45),
+        "flow temperature max=45",
+        204,
+    ),
+    (
+        lambda home: home.async_set_flow_temperature(auto_adaptation=True),
+        "flow temperature autoAdaptation=True",
+        204,
+    ),
+    (
+        lambda home: home.async_set_flow_temperature(maximum=55, auto_adaptation=False),
+        "flow temperature max=55, autoAdaptation=False",
+        204,
+    ),
+    (
+        lambda home: home.async_add_meter_reading(987654, date(2026, 10, 30)),
+        "meter reading (value hidden)",
+        200,
+    ),
+    (
+        lambda home: home.async_add_tariff(
+            cents=4321, unit=TariffUnit.KWH, start=date(2026, 10, 1), end=None
+        ),
+        "tariff (value hidden)",
+        200,
+    ),
+]
+
+
+@pytest.fixture
+async def session(aioclient_mock: AiohttpClientMocker) -> AsyncGenerator[ClientSession]:
+    """Return a client session bound to aioclient_mock."""
+    client_session = aioclient_mock.create_session(asyncio.get_running_loop())
+    yield client_session
+    await client_session.close()
+
+
+@pytest.fixture
+def client(session: ClientSession) -> TadoXClient:
+    """Return a client with a fresh token of home 1000002."""
+    access, refresh = entry_tokens(HOME_B)
+    tokens = TokenSet(
+        access_token=access,
+        refresh_token=refresh,
+        expires_at=datetime.now(UTC) + timedelta(minutes=10),
+    )
+    return TadoXClient(
+        session, TokenManager(session, MemoryTokenStore(tokens)), QuotaTracker()
+    )
+
+
+@pytest.mark.parametrize(
+    ("write", "description", "status"),
+    WRITES,
+    ids=[description for _, description, _ in WRITES],
+)
+async def test_every_write_is_described_and_audited(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    caplog: pytest.LogCaptureFixture,
+    write: Write,
+    description: str,
+    status: int,
+) -> None:
+    """Each write of the client is described from its request and logged at info."""
+    mock_tado.home(HOME_B).flow_temperature = load_fixture("flow_temperature.json")
+    caplog.set_level(logging.DEBUG)
+
+    await write(client.home(HOME_B))
+
+    call = next(call for call in mock_tado.calls() if call.method != "GET")
+    assert describe_command(call.method, call.url, call.body) == description
+    [audit] = _client_messages(caplog, logging.INFO)
+    assert re.fullmatch(
+        rf"Write: {re.escape(description)} -> ok \(HTTP {status}, \d+ ms\)", audit
+    )
+    for secret in ("VA0000000101", "VA0000000102", "SU0000000102", "987654", "4321"):
+        assert secret not in caplog.text
+    [exchange] = [e for e in client.telemetry.exchanges() if e.method == call.method]
+    assert exchange.status == status
+    assert exchange.outcome == "ok"
+
+
+async def test_failed_write_is_audited_and_recorded(
+    mock_tado: TadoCloudMock,
+    client: TadoXClient,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A refused write logs one info line with code and title, and is recorded."""
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(TadoXRequestError):
+        await client.home(HOME_B).async_set_open_window(1, active=True)
+
+    assert _client_messages(caplog, logging.INFO) == [
+        "Write failed: open window room 1: on -> HTTP 422 "
+        "code=openWindow.notDetected title=No open window detected"
+    ]
+    assert client.telemetry.last_error == ErrorRecord(
+        at=datetime.now(UTC),
+        kind="TadoXRequestError",
+        context="command openWindow",
+        endpoint="POST hops:/homes/{home}/rooms/{room}/openWindow",
+        status=422,
+        message="code=openWindow.notDetected title=No open window detected",
+    )
 
 
 @pytest.mark.parametrize(
