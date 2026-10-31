@@ -182,10 +182,7 @@ async def test_set_offset_error(
         await set_value(hass, offset_id(hass), 1)
 
     assert raised.value.translation_key == "request_rejected"
-    assert raised.value.translation_placeholders == {
-        "status": "422",
-        "title": "HTTP 422",
-    }
+    assert raised.value.translation_placeholders == {"status": "422", "code": "error"}
     assert state_of(hass, offset_id(hass)).state == "-1.5"
 
 

@@ -633,13 +633,13 @@ async def test_device_changes_are_logged_without_names(
         if record.name == "custom_components.tado_x"
         and record.getMessage().startswith(("Added", "Removed"))
     ]
-    assert ("DEBUG", "Added room 1 to Haus 1000002") in changes
-    assert ("DEBUG", "Added a phone to Haus 1000002") in changes
-    assert ("DEBUG", "Added IB02 IB…0001 to Haus 1000002") in changes
+    assert ("DEBUG", "Added room 1 to home …0002") in changes
+    assert ("DEBUG", "Added a phone to home …0002") in changes
+    assert ("DEBUG", "Added IB02 IB…0001 to home …0002") in changes
     assert sorted(message for level, message in changes if level != "DEBUG") == [
-        "Removed SU04 SU…0106 from Haus 1000002",
-        "Removed VA04 VA…0106 from Haus 1000002",
-        "Removed a phone from Haus 1000002",
-        "Removed device VA…0999 from Haus 1000002",
-        "Removed room 6 from Haus 1000002",
+        "Removed SU04 SU…0106 from home …0002",
+        "Removed VA04 VA…0106 from home …0002",
+        "Removed a phone from home …0002",
+        "Removed device VA…0999 from home …0002",
+        "Removed room 6 from home …0002",
     ]

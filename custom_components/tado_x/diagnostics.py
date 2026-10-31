@@ -20,7 +20,7 @@ from homeassistant.util import dt as dt_util
 from .client import Device, RoomTopology, mask_serial
 from .const import CONF_HOME_NAME, CONF_REFRESH_TOKEN, CONF_TOKEN_EXPIRY, DOMAIN
 from .coordinator import TadoXCoordinator
-from .runtime import TadoXConfigEntry
+from .runtime import TadoXConfigEntry, entry_label
 from .token_store import parse_expiry
 
 TO_REDACT: Final = {
@@ -96,7 +96,7 @@ async def async_get_config_entry_diagnostics(
     diagnostics: dict[str, Any] = _plain(
         {
             "entry": {
-                "title": entry.title,
+                "title": entry_label(entry),
                 "version": f"{entry.version}.{entry.minor_version}",
                 "data": async_redact_data(dict(entry.data), TO_REDACT),
                 "options": dict(entry.options),

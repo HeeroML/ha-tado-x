@@ -36,7 +36,7 @@ from .const import (
     OPT_WEATHER,
 )
 from .issues import async_sync_quota_issues
-from .runtime import DevicesSnapshot, FeatureStatus, TadoXConfigEntry
+from .runtime import DevicesSnapshot, FeatureStatus, TadoXConfigEntry, entry_label
 
 if TYPE_CHECKING:
     from .coordinator import TadoXCoordinator
@@ -66,7 +66,9 @@ class QuotaMonitor:
 
     Each change of the plan mode and each start and end of a quota hold is
     logged once: a used-up quota as a warning, because nothing is sent until
-    the reset, everything else at info level.
+    the reset, everything else at info level. The quota state a setup
+    restores was logged when it came about, so a setup retry or a reload
+    during a hold logs it at debug level only; its end is logged as usual.
     """
 
     def __init__(
@@ -79,6 +81,7 @@ class QuotaMonitor:
         """Initialize from the entry options and the quota tracker."""
         self._hass = hass
         self._entry = entry
+        self._label = entry_label(entry)
         self._quota = quota
         self._cache = cache
         options = {**DEFAULT_OPTIONS, **entry.options}
@@ -94,8 +97,18 @@ class QuotaMonitor:
         self._mode = PlanMode.OK
         self._checked_at: datetime | None = None
         self._conserving_since: datetime | None = None
-        self._holding = False
+        now = dt_util.utcnow()
+        self._logged_mode = self._throttle(now)[1]
+        self._holding = self._hold_end(now) is not None
+        self._restored_hold = self._holding or self._below_floor(now)
         self._unsub_reset: CALLBACK_TYPE | None = None
+        if self._logged_mode is not PlanMode.OK or self._restored_hold:
+            LOGGER.debug(
+                "Restored the quota state of %s: %s, %s",
+                self._label,
+                self._logged_mode,
+                "holding" if self._restored_hold else "not holding",
+            )
         entry.async_on_unload(quota.add_listener(self._async_on_quota))
         entry.async_on_unload(self._async_unwatch_reset)
 
@@ -111,6 +124,15 @@ class QuotaMonitor:
         if self._mode is PlanMode.THROTTLED:
             return ApiStatus.THROTTLED
         return ApiStatus.OK
+
+    @property
+    def restored_hold(self) -> bool:
+        """Return whether the quota state restored at setup refused polls.
+
+        That hold was logged when it began, by an earlier setup attempt or
+        before a reload or a restart.
+        """
+        return self._restored_hold
 
     @property
     def plan(self) -> PollPlan:
@@ -263,15 +285,7 @@ class QuotaMonitor:
     def _async_replan(self, now: datetime) -> None:
         self._checked_at = now
         self._plan = self._make_plan()
-        blocked = self._blocked_until(now) is not None
-        self._factor, mode = throttle_factor(
-            plan=self._plan,
-            info=self.info,
-            reserve=self._reserve,
-            entries_on_account=self._entries_on_account(),
-            blocked=blocked,
-            now=now,
-        )
+        self._factor, mode = self._throttle(now)
         self._log_transition(mode)
         self._log_hold(self._hold_end(now), mode)
         self._mode = mode
@@ -309,24 +323,37 @@ class QuotaMonitor:
         self._unsub_reset = None
         self._async_update(now, force=True)
 
+    def _throttle(self, now: datetime) -> tuple[float, PlanMode]:
+        """Return the throttle factor and the plan mode the quota calls for now."""
+        return throttle_factor(
+            plan=self._plan,
+            info=self.info,
+            reserve=self._reserve,
+            entries_on_account=self._entries_on_account(),
+            blocked=self._blocked_until(now) is not None,
+            now=now,
+        )
+
     def _log_transition(self, mode: PlanMode) -> None:
         """Log a change of the plan mode; the end of a block is a hold's end."""
-        if mode is self._mode:
+        previous = self._logged_mode
+        if mode is previous:
             return
+        self._logged_mode = mode
         if mode is PlanMode.BLOCKED:
             LOGGER.warning(
                 "The tado API quota of %s is used up; polling pauses until %s",
-                self._entry.title,
+                self._label,
                 self._quota.blocked_until,
             )
         elif mode is PlanMode.CONSERVING:
             LOGGER.info(
                 "Only %s tado API calls are left for %s; polling slows down until the quota resets",
                 None if self.info is None else self.info.remaining,
-                self._entry.title,
+                self._label,
             )
-        elif self._mode is PlanMode.CONSERVING:
-            LOGGER.info("Polling of %s is back to its plan", self._entry.title)
+        elif previous is PlanMode.CONSERVING:
+            LOGGER.info("Polling of %s is back to its plan", self._label)
 
     def _hold_end(self, now: datetime) -> datetime | None:
         """Return until when the quota gate refuses polls, if it does."""
@@ -342,14 +369,24 @@ class QuotaMonitor:
             return
         self._holding = holding
         if end is None:
-            LOGGER.info("Polling of %s resumes after the quota hold", self._entry.title)
+            LOGGER.info("Polling of %s resumes after the quota hold", self._label)
         elif mode is not PlanMode.BLOCKED:
             LOGGER.info(
                 "Polling of %s holds until %s: only %s tado API calls are left",
-                self._entry.title,
+                self._label,
                 end.isoformat(),
                 None if self.info is None else self.info.remaining,
             )
+
+    def _below_floor(self, now: datetime) -> bool:
+        """Return whether polls wait below the poll floor until the quota resets."""
+        info = self.info
+        return (
+            info is not None
+            and info.remaining is not None
+            and info.remaining <= QuotaTracker.POLL_FLOOR
+            and (info.reset_at is None or now < info.reset_at)
+        )
 
     def _blocked_until(self, now: datetime) -> datetime | None:
         blocked = self._quota.blocked_until

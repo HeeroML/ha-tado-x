@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 
 from .client import TokenSet, TokenStore
 from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_TOKEN_EXPIRY, LOGGER
-from .runtime import TadoXConfigEntry
+from .runtime import TadoXConfigEntry, entry_label
 
 EXPIRED: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -39,6 +39,7 @@ class ConfigEntryTokenStore(TokenStore):
         """Initialize for one config entry."""
         self._hass = hass
         self._entry = entry
+        self._label = entry_label(entry)
 
     @override
     def load(self) -> TokenSet | None:
@@ -47,14 +48,14 @@ class ConfigEntryTokenStore(TokenStore):
         access = data.get(CONF_ACCESS_TOKEN)
         refresh = data.get(CONF_REFRESH_TOKEN)
         if not isinstance(access, str) or not isinstance(refresh, str) or not refresh:
-            LOGGER.debug("The config entry of %s holds no tokens", self._entry.title)
+            LOGGER.debug("The config entry of %s holds no tokens", self._label)
             return None
         expires_at = parse_expiry(data.get(CONF_TOKEN_EXPIRY))
         if expires_at is EXPIRED:
             LOGGER.debug(
                 "The token expiry of %s is missing, naive or unreadable; "
                 "the access token is refreshed first",
-                self._entry.title,
+                self._label,
             )
         return TokenSet(
             access_token=access, refresh_token=refresh, expires_at=expires_at
@@ -66,7 +67,7 @@ class ConfigEntryTokenStore(TokenStore):
         LOGGER.debug(
             "Writing the rotated tado tokens of %s into its config entry; "
             "the access token expires at %s",
-            self._entry.title,
+            self._label,
             tokens.expires_at.isoformat(),
         )
         self._hass.config_entries.async_update_entry(

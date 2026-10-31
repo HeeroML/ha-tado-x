@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Hashable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, tzinfo
 from functools import partial
+import logging
 from typing import Any, ClassVar, Final, override
 
 from homeassistant.core import HomeAssistant, callback
@@ -31,12 +32,15 @@ from .client import (
     TadoXHome,
     TadoXHomeNotXError,
     TadoXNotFoundError,
+    TadoXParseError,
     TadoXRateLimitError,
+    TadoXRequestError,
     TadoXServerError,
     Telemetry,
     Topology,
     Weather,
 )
+from .client.redact import home_label, safe_code
 from .const import DOMAIN, LOGGER, MAX_STALE_DEVICES, MAX_STALE_HOME, MAX_STALE_ROOMS
 from .issues import async_create_not_tado_x_issue, format_time
 from .quota import QuotaMonitor
@@ -44,6 +48,7 @@ from .runtime import (
     DevicesSnapshot,
     FeatureStatus,
     HomeSnapshot,
+    ReauthNotice,
     RoomsSnapshot,
     TadoXConfigEntry,
 )
@@ -66,6 +71,31 @@ def home_today(home_info: HomeInfo | None, now: datetime | None = None) -> date:
     )
 
 
+def rejected_placeholders(err: TadoXRequestError) -> dict[str, str]:
+    """Return the placeholders of request_rejected: the status and tado's error code.
+
+    tado's error title can name a home, a room or a person, so a message
+    never shows it.
+    """
+    return {
+        "status": str(err.status),
+        "code": "-" if err.code is None else safe_code(err.code),
+    }
+
+
+def unexpected_placeholders(err: TadoXError) -> dict[str, str]:
+    """Return the placeholder of api_error: the endpoint template of the request.
+
+    A payload that fails validation after the request names the endpoint key
+    of its parser. The message of the error and the JSON path are left out.
+    """
+    if err.request is not None:
+        return {"error": err.request}
+    if isinstance(err, TadoXParseError):
+        return {"error": err.endpoint}
+    return {"error": type(err).__name__}
+
+
 def _update_failed(err: TadoXError) -> UpdateFailed:
     """Return the translated UpdateFailed for an error that is not a quota hold."""
     if isinstance(err, TadoXConnectionError):
@@ -76,10 +106,16 @@ def _update_failed(err: TadoXError) -> UpdateFailed:
             translation_key="server_error",
             translation_placeholders={"status": str(err.status)},
         )
+    if isinstance(err, TadoXRequestError):
+        return UpdateFailed(
+            translation_domain=DOMAIN,
+            translation_key="request_rejected",
+            translation_placeholders=rejected_placeholders(err),
+        )
     return UpdateFailed(
         translation_domain=DOMAIN,
         translation_key="api_error",
-        translation_placeholders={"error": str(err)},
+        translation_placeholders=unexpected_placeholders(err),
     )
 
 
@@ -199,13 +235,19 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         seed: CacheSeed | None,
         *,
         telemetry: Telemetry,
+        reauth: ReauthNotice,
     ) -> None:
-        """Initialize with always_update=False and a 5 s refresh debouncer."""
+        """Initialize with always_update=False and a 5 s refresh debouncer.
+
+        The name, which Home Assistant logs, holds the home label, never the
+        entry title.
+        """
+        label = home_label(api.home_id)
         super().__init__(
             hass,
             LOGGER,
             config_entry=entry,
-            name=f"{DOMAIN} {entry.title} {self.KIND}",
+            name=f"{DOMAIN} {self.KIND} {label}",
             update_interval=monitor.interval(self),
             always_update=False,
             request_refresh_debouncer=Debouncer(
@@ -213,8 +255,10 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             ),
         )
         self.api = api
+        self._label = label
         self._monitor = monitor
         self._telemetry = telemetry
+        self._reauth = reauth
         self._context = f"poll {self.KIND}"
         self.last_fetched = {}
         self.last_live_update = None
@@ -233,8 +277,13 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         """Build a snapshot from cached payloads, with the time of the required one."""
 
     @abstractmethod
-    async def _async_fetch(self, previous: S | None, due: frozenset[str]) -> S:
-        """Fetch the due endpoints and merge them into the previous snapshot."""
+    async def _async_fetch(
+        self, previous: S | None, due: frozenset[str]
+    ) -> tuple[S, bool]:
+        """Fetch the due endpoints and merge them into the previous snapshot.
+
+        Return the snapshot and whether any endpoint returned a live value.
+        """
 
     @override
     async def async_request_refresh(self) -> None:
@@ -244,7 +293,11 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
 
     @override
     async def _async_update_data(self) -> S:
-        """Fetch the due endpoints and map client errors to coordinator errors."""
+        """Fetch the due endpoints and map client errors to coordinator errors.
+
+        The data counts as updated, and a quota hold as over, only when an
+        endpoint returned a live value: a tick with nothing due sends nothing.
+        """
         now = dt_util.utcnow()
         previous = self.data if self.data is not None else self._seed_data
         due = self._monitor.due(self, now)
@@ -254,11 +307,11 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         LOGGER.debug(
             "Polling %s of %s: %s",
             self.KIND,
-            self.config_entry.title,
+            self._label,
             ", ".join(sorted(due)) or "nothing is due",
         )
         try:
-            data = await self._async_fetch(previous, due)
+            data, live = await self._async_fetch(previous, due)
         except TadoXRateLimitError as err:
             return self._serve_stale(err, now)
         except TadoXError as err:
@@ -267,8 +320,9 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             self._end_stale()
             raise self._translate(err) from err
         self.last_fetched.update(dict.fromkeys(due, now))
-        self.last_live_update = now
-        self._end_stale()
+        if live:
+            self.last_live_update = now
+            self._end_stale()
         return self._pending.apply(data, now)
 
     def _translate(self, err: TadoXError) -> Exception:
@@ -281,6 +335,8 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
                 translation_placeholders={"home": self.config_entry.title},
             )
         if isinstance(err, TadoXAuthError):
+            # Home Assistant starts the reauth flow for this error.
+            self._reauth.note(err)
             return ConfigEntryAuthFailed(
                 translation_domain=DOMAIN, translation_key="auth_failed"
             )
@@ -348,7 +404,10 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         """Serve the last snapshot during a quota hold, while it is recent enough.
 
         A coordinator created by a reload or restart during a hold with a
-        known end takes the start of that hold from the quota tracker.
+        known end takes the start of that hold from the quota tracker. A
+        setup that the restored quota state refuses continues a hold that was
+        logged when it began, so serving the cache is logged at debug level;
+        every setup retry would repeat the line otherwise.
         """
         setup = self.data is None
         data: S | None = self._seed_data if setup else self.data
@@ -359,10 +418,13 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
             raise _quota_failed(reset, now, setup=setup) from err
         if self.stale_since is None:
             self.stale_since = began
-            LOGGER.info(
+            LOGGER.log(
+                logging.DEBUG
+                if setup and err.local and self._monitor.restored_hold
+                else logging.INFO,
                 "Serving cached %s data of %s from %s during a quota hold",
                 self.KIND,
-                self.config_entry.title,
+                self._label,
                 at.isoformat(),
             )
         self.last_live_update = at
@@ -373,9 +435,7 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         if self.stale_since is None:
             return
         self.stale_since = None
-        LOGGER.info(
-            "Stopped serving cached %s data of %s", self.KIND, self.config_entry.title
-        )
+        LOGGER.info("Stopped serving cached %s data of %s", self.KIND, self._label)
 
     def _servable(self, at: datetime, began: datetime, now: datetime) -> bool:
         """Return whether data read at a time may be served during the hold.
@@ -461,14 +521,14 @@ class TadoXCoordinator[S](DataUpdateCoordinator[S]):
         LOGGER.warning(
             "Reading %s of %s failed, keeping the last value: %s",
             key,
-            self.config_entry.title,
+            self._label,
             err,
         )
 
     def _note_success(self, key: str) -> None:
         if key in self._failing:
             self._failing.discard(key)
-            LOGGER.info("Reading %s of %s works again", key, self.config_entry.title)
+            LOGGER.info("Reading %s of %s works again", key, self._label)
 
 
 class RoomsCoordinator(TadoXCoordinator[RoomsSnapshot]):
@@ -489,12 +549,12 @@ class RoomsCoordinator(TadoXCoordinator[RoomsSnapshot]):
     @override
     async def _async_fetch(
         self, previous: RoomsSnapshot | None, due: frozenset[str]
-    ) -> RoomsSnapshot:
+    ) -> tuple[RoomsSnapshot, bool]:
         """Fetch the rooms."""
         values, _ = await self._async_gather(due, {"rooms": self.api.async_get_rooms})
         if previous is None or "rooms" in values:
-            return RoomsSnapshot(rooms=values["rooms"])
-        return previous
+            return RoomsSnapshot(rooms=values["rooms"]), True
+        return previous, False
 
 
 _HOME_FIELDS: Final = {
@@ -531,7 +591,7 @@ class HomeCoordinator(TadoXCoordinator[HomeSnapshot]):
     @override
     async def _async_fetch(
         self, previous: HomeSnapshot | None, due: frozenset[str]
-    ) -> HomeSnapshot:
+    ) -> tuple[HomeSnapshot, bool]:
         """Fetch the due home endpoints."""
         api = self.api
         values, _ = await self._async_gather(
@@ -552,7 +612,7 @@ class HomeCoordinator(TadoXCoordinator[HomeSnapshot]):
             changes.update(
                 mobile_devices=phones.phones, mobile_devices_complete=phones.complete
             )
-        return replace(previous, **changes)
+        return replace(previous, **changes), bool(values)
 
 
 class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
@@ -578,6 +638,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         seed: CacheSeed | None,
         *,
         telemetry: Telemetry,
+        reauth: ReauthNotice,
         client: TadoXClient,
     ) -> None:
         """Initialize, and tell the monitor what the cached home details say.
@@ -587,7 +648,9 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
         """
         self._client = client
         self._generation_warned = False
-        super().__init__(hass, entry, api, monitor, seed, telemetry=telemetry)
+        super().__init__(
+            hass, entry, api, monitor, seed, telemetry=telemetry, reauth=reauth
+        )
         if self._seed_data is not None:
             monitor.async_note_devices(self._seed_data)
 
@@ -625,7 +688,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
     @override
     async def _async_fetch(
         self, previous: DevicesSnapshot | None, due: frozenset[str]
-    ) -> DevicesSnapshot:
+    ) -> tuple[DevicesSnapshot, bool]:
         """Fetch the due device endpoints."""
         api = self.api
         today = home_today(previous.home_info if previous else None)
@@ -650,7 +713,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
                 snapshot, flow_temperature=None, flow_status=FeatureStatus.ABSENT
             )
         self._monitor.async_note_devices(snapshot)
-        return snapshot
+        return snapshot, bool(values)
 
     async def _async_get_home_info(self) -> HomeInfo:
         """Read the home details; a home of the previous generation is refused (#40)."""
@@ -663,7 +726,7 @@ class DevicesCoordinator(TadoXCoordinator[DevicesSnapshot]):
             LOGGER.warning(
                 "tado reports no known generation for %s; it is used as a tado X "
                 "home because the tado X API serves it",
-                self.config_entry.title,
+                self._label,
             )
         return info
 

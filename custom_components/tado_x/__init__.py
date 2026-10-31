@@ -27,7 +27,7 @@ from .devices import async_is_current_device, async_setup_device_registry
 from .issues import async_delete_entry_issues
 from .migration import async_finish_migration, async_migrate_entry
 from .quota import QuotaMonitor
-from .runtime import TadoXConfigEntry, TadoXRuntimeData
+from .runtime import ReauthNotice, TadoXConfigEntry, TadoXRuntimeData, entry_label
 from .services import async_setup_services
 from .token_store import ConfigEntryTokenStore
 
@@ -109,11 +109,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
     client.set_payload_observer(cache.record)
     api = client.home(home_id)
     monitor = QuotaMonitor(hass, entry, quota, cache)
+    reauth = ReauthNotice(tokens, entry_label(entry))
     devices = DevicesCoordinator(
-        hass, entry, api, monitor, seed, telemetry=telemetry, client=client
+        hass,
+        entry,
+        api,
+        monitor,
+        seed,
+        telemetry=telemetry,
+        reauth=reauth,
+        client=client,
     )
-    rooms = RoomsCoordinator(hass, entry, api, monitor, seed, telemetry=telemetry)
-    home = HomeCoordinator(hass, entry, api, monitor, seed, telemetry=telemetry)
+    rooms = RoomsCoordinator(
+        hass, entry, api, monitor, seed, telemetry=telemetry, reauth=reauth
+    )
+    home = HomeCoordinator(
+        hass, entry, api, monitor, seed, telemetry=telemetry, reauth=reauth
+    )
 
     if CONF_USER_ID not in entry.data:
         await _async_store_user_id(hass, entry, client)
@@ -124,6 +136,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
     entry.runtime_data = TadoXRuntimeData(
         client=client,
         telemetry=telemetry,
+        reauth=reauth,
         api=api,
         rooms=rooms,
         home=home,
@@ -136,7 +149,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TadoXConfigEntry) -> boo
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     LOGGER.info(
         "Set up %s: %s rooms, %s devices, %s planned API calls a day",
-        entry.title,
+        entry_label(entry),
         len(devices.data.topology.rooms),
         len(devices.data.topology.devices),
         monitor.plan.calls_per_day,

@@ -181,7 +181,7 @@
         'timer_minutes': 60,
         'weather': True,
       }),
-      'title': 'Haus 1000002',
+      'title': 'home …0002',
       'version': '1.2',
     }),
     'flow_status': 'absent',

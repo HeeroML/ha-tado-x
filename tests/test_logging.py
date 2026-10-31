@@ -8,8 +8,10 @@ policy: one audit line per write, one info line per state change, and no
 info line at all in a steady state.
 """
 
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from datetime import timedelta
+import json
 import logging
 import re
 from typing import Any
@@ -52,7 +54,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from tests.tado_mock import HOME_B, TadoCloudMock, load_fixture
+from tests.tado_mock import HOME_B, HOME_NAMES, TadoCloudMock, load_fixture
 from tests.test_init import make_entry, setup_entry
 
 TOKEN_PATH = "/oauth2/token"
@@ -64,7 +66,9 @@ ME = load_fixture("me.json")
 ROOMS = f"/homes/{HOME_B}/rooms"
 WEATHER = f"/api/v2/homes/{HOME_B}/weather"
 MANUAL_1 = f"/homes/{HOME_B}/rooms/1/manualControl"
-TITLE = f"Haus {HOME_B}"
+# The integration names the home by the last four digits of its id, never by
+# the entry title, which the config flow takes from tado's name of the home.
+LABEL = "home …0002"
 TADO_LOGGER = "custom_components.tado_x"
 
 SECRETS = (
@@ -117,6 +121,9 @@ NOT_FOUND_TITLE = f"Weather of home {HOME_B} not found"
 # The test harness's mock Store logs every payload it writes; Home Assistant's
 # real Store logs only the key and the file path.
 TEST_STORAGE_LOGGER = "pytest_homeassistant_custom_component.common"
+# Home Assistant logs the setup of an entry with its title under the logger of
+# the integration; those lines are Home Assistant's, not the integration's.
+HA_ENTRY_LOGS = "homeassistant/config_entries.py"
 
 
 def _log_text(caplog: pytest.LogCaptureFixture) -> str:
@@ -131,13 +138,18 @@ def _log_text(caplog: pytest.LogCaptureFixture) -> str:
 
 
 def _tado_log_text(caplog: pytest.LogCaptureFixture) -> str:
-    """Return the records of the integration, with tracebacks."""
+    """Return the records of the integration, with tracebacks.
+
+    The records of the coordinators that Home Assistant's DataUpdateCoordinator
+    writes with the coordinator name count as the integration's.
+    """
     formatter = logging.Formatter("%(name)s %(levelname)s %(message)s")
     return "\n".join(
         formatter.format(record)
         for phase in ("setup", "call")
         for record in caplog.get_records(phase)
         if record.name.startswith(TADO_LOGGER)
+        and not record.pathname.endswith(HA_ENTRY_LOGS)
     )
 
 
@@ -217,6 +229,8 @@ async def test_sign_in_and_setup(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].state is ConfigEntryState.LOADED
+    assert result["result"].title == HOME_NAMES[HOME_B]
+    assert HOME_NAMES[HOME_B] not in _tado_log_text(caplog)
     assert len(mock_tado.calls("POST", TOKEN_PATH)) == 2
     _assert_requests_were_logged(caplog)
 
@@ -272,12 +286,82 @@ async def test_rejected_refresh_logs_no_login_body(
         body={"error": "invalid_grant", "error_description": LOGIN_SECRET},
     )
 
+    start = len(caplog.records)
     await entry.runtime_data.rooms.async_refresh()
+    await hass.async_block_till_done()
+    for coordinator in (entry.runtime_data.home, entry.runtime_data.devices):
+        await coordinator.async_refresh()
+
+    assert list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
+    assert _messages(caplog.records[start:], logging.INFO) == [
+        "tado rejected the login (invalid_grant); a new login is needed"
+    ]
+    assert LOGIN_SECRET not in caplog.text
+
+
+async def test_401_after_a_refresh_logs_the_reauth_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 401 that a fresh token gets too starts a reauth, logged once with its reason.
+
+    Every coordinator fails the same way; the line is not repeated.
+    """
+    entry = await _setup(hass)
+    data: TadoXRuntimeData = entry.runtime_data
+    mock_tado.fail("GET", re.compile(r"/homes/1000002/"), status=401)
+    start = len(caplog.records)
+
+    freezer.tick(timedelta(minutes=1))
+    for coordinator in (data.rooms, data.home, data.devices, data.rooms):
+        await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     assert list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
-    assert "tado rejected the login (invalid_grant)" in caplog.text
-    assert LOGIN_SECRET not in caplog.text
+    assert _messages(caplog.records[start:], logging.INFO) == [
+        f"tado no longer accepts the login of {LABEL} "
+        "(unauthorized_after_refresh); a new login is needed"
+    ]
+
+
+async def test_401_of_a_write_logs_the_reauth_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A write that gets 401 after a refresh starts a reauth and logs it.
+
+    The polls that fail the same way afterwards log nothing more.
+    """
+    entry = await _setup(hass)
+    data: TadoXRuntimeData = entry.runtime_data
+    mock_tado.fail("DELETE", MANUAL_1, status=401)
+    mock_tado.fail("GET", ROOMS, status=401)
+    start = len(caplog.records)
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_HVAC_MODE,
+            {
+                ATTR_ENTITY_ID: _entity(hass, CLIMATE_DOMAIN, f"{HOME_B}_1_climate"),
+                "hvac_mode": HVACMode.AUTO,
+            },
+            blocking=True,
+        )
+    await hass.async_block_till_done()
+    await _poll(freezer, data.rooms)
+
+    assert list(entry.async_get_active_flows(hass, {SOURCE_REAUTH}))
+    assert not data.rooms.last_update_success
+    assert _messages(caplog.records[start:], logging.INFO) == [
+        "Write failed: resume schedule room 1 -> HTTP 401 unauthorized_after_refresh",
+        f"tado no longer accepts the login of {LABEL} "
+        "(unauthorized_after_refresh); a new login is needed",
+    ]
 
 
 async def test_nothing_private_reaches_the_log(
@@ -345,6 +429,61 @@ async def test_nothing_private_reaches_the_log(
     assert "attempt 2 after 401" in text
     assert len(mock_tado.calls("POST", TOKEN_PATH)) == 2
     _assert_requests_were_logged(caplog)
+
+
+async def test_the_home_name_stays_out_of_logs_and_diagnostics(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The entry title, which is tado's name of the home, is never logged.
+
+    The integration names the home by a label from its id, in its own lines
+    and in the coordinator names Home Assistant logs; diagnostics show the
+    label instead of the title.
+    """
+    mock_tado.home(HOME_B).info["generation"] = "O2_NEW_GENERATION"
+    entry = await _setup(hass, holiday_mode=True)
+    data: TadoXRuntimeData = entry.runtime_data
+    assert entry.title == HOME_NAMES[HOME_B]
+    assert [
+        coordinator.name for coordinator in (data.rooms, data.home, data.devices)
+    ] == [
+        f"tado_x rooms {LABEL}",
+        f"tado_x home {LABEL}",
+        f"tado_x devices {LABEL}",
+    ]
+
+    mock_tado.revoke_access_tokens()
+    await _poll(freezer, data.rooms)
+    mock_tado.fail("GET", ROOMS, status=500, times=1)
+    await _poll(freezer, data.rooms)
+    for service, service_data in (
+        ("add_meter_reading", {"reading": 1234}),
+        ("set_eiq_tariff", {"tariff": 0.285, "unit": "kwh"}),
+        ("set_holiday_mode", {"enabled": True}),
+    ):
+        await hass.services.async_call(DOMAIN, service, service_data, blocking=True)
+    mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=1))
+    await _poll(freezer, data.rooms)
+    diagnostics = await get_diagnostics_for_config_entry(hass, hass_client, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    assert diagnostics["entry"]["title"] == LABEL
+    assert entry.title not in json.dumps(diagnostics)
+    text = _tado_log_text(caplog)
+    assert entry.title not in text
+    for line in (
+        f"Set up {LABEL}: ",
+        f"Error fetching tado_x rooms {LABEL} data",
+        f"tado reports no known generation for {LABEL}",
+        f"Serving cached rooms data of {LABEL}",
+        f"The tado API quota of {LABEL} is used up",
+        f"Writing the rotated tado tokens of {LABEL}",
+    ):
+        assert line in text
 
 
 async def test_steady_state_logs_nothing_at_info(
@@ -529,7 +668,7 @@ async def test_failed_write_logs_its_status(
     freezer: FrozenDateTimeFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A refused write logs one INFO line with the status, code and redacted title."""
+    """A refused write logs one INFO line with the status, code and title length."""
     entry = await _setup(hass)
     climate = _entity(hass, CLIMATE_DOMAIN, f"{HOME_B}_1_climate")
     mock_tado.fail("POST", MANUAL_1, status=422, body=NASTY_4XX, times=1)
@@ -543,14 +682,52 @@ async def test_failed_write_logs_its_status(
             blocking=True,
         )
 
-    title = "Token <redacted> of <email> in home #"
     assert _messages(caplog.records[start:], logging.INFO) == [
         "Write failed: manualControl room 1: ON 21.0 °C until NEXT_TIME_BLOCK "
         f"-> HTTP 422 code=not.allowed title=<str len={len(NASTY_4XX['errors'][0]['title'])}>"
     ]
-    assert raised.value.translation_placeholders == {"status": "422", "title": title}
+    assert raised.value.translation_placeholders == {
+        "status": "422",
+        "code": "not.allowed",
+    }
     [error] = entry.runtime_data.telemetry.errors()
     assert (error.context, error.status) == ("command manualControl", 422)
+
+
+async def test_unexpected_answer_to_a_device_write_names_no_serial(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A write answered by a page that is not JSON fails with the endpoint template.
+
+    The error shown to the user names neither the home id nor the serial.
+    """
+    await _setup(hass)
+    offset = _entity(hass, NUMBER_DOMAIN, "VA0000000101_offset")
+    mock_tado.fail(
+        "PATCH",
+        f"/homes/{HOME_B}/roomsAndDevices/devices/VA0000000101",
+        status=200,
+        body=b"<html>OK</html>",
+        times=1,
+    )
+
+    with pytest.raises(HomeAssistantError) as raised:
+        await hass.services.async_call(
+            NUMBER_DOMAIN,
+            SERVICE_SET_VALUE,
+            {ATTR_ENTITY_ID: offset, "value": 1.0},
+            blocking=True,
+        )
+
+    assert raised.value.translation_key == "api_error"
+    assert raised.value.translation_placeholders == {
+        "error": "PATCH hops:/homes/{home}/roomsAndDevices/devices/{serial}"
+    }
+    assert FULL_SERIAL.findall(str(raised.value)) == []
+    assert str(HOME_B) not in str(raised.value)
 
 
 async def test_quota_hold_below_the_floor_logs_each_change_once(
@@ -567,7 +744,7 @@ async def test_quota_hold_below_the_floor_logs_each_change_once(
     start = len(caplog.records)
     await _poll(freezer, rooms)
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Polling of {TITLE} holds until 2026-10-30T11:00:00+00:00: "
+        f"Polling of {LABEL} holds until 2026-10-30T11:00:00+00:00: "
         "only 14 tado API calls are left"
     ]
 
@@ -575,7 +752,7 @@ async def test_quota_hold_below_the_floor_logs_each_change_once(
     await _poll(freezer, rooms)
     assert rooms.stale_since is not None
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Serving cached rooms data of {TITLE} from 2026-10-30T10:00:45+00:00 "
+        f"Serving cached rooms data of {LABEL} from 2026-10-30T10:00:45+00:00 "
         "during a quota hold"
     ]
 
@@ -584,8 +761,8 @@ async def test_quota_hold_below_the_floor_logs_each_change_once(
     await rooms.async_refresh()
     assert rooms.stale_since is None
     assert sorted(_messages(caplog.records[start:], logging.INFO)) == [
-        f"Polling of {TITLE} resumes after the quota hold",
-        f"Stopped serving cached rooms data of {TITLE}",
+        f"Polling of {LABEL} resumes after the quota hold",
+        f"Stopped serving cached rooms data of {LABEL}",
     ]
     assert _messages(caplog.records, logging.WARNING) == []
 
@@ -605,11 +782,11 @@ async def test_used_up_quota_warns_once_and_logs_the_end(
     await _poll(freezer, data.rooms)
     records = caplog.records[start:]
     assert _messages(records, logging.WARNING) == [
-        f"The tado API quota of {TITLE} is used up; polling pauses until "
+        f"The tado API quota of {LABEL} is used up; polling pauses until "
         "2026-10-30 12:00:30+00:00"
     ]
     assert _messages(records, logging.INFO) == [
-        f"Serving cached rooms data of {TITLE} from 2026-10-30T10:00:00+00:00 "
+        f"Serving cached rooms data of {LABEL} from 2026-10-30T10:00:00+00:00 "
         "during a quota hold"
     ]
 
@@ -622,11 +799,117 @@ async def test_used_up_quota_warns_once_and_logs_the_end(
     await data.rooms.async_refresh()
     records = caplog.records[start:]
     assert sorted(_messages(records, logging.INFO)) == [
-        f"Polling of {TITLE} resumes after the quota hold",
-        f"Stopped serving cached rooms data of {TITLE}",
+        f"Polling of {LABEL} resumes after the quota hold",
+        f"Stopped serving cached rooms data of {LABEL}",
     ]
     assert _messages(records, logging.WARNING) == []
     assert [error.kind for error in data.telemetry.errors()] == ["quota_gate"]
+
+
+@pytest.mark.parametrize(
+    ("remaining", "reset_in", "options", "loads", "expected"),
+    [
+        pytest.param(
+            15,
+            None,
+            {"quota_reserve": 0},
+            True,
+            [
+                (
+                    logging.INFO,
+                    f"Set up {LABEL}: 6 rooms, 13 devices, "
+                    "2617 planned API calls a day",
+                ),
+                (logging.INFO, f"Stopped serving cached rooms data of {LABEL}"),
+            ],
+            id="floor_without_reset",
+        ),
+        pytest.param(
+            15,
+            timedelta(hours=2),
+            {"quota_reserve": 0},
+            False,
+            [
+                (
+                    logging.INFO,
+                    f"Polling of {LABEL} holds until 2026-10-30T12:00:00+00:00: "
+                    "only 14 tado API calls are left",
+                ),
+            ],
+            id="below_the_floor",
+        ),
+        pytest.param(
+            15,
+            timedelta(hours=2),
+            {},
+            False,
+            [
+                (
+                    logging.INFO,
+                    f"Only 14 tado API calls are left for {LABEL}; polling slows "
+                    "down until the quota resets",
+                ),
+                (
+                    logging.INFO,
+                    f"Polling of {LABEL} holds until 2026-10-30T12:00:00+00:00: "
+                    "only 14 tado API calls are left",
+                ),
+            ],
+            id="conserving_below_the_floor",
+        ),
+        pytest.param(
+            0,
+            timedelta(hours=2),
+            {},
+            False,
+            [
+                (
+                    logging.WARNING,
+                    f"The tado API quota of {LABEL} is used up; polling pauses "
+                    "until 2026-10-30 12:00:30+00:00",
+                ),
+            ],
+            id="used_up",
+        ),
+    ],
+)
+async def test_setup_retries_during_a_hold_log_it_once(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+    remaining: int,
+    reset_in: timedelta | None,
+    options: dict[str, Any],
+    loads: bool,
+    expected: list[tuple[int, str]],
+) -> None:
+    """Setup retries during a quota hold log the hold once, not on every retry.
+
+    A retry restores the quota state the previous attempt stored, so the hold
+    and the cached data it serves are no news. Without a reset time, a poll
+    goes out every 15 minutes, and the retries load the entry once each
+    coordinator has data.
+    """
+    mock_tado.set_quota(remaining=remaining, reset_in=reset_in)
+    entry = await _setup(hass, **options)
+
+    for _ in range(110):
+        freezer.tick(timedelta(minutes=1))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    assert entry.state is (
+        ConfigEntryState.LOADED if loads else ConfigEntryState.SETUP_RETRY
+    )
+    own = Counter(
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if "custom_components/tado_x/" in record.pathname
+        and record.levelno >= logging.INFO
+    )
+    assert sorted(own.items()) == sorted((line, 1) for line in expected)
+    assert f"Restored the quota state of {LABEL}" in caplog.text
 
 
 async def test_failed_refresh_and_recovery_log_once(
@@ -676,14 +959,14 @@ async def test_removed_and_added_device_log_once(
     start = len(caplog.records)
     await _poll(freezer, devices)
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Removed VA04 VA…0106 from {TITLE}"
+        f"Removed VA04 VA…0106 from {LABEL}"
     ]
 
     room["devices"].insert(0, valve)
     start = len(caplog.records)
     await _poll(freezer, devices)
     assert _messages(caplog.records[start:], logging.INFO) == [
-        f"Added VA04 VA…0106 to {TITLE}"
+        f"Added VA04 VA…0106 to {LABEL}"
     ]
 
 

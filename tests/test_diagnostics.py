@@ -94,12 +94,17 @@ async def test_entry_diagnostics(
     entry: MockConfigEntry,
     snapshot: SnapshotAssertion,
 ) -> None:
-    """Diagnostics show quota, plan and payloads without secrets or phones."""
+    """Diagnostics show quota, plan and payloads without secrets or phones.
+
+    The entry title is tado's name of the home, so the label stands for it.
+    """
     diagnostics = await get_diagnostics_for_config_entry(hass, hass_client, entry)
 
     assert diagnostics == snapshot
+    assert diagnostics["entry"]["title"] == "home …0002"
     text = str(diagnostics)
     assert [secret for secret in SECRETS if secret in text] == []
+    assert entry.title not in text
     assert "mobile_devices" not in diagnostics["payloads"]
 
 
@@ -129,6 +134,7 @@ async def test_device_diagnostics(
     assert diagnostics["device"] == snapshot
     text = str(diagnostics)
     assert [secret for secret in SECRETS if secret in text] == []
+    assert entry.title not in text
 
 
 async def test_diagnostics_after_errors_hold_no_secret(

@@ -49,6 +49,16 @@ def _key(entry: MockConfigEntry) -> str:
     return f"{DOMAIN}.{entry.entry_id}"
 
 
+def _own_lines(caplog: pytest.LogCaptureFixture, start: int = 0) -> list[str]:
+    """Return what the integration itself logged at INFO or above, in order."""
+    return [
+        f"{record.levelname} {record.getMessage()}"
+        for record in caplog.records[start:]
+        if "custom_components/tado_x/" in record.pathname
+        and record.levelno >= logging.INFO
+    ]
+
+
 def _store(
     entry: MockConfigEntry,
     *,
@@ -136,8 +146,12 @@ async def test_restart_during_quota_hold_serves_the_cache(
     mock_tado: TadoCloudMock,
     freezer: FrozenDateTimeFactory,
     issue_registry: ir.IssueRegistry,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A 429 at startup loads the entry from the cache and resumes after the reset."""
+    """A 429 at startup loads the entry from the cache and resumes after the reset.
+
+    The hold begins at this startup, so it and the cached data are logged.
+    """
     entry = make_entry()
     hass_storage.update(_store(entry))
     mock_tado.set_quota(remaining=0, reset_in=timedelta(hours=2))
@@ -169,6 +183,17 @@ async def test_restart_during_quota_hold_serves_the_cache(
     # of the startup stays local.
     assert [call.url.path for call in mock_tado.calls()] == [
         "/homes/1000002/roomsAndDevices"
+    ]
+    assert sorted(_own_lines(caplog)) == [
+        "INFO Serving cached devices data of home …0002 from "
+        "2026-10-30T09:30:00+00:00 during a quota hold",
+        "INFO Serving cached home data of home …0002 from "
+        "2026-10-30T09:30:00+00:00 during a quota hold",
+        "INFO Serving cached rooms data of home …0002 from "
+        "2026-10-30T09:30:00+00:00 during a quota hold",
+        "INFO Set up home …0002: 6 rooms, 13 devices, 2521 planned API calls a day",
+        "WARNING The tado API quota of home …0002 is used up; polling pauses "
+        "until 2026-10-30 12:00:30+00:00",
     ]
 
     entry.async_on_unload(data.rooms.async_add_listener(lambda: None))
@@ -337,6 +362,43 @@ async def test_restart_late_in_a_known_hold_serves_the_cache(
 
     assert mock_tado.calls("GET", "/homes/1000002/rooms")
     assert data.rooms.stale_since is None
+
+
+async def test_restart_during_a_logged_hold_logs_only_its_end(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A hold restored from the cache was logged when it began; its end is new."""
+    entry = make_entry()
+    now = datetime.fromisoformat(START)
+    reset = now + timedelta(hours=1)
+    hass_storage.update(
+        _store(entry, quota=_hold_quota(now - timedelta(minutes=20), reset))
+    )
+    mock_tado.set_quota(remaining=0, reset_in=reset - now)
+
+    await _start(hass, freezer, entry)
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.rooms.stale_since is not None
+    assert _own_lines(caplog) == [
+        "INFO Set up home …0002: 6 rooms, 13 devices, 2521 planned API calls a day"
+    ]
+    assert "Serving cached rooms data of home …0002" in caplog.text
+
+    start = len(caplog.records)
+    await _tick(hass, freezer, 300, times=36)
+
+    assert entry.runtime_data.devices.stale_since is None
+    assert sorted(_own_lines(caplog, start)) == [
+        "INFO Polling of home …0002 resumes after the quota hold",
+        "INFO Stopped serving cached devices data of home …0002",
+        "INFO Stopped serving cached home data of home …0002",
+        "INFO Stopped serving cached rooms data of home …0002",
+    ]
 
 
 async def test_restart_with_a_hold_saved_without_its_start_keeps_the_caps(

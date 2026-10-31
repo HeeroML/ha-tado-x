@@ -62,7 +62,7 @@ from .const import (
 from .coordinator import home_today
 from .entity import raise_for_tado_error
 from .number import async_set_offset
-from .runtime import DevicesSnapshot, TadoXConfigEntry
+from .runtime import DevicesSnapshot, TadoXConfigEntry, entry_label
 
 SERVICE_SET_CLIMATE_TIMER: Final = "set_climate_timer"
 SERVICE_GET_SCHEDULE: Final = "get_schedule"
@@ -304,7 +304,7 @@ async def _async_add_meter_reading(call: ServiceCall) -> None:
     entry = _energy_iq_entry(call)
     data = entry.runtime_data
     day = call.data.get(ATTR_DATE) or home_today(data.devices.data.home_info)
-    LOGGER.debug("add_meter_reading: reading of %s for %s", day, entry.title)
+    LOGGER.debug("add_meter_reading: reading of %s for %s", day, entry_label(entry))
     try:
         await data.api.async_add_meter_reading(call.data[ATTR_READING], day)
     except TadoXError as err:
@@ -325,7 +325,7 @@ async def _async_set_eiq_tariff(call: ServiceCall) -> None:
         call.data[ATTR_UNIT],
         start,
         end or "open end",
-        entry.title,
+        entry_label(entry),
     )
     try:
         await data.api.async_add_tariff(
@@ -419,7 +419,7 @@ async def _async_set_holiday_mode(call: ServiceCall) -> None:
         enabled,
         "kept" if start is None else start.isoformat(),
         "kept" if end is None else end.isoformat(),
-        entry.title,
+        entry_label(entry),
     )
     try:
         await data.api.async_set_holiday_mode(enabled=enabled, start=start, end=end)

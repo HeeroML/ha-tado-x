@@ -21,7 +21,7 @@ from homeassistant.helpers.device_registry import DeviceEntry, DeviceEntryType
 
 from .client import Device, DeviceType, MobileDevice, Topology, describe_value
 from .const import CONFIGURATION_URL, DOMAIN, LOGGER, MANUFACTURER
-from .runtime import TadoXConfigEntry
+from .runtime import TadoXConfigEntry, entry_label
 
 HOME_MODEL: Final = "tado X home"
 ROOM_MODEL: Final = "tado X room"
@@ -143,7 +143,7 @@ def _async_ensure(
             logging.INFO if announce else logging.DEBUG,
             "Added %s to %s",
             label,
-            entry.title,
+            entry_label(entry),
         )
     return device
 
@@ -262,7 +262,7 @@ def _async_remove_stale(hass: HomeAssistant, entry: TadoXConfigEntry) -> None:
             LOGGER.info(
                 "Removed %s from %s",
                 _removed_label(home_id, value, device.model_id),
-                entry.title,
+                entry_label(entry),
             )
 
 
