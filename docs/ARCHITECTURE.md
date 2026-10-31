@@ -110,7 +110,9 @@ Each entry owns its client, token manager, quota tracker, telemetry, coordinator
 | home | `home_state`, `weather`, `air_comfort`, `mobile_devices` | 12 h |
 | devices | `topology`, `home_info`, `running_times`, `flow_temperature`, `holiday_mode` | 48 h |
 
-Each endpoint has its own period; on a tick the coordinator fetches only the endpoints that are due and merges them into the previous snapshot. The required endpoint is read first and the optional ones together after it, so a used-up quota costs one request per tick; an optional read the gate refuses after that keeps its value. The coordinator's interval is the shortest effective period among its endpoints.
+Each endpoint has its own period; on a tick the coordinator fetches only the endpoints that are due and merges them into the previous snapshot. The required endpoint is read first and the optional ones together after it, so a used-up quota costs one request per tick; an optional read the gate refuses after that keeps its value. The coordinator's interval is the shortest effective period among its endpoints. `last_live_update`, which the "… updated" sensors show, moves only when a due endpoint returned a value, and only then does a quota hold end for the coordinator: Home Assistant arms the next poll before the monitor lengthens the interval, so one tick after a slow-down finds nothing due and sends nothing.
+
+A coordinator is named `tado_x <kind> home …NNNN` (`home_label()`, the last four digits of the home id), because Home Assistant logs the name.
 
 - Required endpoints (`rooms`, `home_state`, `topology`) fail the tick. Optional endpoints keep their previous value and log one warning until they recover, except that a 429 or an authentication error from any endpoint is never swallowed.
 - A 404 on flow temperature marks the feature absent; it is re-probed daily. Homes that report no flow temperature support are never polled for it.
@@ -125,7 +127,10 @@ Error mapping:
 | connection, server | `UpdateFailed` | translated error |
 | not a tado X home | `ConfigEntryError` plus repair issue | – |
 | 404 on an optional endpoint | feature absent | translated error |
-| other 4xx, parse | `UpdateFailed` | translated error; model `ValueError`s become `ServiceValidationError` |
+| other 4xx | `UpdateFailed` `request_rejected` | `request_rejected` with the status and tado's error code |
+| parse | `UpdateFailed` `api_error` | `api_error` with the endpoint template; model `ValueError`s become `ServiceValidationError` |
+
+A translated error is built from the status, tado's error code (`safe_code()`) and the endpoint template only, never from the error message, its title, its JSON path or a URL path, which can hold ids, serials or names.
 
 ### Polling budget (`budget.py`)
 
@@ -247,11 +252,13 @@ Loggers are `custom_components.tado_x` (Home Assistant layer) and `custom_compon
 | Level | Rule | Examples |
 |---|---|---|
 | DEBUG | every exchange and every decision | `GET hops:/homes/{home}/rooms -> 200 in 182 ms, quota 18342/20000 left, reset in 7082 s`; 401 retry; refresh backoff; 429 backoff step; local gate refusal; endpoints due per tick; optimistic patch applied or dropped; `Termination of room 3: follow_app -> TIMER 3600 s`; token stored (expiry only); cache load and write (slices and age) |
-| INFO | changes of state, once each, and writes | setup summary; first failed token refresh and the recovery; rejected sign-in (OAuth code only); quota hold below the poll floor starts and ends; conserving mode on and off; cached data served and stopped, per coordinator; device or room added after setup or removed; `Write: manualControl room 3: ON 21.0 °C until TIMER 3600 s -> ok (HTTP 204, 312 ms)` and `Write failed: … -> HTTP 422 code=… title=…` |
+| INFO | changes of state, once each, and writes | setup summary; first failed token refresh and the recovery; rejected sign-in (OAuth code only); a reauth that a 401 with a freshly refreshed token starts (reason code only, once per entry through `ReauthNotice`, and not when the token manager logged the rejected sign-in); quota hold below the poll floor starts and ends; conserving mode on and off; cached data served and stopped, per coordinator; device or room added after setup or removed; `Write: manualControl room 3: ON 21.0 °C until TIMER 3600 s -> ok (HTTP 204, 312 ms)` and `Write failed: … -> HTTP 422 code=… title=…` |
 | WARNING | needs attention, rate-limited | quota used up (stops polling); an optional endpoint failing, once per episode; an unknown enum value or an unreadable list item, once per field and path through `WARN_ONCE`; a home whose generation tado does not report; a failed sign-in in the config flow |
 | ERROR | unexpected | unexpected exceptions at the config flow boundary; storing rotated tokens failed |
 
 Budget: a steady home logs nothing at INFO. Routine token refreshes (about every 10 minutes) and polls stay at DEBUG. `test_steady_state_logs_nothing_at_info` runs six hours of polling with refreshes and fails on any INFO line. A new INFO line must describe a transition and must be logged once per transition.
+
+A setup is not a transition. The quota monitor starts from the plan mode and hold that the restored quota state shows, and a coordinator that the restored state refuses at setup logs serving its cache at DEBUG, so setup retries during a hold (every 10 minutes at most, until the reset) and reloads repeat nothing. The end of a restored hold is logged as usual.
 
 `WARN_ONCE` is a bounded set (512 keys, oldest evicted). A field warning names the path and a `describe_value()` of what was there, never the raw value. Unknown extra keys are not warned about; tado sends many fields the integration ignores.
 
@@ -260,12 +267,13 @@ Budget: a steady home logs nothing at INFO. Routine token refreshes (about every
 These apply to every log line, diagnostics field, entity state and exception message.
 
 - Never: access or refresh tokens, the `Authorization` header, device code, user code, verification link, login.tado.com bodies, e-mail, user name, address, coordinates, contact details, phone names and metadata, room names, home names from the API, full serial numbers, raw response bodies.
-- Allowed: HTTP method, endpoint template, status, durations, rate-limit numbers, tado's error `code`, tado's error `title` after `redact_text()` (every run of four or more digits becomes `#`, truncated), error class names, enum-like constants (`^[A-Z][A-Z0-9_]{0,39}$`), room ids as the room pseudonym (`room 3`), masked serials (`VA…0101`) and the config entry title, which Home Assistant logs anyway.
+- Allowed: HTTP method, endpoint template, status, durations, rate-limit numbers, tado's error `code` (`safe_code()`), tado's error `title` only when it is one of a few known texts without personal data and after `redact_text()` (every run of four or more digits becomes `#`, truncated), otherwise only its length, error class names, enum-like constants (`^[A-Z][A-Z0-9_]{0,39}$`), room ids as the room pseudonym (`room 3`), masked serials (`VA…0101`) and the home label `home …NNNN` (`home_label()`, the last four digits of the home id).
+- The config entry title is never logged by the integration nor put into diagnostics: the config flow takes it from tado's name of the home. Log lines, coordinator names and diagnostics use the home label instead. UI texts (repair issues, the home device name, placeholders of translated errors such as "… is not a tado X home") keep the title. Home Assistant's own lines about the entry log it regardless.
 - Any other string from the API is described as `<str len=N>` by `describe_value()`.
 - Writes are logged by `describe_command()` from an allow-list of fields; meter readings and tariffs say `(value hidden)`.
-- Diagnostics add the telemetry (`exchanges`, `errors`, `requests_by_endpoint_24h`, `errors_by_kind_24h`, `last_error`) and pass everything through `async_redact_data()`, which also removes room and home names, and through the serial masking.
+- Diagnostics add the telemetry (`exchanges`, `errors`, `requests_by_endpoint_24h`, `errors_by_kind_24h`, `last_error`) and pass everything through `async_redact_data()`, which also removes room and home names, and through the serial masking. The entry's `title` is replaced by the home label.
 
-`tests/test_logging.py` runs the sign-in, setup, polls, writes, rotation, a 401 cycle, a rejected refresh, 4xx and 5xx bodies laced with token-like strings, an e-mail, an address and a home id, and diagnostics, and fails if any of it reaches the log. It also checks the INFO budget and that each warning is logged once.
+`tests/test_logging.py` runs the sign-in, setup, polls, writes, rotation, a 401 cycle, a rejected refresh, 4xx and 5xx bodies laced with token-like strings, an e-mail, an address and a home id, and diagnostics, and fails if any of it reaches the log. Its entries are titled with tado's name of the home, as the config flow titles them, and the tests fail if that name reaches the integration's log lines or diagnostics. It also checks the INFO budget, setup retries during a quota hold, and that each warning is logged once.
 
 ## Tests
 

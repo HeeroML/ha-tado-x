@@ -544,7 +544,7 @@ What it writes, also when the run stops early at a 429, on Ctrl-C or on an error
 
 Diagnostics are downloaded per entry or per device; see [Reporting a problem](#reporting-a-problem). They contain:
 
-- the entry's title and options;
+- the entry's options, and instead of its title the home label (`home …0002`, see below);
 - token metadata only: the expiry and whether a refresh token exists;
 - the quota and the polling plan;
 - the state of each coordinator;
@@ -552,11 +552,11 @@ Diagnostics are downloaded per entry or per device; see [Reporting a problem](#r
 - the telemetry of the entry since its last start: the last 50 HTTP requests (method, path with ids replaced by placeholders, status, duration, quota numbers and the structure of the answer without its values), the last 20 errors with what the integration was doing at the time, and the requests per endpoint and errors per kind over the last 24 hours;
 - for a device, its entry from the device list.
 
-Removed from diagnostics: tokens, codes, user id, e-mail, address, coordinates, contact details, device metadata, and the names of the home and its rooms. Serial numbers are shortened to the type and the last four characters (`VA…0101`). Phone data is never included.
+Removed from diagnostics: tokens, codes, user id, e-mail, address, coordinates, contact details, device metadata, the entry's title, and the names of the home and its rooms. Serial numbers are shortened to the type and the last four characters (`VA…0101`). Phone data is never included.
 
-At no log level do the logs contain tokens, the `Authorization` header, device or user codes, the sign-in link, login responses, your e-mail, user name, address, coordinates or contact details, phone names, room or home names from tado, full serial numbers, or response bodies. Rooms appear as `room 3` (tado's room id), devices by their shortened serial, and request paths with placeholders such as `/homes/{home}/rooms/{room}`. A tado error message is shown with every run of four or more digits replaced by `#`. Tests enforce this.
+At no log level do the logs contain tokens, the `Authorization` header, device or user codes, the sign-in link, login responses, your e-mail, user name, address, coordinates or contact details, phone names, room or home names from tado, full serial numbers, or response bodies. Rooms appear as `room 3` (tado's room id), devices by their shortened serial, and request paths with placeholders such as `/homes/{home}/rooms/{room}`. A tado error appears by its error code; its title, which can contain names, only as a length such as `<str len=37>`, except a few known titles without personal data, which are shown with every run of four or more digits replaced by `#`. Errors shown in Home Assistant, such as "tado rejected the request (HTTP 422, error code not.allowed)", follow the same rule. Tests enforce this.
 
-One name does appear in logs and diagnostics: the entry's title, which Home Assistant itself logs too. It is the home's name from tado unless you renamed the entry. Rename it on the integration page if you share logs and do not want that name in them.
+The home appears as `home …0002`, the last four digits of its tado id, in the integration's log lines, in the names of its coordinators and in diagnostics. The entry's title is not used there, because it is the home's name from tado unless you renamed the entry. Home Assistant's own lines about the entry, such as "Config entry 'Haus B' for tado_x integration not ready yet", still contain the title, and so do the integration page, the home device and repair issues. Rename the entry on the integration page if you share logs and do not want that name in them.
 
 The cache in `.storage/tado_x.<entry_id>` holds the last raw payloads that passed validation and the quota state. It never holds phone data, and of the home details it keeps only the fields the integration reads, not the owner's name, e-mail, phone number, address or location. It is deleted with the entry. The telemetry is kept in memory only.
 
@@ -567,7 +567,7 @@ The cache in `.storage/tado_x.<entry_id>` holds the last raw payloads that passe
 | "This tado account has no tado X home" | The account has only older homes. Use the core tado integration for them. |
 | Repair issue "… is not a tado X home" | An entry from v1.8 points at a V3+ home (upstream #40). Remove the entry and add that home with the core tado integration. |
 | Repair issue "… is set up twice" | Two entries control the same home, which v1.8 allowed. Remove one. |
-| Home Assistant asks you to sign in again | tado rejected the stored sign-in, for example because the refresh token was revoked, not used for 30 days after a long shutdown, or rotated less than a second before Home Assistant crashed. Sign in again with the same account. Network problems never cause this. |
+| Home Assistant asks you to sign in again | tado rejected the stored sign-in, for example because the refresh token was revoked, not used for 30 days after a long shutdown, or rotated less than a second before Home Assistant crashed; or tado refuses requests even with a freshly refreshed token, for example because the account lost access to the home. The log says which at INFO, by reason code only: `tado rejected the login (invalid_grant)` or `tado no longer accepts the login of home …0002 (unauthorized_after_refresh)`. Sign in again with the same account. Network problems never cause this. |
 | Entities unavailable, and the log says tado is unreachable | A network or tado outage. The integration retries on its own. |
 | `api_status` is `rate_limited` | The account's quota is used up; see [Quota hold](#quota-hold). Compare "API calls used (account)" with "API calls by this integration (24 h)". If the first is much higher, the core integration or the apps use most of the quota. Lower the budget or raise the reserve. |
 | `api_status` is `conserving` or `throttled` | The account is close to its limit. Values update more slowly; commands still work. |
@@ -589,10 +589,10 @@ The integration logs under `custom_components.tado_x`. Home Assistant shows warn
 |---|---|
 | ERROR | unexpected errors in the setup dialog, and a failure to store the rotated tokens |
 | WARNING (default) | the quota is used up and polling stops; an optional endpoint fails (once, until it works again); tado sends a field or value the integration cannot read (once per field); the sign-in in the setup dialog fails |
-| INFO | changes of state, each once: setup, a failing token refresh and its recovery, a rejected sign-in (reason code only), quota hold and conserving mode starting and ending, cached data shown and stopped, devices and rooms added or removed; and one line per command you send, with its result, for example `Write: manualControl room 3: ON 21.0 °C until TIMER 3600 s -> ok (HTTP 204, 312 ms)` |
+| INFO | changes of state, each once: setup, a failing token refresh and its recovery, a rejected sign-in or a new sign-in that tado demands (reason code only), quota hold and conserving mode starting and ending, cached data shown and stopped, devices and rooms added or removed; and one line per command you send, with its result, for example `Write: manualControl room 3: ON 21.0 °C until TIMER 3600 s -> ok (HTTP 204, 312 ms)`. The home is called `home …0002` (the last four digits of its id), never by its name |
 | DEBUG | one line per HTTP request, such as `GET hops:/homes/{home}/rooms -> 200 in 182 ms, quota 18342/20000 left, reset in 7082 s`, plus the decisions behind it: retries after a 401, backoff, requests refused locally during a quota hold, the endpoints due per poll, the termination chosen for a manual change, token and cache writes (never their values) |
 
-INFO is meant to stay quiet. Normal polling and the routine token refresh about every 10 minutes log nothing at INFO; a test runs six hours of polling and checks this. You only see INFO lines when something changes or you send a command, so INFO is a good level to leave on.
+INFO is meant to stay quiet. Normal polling and the routine token refresh about every 10 minutes log nothing at INFO; a test runs six hours of polling and checks this. You only see INFO lines when something changes or you send a command, so INFO is a good level to leave on. A quota hold that is already on when the entry is set up again, after a reload, a restart or a setup retry, is not announced again; only its end is.
 
 ### Debug logging
 
@@ -632,7 +632,7 @@ Open an [issue](https://github.com/HeeroML/ha-tado-x/issues) and attach:
 3. the time of the problem, with your time zone;
 4. the Home Assistant version (**Settings → About**) and the integration version (shown in HACS, or `version` in `custom_components/tado_x/manifest.json`).
 
-Diagnostics and logs leave out tokens, codes, account data, names and full serial numbers; [Diagnostics and privacy](#diagnostics-and-privacy) lists what is removed. They do contain the entry's title. Read both before you post.
+Diagnostics and logs leave out tokens, codes, account data, names and full serial numbers; [Diagnostics and privacy](#diagnostics-and-privacy) lists what is removed. Home Assistant's own log lines about the entry contain its title. Read both before you post.
 
 ## Known limitations and risks
 
