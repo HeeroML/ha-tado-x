@@ -548,11 +548,11 @@ Diagnostics are downloaded per entry or per device; see [Reporting a problem](#r
 - token metadata only: the expiry and whether a refresh token exists;
 - the quota and the polling plan;
 - the state of each coordinator;
-- the last payloads of rooms, devices, home state, weather and air comfort, without names;
+- the last payloads of rooms, devices, home state, weather and air comfort, without names. Numbers, constants such as `ON`, timestamps, clock times and version numbers stay; any other text is replaced by its length, such as `<str len=19>`, also where tado sends text in place of a number;
 - the telemetry of the entry since its last start: the last 50 HTTP requests (method, path with ids replaced by placeholders, status, duration, quota numbers and the structure of the answer without its values), the last 20 errors with what the integration was doing at the time (an error that repeats is counted in one entry), and the requests per endpoint and errors per kind over the last 24 hours;
 - for a device, its entry from the device list.
 
-Removed from diagnostics: tokens, codes, user id, e-mail, address, coordinates, contact details, device metadata, the entry's title, and the names of the home and its rooms. Serial numbers are shortened to the type and the last four characters (`VA…0101`). Phone data is never included.
+Removed from diagnostics: tokens, codes, user id, e-mail, address, coordinates, contact details, device metadata, the entry's title, the names of the home and its rooms, and free text in the payloads and the device entry. Serial numbers are shortened to the type and the last four characters (`VA…0101`). Phone data is never included.
 
 At no log level do the logs contain tokens, the `Authorization` header, device or user codes, the sign-in link, login responses, your e-mail, user name, address, coordinates or contact details, phone names, room or home names from tado, full serial numbers, or response bodies. Rooms appear as `room 3` (tado's room id), devices by their shortened serial, and request paths with placeholders such as `/homes/{home}/rooms/{room}`. A tado error appears by its error code; its title, which can contain names, only as a length such as `<str len=37>`, except a few known titles without personal data, which are shown with every run of four or more digits replaced by `#`. Errors shown in Home Assistant, such as "tado rejected the request (HTTP 422, error code not.allowed)", follow the same rule. Tests enforce this.
 

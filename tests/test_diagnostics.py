@@ -179,3 +179,56 @@ async def test_diagnostics_after_errors_hold_no_secret(
         "TadoXRequestError": 2,
         "TadoXServerError": 1,
     }
+
+
+@pytest.mark.parametrize(
+    ("value", "shown"),
+    [
+        ("Wohnzimmer Musterstrasse 1", "<str len=26>"),
+        ("alice@example.invalid", "<str len=21>"),
+        ("ABCD-EFGH", "<str len=9>"),
+        ("VA0000000101", "VA…0101"),
+        ("51.123456, 13.123456", "<str len=20>"),
+        ("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz", "<str len=52>"),
+        ("fake-access-token-9999", "<str len=22>"),
+    ],
+    ids=["address", "email", "user_code", "serial", "coordinates", "letters", "token"],
+)
+async def test_unexpected_strings_in_payloads_are_described(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    entry: MockConfigEntry,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    device_registry: dr.DeviceRegistry,
+    value: str,
+    shown: str,
+) -> None:
+    """A string where tado sends a number, or any other free text, is described.
+
+    The payloads keep their structure, numbers and safe strings such as
+    constants, timestamps and versions; so does the device entry.
+    """
+    home = mock_tado.home(HOME_B)
+    home.rooms[0]["sensorDataPoints"]["insideTemperature"]["value"] = value
+    valve = home.device("VA0000000101")
+    assert valve is not None
+    valve["firmwareVersion"] = value
+    freezer.tick(timedelta(minutes=15))
+    for coordinator in (entry.runtime_data.rooms, entry.runtime_data.devices):
+        await coordinator.async_refresh()
+    device = device_registry.async_get_device_by_identifier(
+        device_identifier("VA0000000101"), entry.entry_id
+    )
+    assert device is not None
+
+    diagnostics = await get_diagnostics_for_device(hass, hass_client, entry, device)
+
+    room = diagnostics["payloads"]["rooms"]["raw"][0]
+    assert room["sensorDataPoints"]["insideTemperature"]["value"] == shown
+    assert room["setting"] == {"power": "ON", "temperature": {"value": 21.0}}
+    assert room["nextScheduleChange"]["start"] == "2026-10-30T21:00:00Z"
+    topology = diagnostics["payloads"]["topology"]["raw"]
+    assert topology["rooms"][0]["devices"][0]["firmwareVersion"] == shown
+    assert diagnostics["device"]["firmware"] == shown
+    assert value not in json.dumps(diagnostics, ensure_ascii=False)

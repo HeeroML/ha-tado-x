@@ -55,6 +55,7 @@ from custom_components.tado_x.client import (
     endpoint_template,
     home_label,
     mask_serial,
+    redact_payload,
     redact_text,
     safe_title,
     shape,
@@ -294,6 +295,58 @@ def test_redact_text_is_cut_to_the_limit() -> None:
 def test_describe_value(value: object, expected: str) -> None:
     """Only types, lengths, constants and masked serials are described."""
     assert describe_value(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026-10-30T09:00:00.000Z", "2026-10-30T09:00:00.000Z"),
+        ("2026-10-30T10:45:10Z", "2026-10-30T10:45:10Z"),
+        ("2026-10-30T10:00:00+01:00", "2026-10-30T10:00:00+01:00"),
+        ("2026-10-30T10:00", "2026-10-30T10:00"),
+        ("06:30", "06:30"),
+        ("287.1", "287.1"),
+        ("-0.5", "-0.5"),
+        ("1.2.3", "1.2.3"),
+        ("VA…0101", "VA…0101"),
+        ("CALIBRATED", "CALIBRATED"),
+        ("VA0000000101", "VA…0101"),
+        ("Wohnzimmer Musterstrasse 1", "<str len=26>"),
+        ("alice@example.invalid", "<str len=21>"),
+        ("ABCD-EFGH", "<str len=9>"),
+        ("51.123456, 13.123456", "<str len=20>"),
+        ("2026-10-30 Musterstadt", "<str len=22>"),
+        ("6:30 am", "<str len=7>"),
+        ("1.", "<str len=2>"),
+        ("", "<str len=0>"),
+    ],
+)
+def test_redact_payload_keeps_safe_strings_only(value: str, expected: str) -> None:
+    """Timestamps, clock times, numbers, constants and masked serials stay."""
+    assert redact_payload(value) == expected
+
+
+def test_redact_payload_keeps_the_structure() -> None:
+    """Keys, numbers, booleans and null stay; strings anywhere are checked."""
+    payload = {
+        "id": 1,
+        "on": True,
+        "value": None,
+        "temperature": {"value": 21.5, "unit": "Wohnzimmer"},
+        "blocks": [{"start": "06:30", "note": "Mike"}, ("OFF", "x y")],
+    }
+
+    assert redact_payload(payload) == {
+        "id": 1,
+        "on": True,
+        "value": None,
+        "temperature": {"value": 21.5, "unit": "<str len=10>"},
+        "blocks": [{"start": "06:30", "note": "<str len=4>"}, ["OFF", "<str len=3>"]],
+    }
+    assert redact_payload(load_fixture("rooms.json")[0]["setting"]) == {
+        "power": "ON",
+        "temperature": {"value": 21.0},
+    }
 
 
 @pytest.mark.parametrize(

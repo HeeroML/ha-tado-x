@@ -27,6 +27,13 @@ _SECRET_FIELD: Final = re.compile(
     re.IGNORECASE,
 )
 _USER_CODE: Final = re.compile(r"(?<![\w-])[A-Z0-9]{4}-[A-Z0-9]{4}(?![\w-])")
+_TIMESTAMP: Final = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})?"
+)
+_CLOCK: Final = re.compile(r"\d{2}:\d{2}")
+_NUMBER_TEXT: Final = re.compile(r"-?\d+(?:\.\d+)*")
+_MASKED_SERIAL: Final = re.compile(r"[A-Z]{2}…[A-Za-z0-9]{4}")
+_PAYLOAD_TEXT: Final = (_TIMESTAMP, _CLOCK, _NUMBER_TEXT, _MASKED_SERIAL)
 _LONG_RUN: Final = re.compile(r"[A-Za-z0-9_+/=.-]{20,}")
 _RUN_PARTS: Final = re.compile(r"[/.]")
 _IDENTIFIER: Final = re.compile(r"[a-z]+(?:[A-Z][a-z]+|_[a-z]+)*")
@@ -126,6 +133,27 @@ def describe_value(value: object, *, constants: bool = True) -> str:
         case list() | tuple():
             return f"list[{len(value)}]"
     return type(value).__name__
+
+
+def redact_payload(payload: object) -> object:
+    """Return a copy of a decoded payload with only safe strings in it.
+
+    Dicts, lists, numbers, booleans and null are kept. A string is kept if
+    it is a timestamp, a clock time such as "06:30", a number or version
+    such as "287.1", or a masked serial; any other string becomes
+    describe_value(), so only enum-like constants stay readable and serials
+    are masked. The keys stay.
+    """
+    match payload:
+        case str() if any(pattern.fullmatch(payload) for pattern in _PAYLOAD_TEXT):
+            return payload
+        case str():
+            return describe_value(payload)
+        case Mapping():
+            return {key: redact_payload(value) for key, value in payload.items()}
+        case list() | tuple():
+            return [redact_payload(item) for item in payload]
+    return payload
 
 
 def safe_code(code: str) -> str:
