@@ -67,7 +67,7 @@ def debug_logging(caplog: pytest.LogCaptureFixture) -> Iterator[None]:
 
 def _assert_requests_were_logged(caplog: pytest.LogCaptureFixture) -> None:
     """The DEBUG request log ran, so the secret check above is not vacuous."""
-    assert "hops.tado.com/homes/1000002/rooms: HTTP 200" in caplog.text
+    assert "GET hops:/homes/{home}/rooms -> 200 in " in caplog.text
 
 
 async def test_sign_in_and_setup(

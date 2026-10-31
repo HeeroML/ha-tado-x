@@ -17,6 +17,7 @@ from custom_components.tado_x.client import (
     QuotaTracker,
     RateLimitInfo,
     TadoXRateLimitError,
+    Telemetry,
     TokenManager,
     TokenSet,
     Transport,
@@ -27,6 +28,7 @@ from tests.tado_mock import HOME_B, TadoCloudMock, entry_tokens, load_fixture
 
 NOW = datetime(2026, 10, 30, 10, 0, tzinfo=UTC)
 POLICY = '"perday";q=20000;w=86400'
+CLIENT_LOGGER = "custom_components.tado_x.client"
 
 pytestmark = pytest.mark.freeze_time(NOW)
 
@@ -592,3 +594,123 @@ def test_hold_start_is_persisted(freezer: FrozenDateTimeFactory) -> None:
     assert legacy.known_hold_began(now) is None
     legacy.observe(_info(QuotaTracker.POLL_FLOOR - 2, reset_in=3600), status=200)
     assert legacy.known_hold_began(now) is None
+
+
+def _client_log(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
+    return [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER
+    ]
+
+
+def test_refusals_are_logged_at_debug(caplog: pytest.LogCaptureFixture) -> None:
+    """Every local refusal says why, at debug level."""
+    caplog.set_level(logging.DEBUG)
+    quota = QuotaTracker()
+    quota.observe(_info(5, reset_in=600), status=200)
+    with pytest.raises(TadoXRateLimitError):
+        quota.check(Priority.POLL)
+    quota.check(Priority.COMMAND)
+
+    quota.observe(_info(5), status=200)
+    with pytest.raises(TadoXRateLimitError):
+        quota.check(Priority.POLL)
+
+    quota.observe(_info(0, reset_in=60), status=200)
+    with pytest.raises(TadoXRateLimitError):
+        quota.check(Priority.COMMAND)
+
+    closed_until = (NOW + timedelta(seconds=90)).isoformat()
+    assert _client_log(caplog) == [
+        (
+            logging.DEBUG,
+            "Refused locally: poll floor, 5 calls left until "
+            f"{(NOW + timedelta(seconds=600)).isoformat()}",
+        ),
+        (
+            logging.DEBUG,
+            "Refused locally: poll floor, 5 calls left until "
+            f"{(NOW + timedelta(minutes=15)).isoformat()}",
+        ),
+        (
+            logging.DEBUG,
+            f"The quota gate is closed until {closed_until}: the quota is used up",
+        ),
+        (
+            logging.DEBUG,
+            f"Refused locally: the quota gate is closed until {closed_until}",
+        ),
+    ]
+
+
+def test_backoff_steps_are_logged_and_recorded(
+    caplog: pytest.LogCaptureFixture, freezer: FrozenDateTimeFactory
+) -> None:
+    """Each 429 without a reset logs its backoff step; each closing is recorded once."""
+    caplog.set_level(logging.DEBUG)
+    telemetry = Telemetry()
+    quota = QuotaTracker(telemetry=telemetry)
+    closings: list[str] = []
+    for step, seconds in enumerate(QuotaTracker.BACKOFF_429, start=1):
+        quota.observe(None, status=429)
+        quota.observe(None, status=429)
+        closings.append(
+            f"The quota gate is closed until "
+            f"{(datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()}: "
+            f"HTTP 429 without a reset, backoff step {step}"
+        )
+        freezer.tick(timedelta(seconds=seconds))
+
+    quota.observe(_info(500), status=200)
+    quota.observe(_info(499), status=200)
+
+    assert _client_log(caplog) == [
+        *((logging.DEBUG, line) for line in closings),
+        (logging.DEBUG, "The quota gate is open again"),
+    ]
+    assert [(e.kind, e.context, e.message) for e in telemetry.errors()] == [
+        (
+            "quota_gate",
+            "quota",
+            f"closed: HTTP 429 without a reset, backoff step {step}",
+        )
+        for step in range(1, 5)
+    ]
+
+
+def test_a_429_with_reset_is_recorded(freezer: FrozenDateTimeFactory) -> None:
+    """A 429 that names its reset closes the gate once, however often it comes."""
+    telemetry = Telemetry()
+    quota = QuotaTracker(telemetry=telemetry)
+    quota.observe(_info(0, reset_in=600), status=429)
+    quota.observe(_info(0, reset_in=590), status=429)
+    [record] = telemetry.errors()
+    assert (record.at, record.kind, record.message) == (
+        NOW,
+        "quota_gate",
+        "closed: HTTP 429",
+    )
+
+
+async def test_stale_answer_is_logged(
+    mock_tado: TadoCloudMock,
+    transport: Transport,
+    quota: QuotaTracker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An answer to a request sent before the gate closed is ignored, at debug."""
+    caplog.set_level(logging.DEBUG)
+    rooms = f"{HOPS_API_URL}/homes/{HOME_B}/rooms"
+    release = mock_tado.hold("GET", rooms)
+    slow = asyncio.create_task(transport.request("GET", rooms))
+    await asyncio.sleep(0)
+    quota.observe(None, status=429)
+    release.set()
+    await slow
+
+    assert (
+        logging.DEBUG,
+        "Ignoring an answer to a request sent before the gate closed",
+    ) in _client_log(caplog)
+    assert {level for level, _ in _client_log(caplog)} == {logging.DEBUG}

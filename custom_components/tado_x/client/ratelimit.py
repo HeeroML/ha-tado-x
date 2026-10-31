@@ -11,6 +11,7 @@ from typing import Any, Final
 
 from .errors import TadoXRateLimitError
 from .models import RateLimitInfo, utcnow
+from .telemetry import Telemetry
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -189,6 +190,10 @@ class QuotaTracker:
 
     A hold with a known end begins with the response that starts it; later
     responses during the hold do not move that start.
+
+    Refusals and backoff steps are logged at debug level, and every closing
+    of the gate is recorded as a "quota_gate" error in the telemetry. The
+    host learns about transitions through the listeners.
     """
 
     POLL_FLOOR: Final = 20
@@ -198,9 +203,15 @@ class QuotaTracker:
     blocked_until: datetime | None
     calls: CallCounter
 
-    def __init__(self, *, clock: Callable[[], datetime] = utcnow) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], datetime] = utcnow,
+        telemetry: Telemetry | None = None,
+    ) -> None:
         """Initialize an open gate with no quota information."""
         self._clock = clock
+        self._telemetry = telemetry if telemetry is not None else Telemetry(clock=clock)
         self.latest = None
         self.blocked_until = None
         self.calls = CallCounter()
@@ -212,14 +223,23 @@ class QuotaTracker:
     def check(self, priority: Priority) -> None:
         """Raise TadoXRateLimitError(local=True) when the gate refuses the request."""
         now = self._clock()
-        if self._closed(now):
-            raise TadoXRateLimitError(self.latest, self.blocked_until, local=True)
+        if (blocked := self.blocked_until) is not None and now < blocked:
+            _LOGGER.debug(
+                "Refused locally: the quota gate is closed until %s",
+                blocked.isoformat(),
+            )
+            raise TadoXRateLimitError(self.latest, blocked, local=True)
         info = self.latest
         if (
             priority is Priority.POLL
             and info is not None
             and self._below_floor(info, now)
         ):
+            _LOGGER.debug(
+                "Refused locally: poll floor, %s calls left until %s",
+                info.remaining,
+                (info.reset_at or info.observed_at + _FLOOR_RECHECK).isoformat(),
+            )
             raise TadoXRateLimitError(info, info.reset_at, local=True)
 
     def known_hold_end(self, now: datetime) -> datetime | None:
@@ -262,6 +282,7 @@ class QuotaTracker:
         """
         now = self._clock()
         if ticket is not None and ticket < self._closures and self._closed(now):
+            _LOGGER.debug("Ignoring an answer to a request sent before the gate closed")
             return
         holding = self.known_hold_end(now) is not None
         if info is not None:
@@ -272,8 +293,9 @@ class QuotaTracker:
         if status == HTTPStatus.TOO_MANY_REQUESTS:
             self._close_after_429(info, now)
         elif info is not None and info.remaining == 0 and info.reset_at is not None:
-            self._close(info.reset_at + _GATE_GRACE)
-        elif success:
+            self._close(info.reset_at + _GATE_GRACE, now, "the quota is used up")
+        elif success and self.blocked_until is not None:
+            _LOGGER.debug("The quota gate is open again")
             self.blocked_until = None
         if self.known_hold_end(now) is None:
             self._hold_began = None
@@ -281,7 +303,14 @@ class QuotaTracker:
             self._hold_began = now
         self._notify()
 
-    def _close(self, until: datetime) -> None:
+    def _close(self, until: datetime, now: datetime, reason: str) -> None:
+        if not self._closed(now):
+            self._telemetry.record_error(
+                kind="quota_gate", context="quota", message=f"closed: {reason}"
+            )
+        _LOGGER.debug(
+            "The quota gate is closed until %s: %s", until.isoformat(), reason
+        )
         self.blocked_until = until
         self._closures += 1
 
@@ -296,12 +325,16 @@ class QuotaTracker:
 
     def _close_after_429(self, info: RateLimitInfo | None, now: datetime) -> None:
         if info is not None and info.reset_at is not None:
-            self._close(info.reset_at + _GATE_GRACE)
+            self._close(info.reset_at + _GATE_GRACE, now, "HTTP 429")
             return
         if self._closed(now):
             return
         step = min(self._backoff_step, len(self.BACKOFF_429) - 1)
-        self._close(now + timedelta(seconds=self.BACKOFF_429[step]))
+        self._close(
+            now + timedelta(seconds=self.BACKOFF_429[step]),
+            now,
+            f"HTTP 429 without a reset, backoff step {step + 1}",
+        )
         self._backoff_step += 1
 
     def record_call(self) -> int:
