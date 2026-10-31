@@ -31,13 +31,15 @@ from .client import (
     TadoXHome,
     TadoXHomeNotXError,
     TadoXNotFoundError,
+    TadoXParseError,
     TadoXRateLimitError,
+    TadoXRequestError,
     TadoXServerError,
     Telemetry,
     Topology,
     Weather,
 )
-from .client.redact import home_label
+from .client.redact import home_label, safe_code
 from .const import DOMAIN, LOGGER, MAX_STALE_DEVICES, MAX_STALE_HOME, MAX_STALE_ROOMS
 from .issues import async_create_not_tado_x_issue, format_time
 from .quota import QuotaMonitor
@@ -67,6 +69,31 @@ def home_today(home_info: HomeInfo | None, now: datetime | None = None) -> date:
     )
 
 
+def rejected_placeholders(err: TadoXRequestError) -> dict[str, str]:
+    """Return the placeholders of request_rejected: the status and tado's error code.
+
+    tado's error title can name a home, a room or a person, so a message
+    never shows it.
+    """
+    return {
+        "status": str(err.status),
+        "code": "-" if err.code is None else safe_code(err.code),
+    }
+
+
+def unexpected_placeholders(err: TadoXError) -> dict[str, str]:
+    """Return the placeholder of api_error: the endpoint template of the request.
+
+    A payload that fails validation after the request names the endpoint key
+    of its parser. The message of the error and the JSON path are left out.
+    """
+    if err.request is not None:
+        return {"error": err.request}
+    if isinstance(err, TadoXParseError):
+        return {"error": err.endpoint}
+    return {"error": type(err).__name__}
+
+
 def _update_failed(err: TadoXError) -> UpdateFailed:
     """Return the translated UpdateFailed for an error that is not a quota hold."""
     if isinstance(err, TadoXConnectionError):
@@ -77,10 +104,16 @@ def _update_failed(err: TadoXError) -> UpdateFailed:
             translation_key="server_error",
             translation_placeholders={"status": str(err.status)},
         )
+    if isinstance(err, TadoXRequestError):
+        return UpdateFailed(
+            translation_domain=DOMAIN,
+            translation_key="request_rejected",
+            translation_placeholders=rejected_placeholders(err),
+        )
     return UpdateFailed(
         translation_domain=DOMAIN,
         translation_key="api_error",
-        translation_placeholders={"error": str(err)},
+        translation_placeholders=unexpected_placeholders(err),
     )
 
 

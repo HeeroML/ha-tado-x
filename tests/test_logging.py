@@ -616,9 +616,48 @@ async def test_failed_write_logs_its_status(
         "Write failed: manualControl room 1: ON 21.0 °C until NEXT_TIME_BLOCK "
         f"-> HTTP 422 code=not.allowed title={title}"
     ]
-    assert raised.value.translation_placeholders == {"status": "422", "title": title}
+    assert raised.value.translation_placeholders == {
+        "status": "422",
+        "code": "not.allowed",
+    }
     [error] = entry.runtime_data.telemetry.errors()
     assert (error.context, error.status) == ("command manualControl", 422)
+
+
+async def test_unexpected_answer_to_a_device_write_names_no_serial(
+    hass: HomeAssistant,
+    mock_tado: TadoCloudMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A write answered by a page that is not JSON fails with the endpoint template.
+
+    The error shown to the user names neither the home id nor the serial.
+    """
+    await _setup(hass)
+    offset = _entity(hass, NUMBER_DOMAIN, "VA0000000101_offset")
+    mock_tado.fail(
+        "PATCH",
+        f"/homes/{HOME_B}/roomsAndDevices/devices/VA0000000101",
+        status=200,
+        body=b"<html>OK</html>",
+        times=1,
+    )
+
+    with pytest.raises(HomeAssistantError) as raised:
+        await hass.services.async_call(
+            NUMBER_DOMAIN,
+            SERVICE_SET_VALUE,
+            {ATTR_ENTITY_ID: offset, "value": 1.0},
+            blocking=True,
+        )
+
+    assert raised.value.translation_key == "api_error"
+    assert raised.value.translation_placeholders == {
+        "error": "PATCH hops:/homes/{home}/roomsAndDevices/devices/{serial}"
+    }
+    assert FULL_SERIAL.findall(str(raised.value)) == []
+    assert str(HOME_B) not in str(raised.value)
 
 
 async def test_quota_hold_below_the_floor_logs_each_change_once(

@@ -440,7 +440,16 @@ class TadoCloudMock:
         body: Any,
         headers: Mapping[str, str] | None = None,
     ) -> AiohttpClientMockResponse:
+        """Answer with body as JSON; bytes are sent as they are, such as an HTML page."""
         response_headers = dict(headers or {})
+        if isinstance(body, bytes):
+            return AiohttpClientMockResponse(
+                method=method,
+                url=url,
+                status=status,
+                response=body,
+                headers=response_headers,
+            )
         if body is not None and url.host != "hops.tado.com":
             response_headers.setdefault("Content-Type", "application/json")
         return AiohttpClientMockResponse(

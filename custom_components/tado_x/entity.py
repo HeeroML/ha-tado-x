@@ -26,14 +26,16 @@ from .client import (
     TadoXError,
     TadoXHomeNotXError,
     TadoXNotFoundError,
-    TadoXParseError,
     TadoXRateLimitError,
     TadoXRequestError,
     TadoXTransientError,
-    redact_text,
 )
 from .const import DOMAIN, LOGGER
-from .coordinator import TadoXCoordinator
+from .coordinator import (
+    TadoXCoordinator,
+    rejected_placeholders,
+    unexpected_placeholders,
+)
 from .issues import format_time
 from .runtime import TadoXConfigEntry, entry_label
 
@@ -104,7 +106,9 @@ def raise_for_tado_error(
     """Record a client error and raise the translated Home Assistant error.
 
     context names the action, such as "command child_lock" or "service
-    set_schedule". An auth error also starts a reauth flow.
+    set_schedule". An auth error also starts a reauth flow. The message is
+    built from the status, tado's error code and the endpoint template, never
+    from what else tado sent.
     """
     entry.runtime_data.telemetry.record_tado_error(err, context=context)
     if isinstance(err, TadoXAuthError):
@@ -141,18 +145,12 @@ def raise_for_tado_error(
         raise HomeAssistantError(
             translation_domain=DOMAIN,
             translation_key="request_rejected",
-            translation_placeholders={
-                "status": str(err.status),
-                "title": redact_text(err.title) or "",
-            },
+            translation_placeholders=rejected_placeholders(err),
         ) from err
-    error = (
-        f"{err.endpoint} {err.path}" if isinstance(err, TadoXParseError) else str(err)
-    )
     raise HomeAssistantError(
         translation_domain=DOMAIN,
         translation_key="api_error",
-        translation_placeholders={"error": error},
+        translation_placeholders=unexpected_placeholders(err),
     ) from err
 
 

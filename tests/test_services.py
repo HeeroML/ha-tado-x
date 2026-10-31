@@ -704,7 +704,10 @@ async def test_energy_iq_refusal_in_a_2xx_is_an_error(
     data: dict[str, Any],
     path: str,
 ) -> None:
-    """A 2xx that carries only a message is a refusal, not a success."""
+    """A 2xx that carries only a message is a refusal, not a success.
+
+    The message is free text from tado, so the error does not show it.
+    """
     await setup(hass, freezer)
     reason = "Reading must be greater than previous reading"
     mock_tado.fail("POST", path, status=200, body={"message": reason})
@@ -713,7 +716,8 @@ async def test_energy_iq_refusal_in_a_2xx_is_an_error(
         await call(hass, service, data)
 
     assert raised.value.translation_key == "request_rejected"
-    assert raised.value.translation_placeholders == {"status": "200", "title": reason}
+    assert raised.value.translation_placeholders == {"status": "200", "code": "-"}
+    assert reason not in str(raised.value)
 
 
 @pytest.mark.parametrize(

@@ -75,6 +75,9 @@ RUNNING_TIMES = "/v1/homes/1000002/runningTimes"
 FLOW = "/homes/1000002/settings/flowTemperatureOptimization"
 HOLIDAY = "/homes/1000002/settings/holidayMode"
 OFF = Setting(power=Power.OFF, temperature=None)
+ROOMS_REQUEST = "GET hops:/homes/{home}/rooms"
+DEVICE_PATH = "/homes/1000002/roomsAndDevices/devices/VA0000000101"
+DEVICE_REQUEST = "PATCH hops:/homes/{home}/roomsAndDevices/devices/{serial}"
 RESET = datetime(2026, 10, 30, 10, 0, tzinfo=UTC)
 
 
@@ -425,10 +428,17 @@ async def test_network_error_makes_data_unavailable(
     ("status", "body", "key", "placeholders"),
     [
         (503, None, "server_error", {"status": "503"}),
-        (422, None, "api_error", None),
-        (200, {"not": "a list"}, "api_error", None),
+        (
+            422,
+            {"errors": [{"code": "not.allowed", "title": "Wohnzimmer of Haus B"}]},
+            "request_rejected",
+            {"status": "422", "code": "not.allowed"},
+        ),
+        (422, b"", "request_rejected", {"status": "422", "code": "-"}),
+        (200, {"not": "a list"}, "api_error", {"error": "rooms"}),
+        (200, b"<html>maintenance</html>", "api_error", {"error": ROOMS_REQUEST}),
     ],
-    ids=["server", "request", "parse"],
+    ids=["server", "request", "request_without_body", "parse", "not_json"],
 )
 async def test_failures_of_a_required_endpoint(
     hass: HomeAssistant,
@@ -439,7 +449,11 @@ async def test_failures_of_a_required_endpoint(
     key: str,
     placeholders: dict[str, str] | None,
 ) -> None:
-    """Server, request and parse errors are translated update failures."""
+    """Server, request and parse errors are translated update failures.
+
+    The message names tado's error code or the endpoint template, never the
+    error title, a home id or the JSON path.
+    """
     data = await _setup(hass, freezer)
     mock_tado.fail("GET", ROOMS, status=status, body=body, times=1)
 
@@ -448,8 +462,7 @@ async def test_failures_of_a_required_endpoint(
     error = data.rooms.last_exception
     assert isinstance(error, UpdateFailed)
     assert error.translation_key == key
-    if placeholders is not None:
-        assert error.translation_placeholders == placeholders
+    assert error.translation_placeholders == placeholders
 
 
 async def test_optional_failure_keeps_the_previous_value(
@@ -740,6 +753,12 @@ async def test_poll_floor_without_reset_fails_setup(
     assert entry.error_reason_translation_key == "quota_exhausted_unknown_reset"
 
 
+def _sent(err: TadoXError) -> TadoXError:
+    """Tag an error with its request, as the transport does."""
+    err.request = DEVICE_REQUEST
+    return err
+
+
 class _Probe(TadoXEntity[RoomsCoordinator]):
     """Entity whose action raises a given client error."""
 
@@ -777,17 +796,23 @@ class _Probe(TadoXEntity[RoomsCoordinator]):
         (TadoXHomeNotXError(HOME_B), "not_tado_x_home", {"home": "Haus B"}),
         (TadoXNotFoundError(404), "not_found", None),
         (
-            TadoXForbiddenError(403, "forbidden", "Not allowed"),
+            TadoXForbiddenError(403, "forbidden", "Not allowed in Haus B"),
             "request_rejected",
-            {"status": "403", "title": "Not allowed"},
+            {"status": "403", "code": "forbidden"},
         ),
-        (TadoXRequestError(422), "request_rejected", {"status": "422", "title": ""}),
+        (TadoXRequestError(422), "request_rejected", {"status": "422", "code": "-"}),
         (
-            TadoXParseError("rooms", "$.id"),
-            "api_error",
-            {"error": "rooms $.id"},
+            TadoXRequestError(422, "Haus B 1000002", None),
+            "request_rejected",
+            {"status": "422", "code": "<str len=14>"},
         ),
-        (TadoXError("odd"), "api_error", {"error": "odd"}),
+        (TadoXParseError("rooms", "$.id"), "api_error", {"error": "rooms"}),
+        (
+            _sent(TadoXParseError(DEVICE_PATH, "$")),
+            "api_error",
+            {"error": DEVICE_REQUEST},
+        ),
+        (TadoXError("odd"), "api_error", {"error": "TadoXError"}),
     ],
     ids=[
         "quota",
@@ -798,7 +823,9 @@ class _Probe(TadoXEntity[RoomsCoordinator]):
         "not_found",
         "forbidden",
         "request",
+        "odd_code",
         "parse",
+        "parse_after_request",
         "other",
     ],
 )

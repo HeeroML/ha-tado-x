@@ -380,7 +380,7 @@
       "message": "Das tado-API-Kontingent dieses Kontos ist aufgebraucht. tado hat nicht mitgeteilt, wann es zurückgesetzt wird."
     },
     "request_rejected": {
-      "message": "tado hat die Anfrage abgelehnt (HTTP {status}): {title}"
+      "message": "tado hat die Anfrage abgelehnt (HTTP {status}, Fehlercode {code})."
     },
     "schedule_partially_written": {
       "message": "Der Zeitplan wurde nur teilweise geschrieben. Bereits gespeicherte Tage: {done_days}"

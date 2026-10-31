@@ -380,7 +380,7 @@
       "message": "The tado API quota for this account is used up. tado did not say when it resets."
     },
     "request_rejected": {
-      "message": "tado rejected the request (HTTP {status}): {title}"
+      "message": "tado rejected the request (HTTP {status}, error code {code})."
     },
     "schedule_partially_written": {
       "message": "Only part of the schedule was written. Days already saved: {done_days}"
