@@ -3,17 +3,28 @@
 The taxonomy decides what the caller does: an auth error needs a new login,
 a transient error is retried later and never starts a reauth, and every other
 error is a definitive answer from tado for this one request.
+
+The message of an error is safe to log: it never holds a token, personal
+data or a raw body, while the attributes keep what tado sent.
 """
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
+
+from .redact import describe_tado_error, safe_code
 
 if TYPE_CHECKING:
     from .models import RateLimitInfo
 
 
 class TadoXError(Exception):
-    """Base class of every error raised by the tado X client."""
+    """Base class of every error raised by the tado X client.
+
+    request names the HTTP request that failed, as an endpoint template such
+    as "GET hops:/homes/{home}/rooms"; it is None when no request was made.
+    """
+
+    request: str | None = None
 
 
 class TadoXAuthError(TadoXError):
@@ -21,7 +32,7 @@ class TadoXAuthError(TadoXError):
 
     def __init__(self, reason: str) -> None:
         """Initialize with the OAuth error code or a short internal reason."""
-        super().__init__(reason)
+        super().__init__(safe_code(reason))
         self.reason = reason
 
 
@@ -66,8 +77,17 @@ class TadoXRequestError(TadoXError):
     def __init__(
         self, status: int, code: str | None = None, title: str | None = None
     ) -> None:
-        """Initialize with the status and the first entry of the error body."""
-        super().__init__(f"tado answered HTTP {status}: {code or '-'} {title or ''}")
+        """Initialize with the status and the first entry of the error body.
+
+        The message carries the code and the title only as describe_tado_error()
+        gives them.
+        """
+        details = describe_tado_error(code, title)
+        super().__init__(
+            f"tado answered HTTP {status}"
+            if details is None
+            else f"tado answered HTTP {status}: {details}"
+        )
         self.status = status
         self.code = code
         self.title = title
@@ -95,11 +115,16 @@ class TadoXHomeNotXError(TadoXNotFoundError):
 class TadoXParseError(TadoXError):
     """A 2xx payload failed boundary validation."""
 
-    def __init__(self, endpoint: str, path: str) -> None:
-        """Initialize with the endpoint key and the JSON path that failed."""
+    def __init__(self, endpoint: str, path: str, *, found: str | None = None) -> None:
+        """Initialize with the endpoint key, the JSON path that failed and what was there.
+
+        found describes the value without revealing it, such as "missing",
+        "null" or "<str len=3>".
+        """
         super().__init__(f"unexpected {endpoint} payload at {path}")
         self.endpoint = endpoint
         self.path = path
+        self.found = found
 
 
 type DeviceFlowFailure = Literal["expired", "denied"]
